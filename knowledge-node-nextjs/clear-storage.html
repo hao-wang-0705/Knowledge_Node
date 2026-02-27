@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>清除知识节点存储</title>
+</head>
+<body>
+    <h1>清除知识节点本地存储</h1>
+    <button onclick="clearStorage()">点击清除存储并重新加载</button>
+    
+    <script>
+        function clearStorage() {
+            localStorage.removeItem('knowledge-node-nodes');
+            localStorage.removeItem('knowledge-node-root-ids');
+            localStorage.removeItem('knowledge-node-supertags');
+            alert('存储已清除！即将重新加载页面。');
+            window.location.href = 'http://localhost:3000';
+        }
+    </script>
+</body>
+</html>

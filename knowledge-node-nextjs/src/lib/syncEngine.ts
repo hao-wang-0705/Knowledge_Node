@@ -1,0 +1,418 @@
+/**
+ * 同步引擎核心
+ * 
+ * 负责执行同步操作、重试策略和错误处理。
+ * 是 syncStore 和 API 层之间的桥梁。
+ */
+
+import {
+  SyncOperation,
+  EntityType,
+  OperationType,
+  DEFAULT_SYNC_CONFIG,
+  RetryConfig,
+} from '@/types/sync';
+import {
+  nodesApi,
+  notebooksApi,
+  supertagsApi,
+  categoriesApi,
+  AuthenticationError,
+} from '@/services/api';
+
+// =============================================================================
+// 重试策略
+// =============================================================================
+
+/**
+ * 计算指数退避延迟
+ * @param retryCount 当前重试次数
+ * @param config 重试配置
+ * @returns 延迟时间（毫秒）
+ */
+export function getRetryDelay(
+  retryCount: number,
+  config: RetryConfig = DEFAULT_SYNC_CONFIG.retry
+): number {
+  const { baseDelay, maxDelay, backoffFactor, jitter } = config;
+  
+  // 指数退避计算
+  let delay = Math.min(
+    baseDelay * Math.pow(backoffFactor, retryCount),
+    maxDelay
+  );
+  
+  // 添加随机抖动，避免雷同时重试（雷鸣效应）
+  if (jitter) {
+    delay += Math.random() * 1000;
+  }
+  
+  return Math.floor(delay);
+}
+
+/**
+ * 判断错误是否可重试
+ */
+export function isRetryableError(error: unknown): boolean {
+  // 认证错误不重试
+  if (error instanceof AuthenticationError) {
+    return false;
+  }
+  
+  // 网络错误可重试
+  if (error instanceof TypeError && error.message.includes('fetch')) {
+    return true;
+  }
+  
+  // HTTP 错误码判断
+  if (error instanceof Error && 'status' in error) {
+    const status = (error as Error & { status: number }).status;
+    // 5xx 服务器错误可重试
+    if (status >= 500) return true;
+    // 429 Too Many Requests 可重试
+    if (status === 429) return true;
+    // 408 Request Timeout 可重试
+    if (status === 408) return true;
+    // 4xx 客户端错误通常不可重试
+    if (status >= 400 && status < 500) return false;
+  }
+  
+  // 默认可重试
+  return true;
+}
+
+// =============================================================================
+// 操作执行器
+// =============================================================================
+
+/**
+ * 执行单个同步操作
+ * @param operation 同步操作
+ * @throws 执行失败时抛出错误
+ */
+export async function executeOperation(operation: SyncOperation): Promise<void> {
+  const { type, entityType, entityId, payload } = operation;
+  
+  console.log(`[SyncEngine] 执行操作: ${type} ${entityType}/${entityId}`);
+  
+  try {
+    switch (entityType) {
+      case 'node':
+        await executeNodeOperation(type, entityId, payload);
+        break;
+      case 'notebook':
+        await executeNotebookOperation(type, entityId, payload);
+        break;
+      case 'supertag':
+        await executeSupertagOperation(type, entityId, payload);
+        break;
+      case 'category':
+        await executeCategoryOperation(type, entityId, payload);
+        break;
+      default:
+        throw new Error(`未知的实体类型: ${entityType}`);
+    }
+  } catch (error) {
+    // 重新抛出认证错误
+    if (error instanceof AuthenticationError) {
+      console.error('[SyncEngine] 认证失败，需要重新登录');
+      throw error;
+    }
+    
+    // 包装其他错误
+    const message = error instanceof Error ? error.message : '操作执行失败';
+    console.error(`[SyncEngine] 操作失败: ${type} ${entityType}/${entityId}`, message);
+    throw new Error(message);
+  }
+}
+
+/**
+ * 执行节点操作
+ */
+async function executeNodeOperation(
+  type: OperationType,
+  entityId: string,
+  payload: unknown
+): Promise<void> {
+  switch (type) {
+    case 'create':
+      await nodesApi.create(payload as Parameters<typeof nodesApi.create>[0]);
+      break;
+    case 'update':
+      await nodesApi.update(entityId, payload as Parameters<typeof nodesApi.update>[1]);
+      break;
+    case 'delete':
+      await nodesApi.delete(entityId);
+      break;
+    default:
+      throw new Error(`未知的操作类型: ${type}`);
+  }
+}
+
+/**
+ * 执行笔记本操作
+ */
+async function executeNotebookOperation(
+  type: OperationType,
+  entityId: string,
+  payload: unknown
+): Promise<void> {
+  switch (type) {
+    case 'create':
+      await notebooksApi.create(payload as Parameters<typeof notebooksApi.create>[0]);
+      break;
+    case 'update':
+      await notebooksApi.update(entityId, payload as Parameters<typeof notebooksApi.update>[1]);
+      break;
+    case 'delete':
+      await notebooksApi.delete(entityId);
+      break;
+    default:
+      throw new Error(`未知的操作类型: ${type}`);
+  }
+}
+
+/**
+ * 执行 Supertag 操作
+ */
+async function executeSupertagOperation(
+  type: OperationType,
+  entityId: string,
+  payload: unknown
+): Promise<void> {
+  switch (type) {
+    case 'create':
+      await supertagsApi.create(payload as Parameters<typeof supertagsApi.create>[0]);
+      break;
+    case 'update':
+      await supertagsApi.update(entityId, payload as Parameters<typeof supertagsApi.update>[1]);
+      break;
+    case 'delete':
+      await supertagsApi.delete(entityId);
+      break;
+    default:
+      throw new Error(`未知的操作类型: ${type}`);
+  }
+}
+
+/**
+ * 执行分类操作
+ */
+async function executeCategoryOperation(
+  type: OperationType,
+  entityId: string,
+  payload: unknown
+): Promise<void> {
+  switch (type) {
+    case 'create':
+      await categoriesApi.create(payload as Parameters<typeof categoriesApi.create>[0]);
+      break;
+    case 'update':
+      await categoriesApi.update(entityId, payload as Parameters<typeof categoriesApi.update>[1]);
+      break;
+    case 'delete':
+      await categoriesApi.delete(entityId);
+      break;
+    default:
+      throw new Error(`未知的操作类型: ${type}`);
+  }
+}
+
+// =============================================================================
+// 批量操作
+// =============================================================================
+
+/**
+ * 批量执行操作结果
+ */
+export interface BatchExecutionResult {
+  success: string[];
+  failed: Array<{
+    id: string;
+    error: string;
+    retryable: boolean;
+  }>;
+}
+
+/**
+ * 批量执行同步操作
+ * @param operations 操作列表
+ * @param batchSize 批次大小
+ * @returns 执行结果
+ */
+export async function batchExecuteOperations(
+  operations: SyncOperation[],
+  batchSize: number = DEFAULT_SYNC_CONFIG.batchSize
+): Promise<BatchExecutionResult> {
+  const result: BatchExecutionResult = {
+    success: [],
+    failed: [],
+  };
+  
+  // 按批次处理
+  for (let i = 0; i < operations.length; i += batchSize) {
+    const batch = operations.slice(i, i + batchSize);
+    
+    // 并行执行批次内的操作
+    const batchResults = await Promise.allSettled(
+      batch.map(async (op) => {
+        try {
+          await executeOperation(op);
+          return { id: op.id, success: true };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '未知错误';
+          const retryable = isRetryableError(error);
+          return { id: op.id, success: false, error: message, retryable };
+        }
+      })
+    );
+    
+    // 整理结果
+    batchResults.forEach((r, index) => {
+      const op = batch[index];
+      if (r.status === 'fulfilled') {
+        if (r.value.success) {
+          result.success.push(op.id);
+        } else {
+          result.failed.push({
+            id: op.id,
+            error: r.value.error || '未知错误',
+            retryable: r.value.retryable ?? true,
+          });
+        }
+      } else {
+        result.failed.push({
+          id: op.id,
+          error: r.reason?.message || '操作被拒绝',
+          retryable: isRetryableError(r.reason),
+        });
+      }
+    });
+  }
+  
+  console.log(
+    `[SyncEngine] 批量执行完成: 成功 ${result.success.length}, 失败 ${result.failed.length}`
+  );
+  
+  return result;
+}
+
+// =============================================================================
+// 操作合并
+// =============================================================================
+
+/**
+ * 合并相同实体的连续操作
+ * 优化：将多个 update 合并为一个，delete 会消除之前的 create/update
+ */
+export function mergeOperations(operations: SyncOperation[]): SyncOperation[] {
+  const merged: Map<string, SyncOperation> = new Map();
+  
+  for (const op of operations) {
+    const key = `${op.entityType}:${op.entityId}`;
+    const existing = merged.get(key);
+    
+    if (!existing) {
+      merged.set(key, op);
+      continue;
+    }
+    
+    // 删除操作会消除之前的操作
+    if (op.type === 'delete') {
+      if (existing.type === 'create') {
+        // create + delete = 无操作
+        merged.delete(key);
+      } else {
+        // update + delete = delete
+        merged.set(key, op);
+      }
+      continue;
+    }
+    
+    // 更新操作合并
+    if (op.type === 'update') {
+      if (existing.type === 'create') {
+        // create + update = create (合并 payload)
+        merged.set(key, {
+          ...existing,
+          payload: {
+            ...(existing.payload as object),
+            ...(op.payload as object),
+          },
+          timestamp: op.timestamp,
+        });
+      } else if (existing.type === 'update') {
+        // update + update = update (合并 payload)
+        merged.set(key, {
+          ...existing,
+          payload: {
+            ...(existing.payload as object),
+            ...(op.payload as object),
+          },
+          timestamp: op.timestamp,
+        });
+      }
+      continue;
+    }
+    
+    // 创建操作（通常不应该有重复的创建）
+    if (op.type === 'create') {
+      console.warn(`[SyncEngine] 检测到重复的创建操作: ${key}`);
+    }
+  }
+  
+  return Array.from(merged.values());
+}
+
+// =============================================================================
+// 延迟执行
+// =============================================================================
+
+/**
+ * 带延迟的操作执行（用于重试）
+ */
+export async function executeWithDelay(
+  operation: SyncOperation,
+  delayMs: number
+): Promise<void> {
+  if (delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  await executeOperation(operation);
+}
+
+/**
+ * 带重试的操作执行
+ */
+export async function executeWithRetry(
+  operation: SyncOperation,
+  maxRetries: number = DEFAULT_SYNC_CONFIG.retry.maxRetries
+): Promise<void> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = getRetryDelay(attempt - 1);
+        console.log(`[SyncEngine] 第 ${attempt} 次重试，延迟 ${delay}ms`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+      
+      await executeOperation(operation);
+      return; // 成功
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      if (!isRetryableError(error)) {
+        console.error('[SyncEngine] 不可重试的错误:', lastError.message);
+        throw lastError;
+      }
+      
+      if (attempt === maxRetries) {
+        console.error(`[SyncEngine] 已达最大重试次数 (${maxRetries})`);
+      }
+    }
+  }
+  
+  throw lastError || new Error('操作失败');
+}

@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  passwordHash  String
+  name          String?
+  avatar        String?
+  isInitialized Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  categories    Category[]
+  nodes         Node[]
+  notebooks     Notebook[]
+  supertags     Supertag[]
+  settings      UserSetting[]
+
+  @@map("users")
+}
+
+model Node {
+  id          String    @id @default(cuid())
+  userId      String
+  parentId    String?
+  content     String    @default("")
+  nodeType    String    @default("text")
+  supertagId  String?
+  payload     Json      @default("{}")
+  fields      Json      @default("{}")
+  sortOrder   Int       @default(0)
+  isCollapsed Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  parent      Node?     @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Node[]    @relation("NodeHierarchy")
+  supertag    Supertag? @relation(fields: [supertagId], references: [id])
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([parentId])
+  @@index([supertagId])
+  @@index([nodeType])
+  @@index([createdAt])
+  @@map("nodes")
+}
+
+model Supertag {
+  id               String     @id @default(cuid())
+  userId           String
+  name             String
+  color            String     @default("#6366F1")
+  icon             String?
+  fieldDefinitions Json       @default("[]")
+  isSystem         Boolean    @default(false)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  categoryId       String     @default("cat_uncategorized")
+  description      String?
+  order            Int        @default(0)
+  parentId         String?
+  templateContent  Json?
+  nodes            Node[]
+  parent           Supertag?  @relation("SupertagInheritance", fields: [parentId], references: [id])
+  children         Supertag[] @relation("SupertagInheritance")
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([parentId])
+  @@index([categoryId])
+  @@map("supertags")
+}
+
+model Category {
+  id          String   @id
+  userId      String
+  name        String
+  icon        String   @default("📂")
+  color       String   @default("#6B7280")
+  description String?
+  isSystem    Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, id])
+  @@index([userId])
+  @@map("categories")
+}
+
+model UserSetting {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+  @@map("user_settings")
+}
+
+model Notebook {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String
+  icon       String?
+  rootNodeId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notebooks")
+}

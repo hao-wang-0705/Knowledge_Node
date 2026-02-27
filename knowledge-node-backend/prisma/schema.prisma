@@ -1,0 +1,114 @@
+// Prisma Schema for Knowledge Node
+// 使用 PostgreSQL 作为数据库
+// 注意：此 schema 已更新以匹配现有数据库结构
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id           String   @id @default(uuid())
+  email        String?  @unique
+  passwordHash String?
+  name         String?
+  avatar       String?
+  isInitialized Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  nodes       Node[]
+  notebooks   Notebook[]
+  supertags   Supertag[]
+
+  @@map("users")
+}
+
+// 节点表 - 核心数据模型
+model Node {
+  id          String   @id
+  userId      String
+  parentId    String?
+  content     String   @default("")
+  nodeType    String   @default("text") // text, heading, list, todo, etc.
+  supertagId  String?
+  payload     Json     @default("{}")  // 额外数据
+  fields      Json     @default("{}")  // 动态字段，支持 Supertag 定义的属性
+  sortOrder   Int      @default(0)
+  isCollapsed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 用户关联
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 父节点关联
+  parent   Node?     @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children Node[]    @relation("NodeHierarchy")
+  // Supertag 关联
+  supertag Supertag? @relation(fields: [supertagId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([parentId])
+  @@index([supertagId])
+  @@index([nodeType])
+  @@index([createdAt])
+  @@map("nodes")
+}
+
+// 笔记本表
+model Notebook {
+  id         String   @id @default(uuid())
+  userId     String
+  name       String
+  icon       String?
+  rootNodeId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // 用户关联
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notebooks")
+}
+
+// 功能标签 (Supertag) - 定义节点的结构和属性
+model Supertag {
+  id               String   @id @default(uuid())
+  userId           String
+  name             String
+  color            String
+  icon             String?
+  fieldDefinitions Json     @default("[]") // 字段定义数组
+  isSystem         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  categoryId       String?
+  description      String?
+  order            Int?
+  
+  // v2.1: 继承关系
+  parentId         String?  @map("parent_id")
+  parent           Supertag? @relation("TagInheritance", fields: [parentId], references: [id], onDelete: SetNull)
+  children         Supertag[] @relation("TagInheritance")
+  
+  // v2.1: 默认内容模版
+  templateContent  Json?    @map("template_content")
+
+  // 用户关联
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 节点关联
+  nodes Node[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([categoryId])
+  @@index([parentId])
+  @@map("supertags")
+}

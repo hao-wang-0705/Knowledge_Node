@@ -1,0 +1,92 @@
+# Knowledge Node - Docker Compose Configuration
+# 三容器架构：frontend、backend、postgres
+# 版本: 2.1
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: knowledge-node-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-knowledge_node}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-knowledge_node}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - knowledge-network
+
+  # NestJS 后端服务
+  backend:
+    build:
+      context: ./knowledge-node-backend
+      dockerfile: Dockerfile
+      args:
+        - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-default}
+    container_name: knowledge-node-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/api/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - knowledge-network
+
+  # Next.js 前端服务
+  frontend:
+    build:
+      context: ./knowledge-node-nextjs
+      dockerfile: Dockerfile
+      args:
+        - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-default}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    container_name: knowledge-node-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      # 关键：在 Docker 网络内部，使用服务名 postgres 而不是 localhost
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - knowledge-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  knowledge-network:
+    driver: bridge
