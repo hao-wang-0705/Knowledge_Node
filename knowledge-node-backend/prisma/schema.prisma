@@ -1,7 +1,3 @@
-// Prisma Schema for Knowledge Node
-// 使用 PostgreSQL 作为数据库
-// 注意：此 schema 已更新以匹配现有数据库结构
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,46 +7,41 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 用户表
 model User {
-  id           String   @id @default(uuid())
-  email        String?  @unique
-  passwordHash String?
-  name         String?
-  avatar       String?
-  isInitialized Boolean @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  nodes       Node[]
-  notebooks   Notebook[]
-  supertags   Supertag[]
+  id            String        @id @default(cuid())
+  email         String        @unique
+  passwordHash  String
+  name          String?
+  avatar        String?
+  isInitialized Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  categories    Category[]
+  nodes         Node[]
+  notebooks     Notebook[]
+  supertags     Supertag[]
+  settings      UserSetting[]
 
   @@map("users")
 }
 
-// 节点表 - 核心数据模型
 model Node {
-  id          String   @id
+  id          String    @id @default(cuid())
   userId      String
   parentId    String?
-  content     String   @default("")
-  nodeType    String   @default("text") // text, heading, list, todo, etc.
+  content     String    @default("")
+  nodeType    String    @default("text")
   supertagId  String?
-  payload     Json     @default("{}")  // 额外数据
-  fields      Json     @default("{}")  // 动态字段，支持 Supertag 定义的属性
-  sortOrder   Int      @default(0)
-  isCollapsed Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // 用户关联
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // 父节点关联
-  parent   Node?     @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
-  children Node[]    @relation("NodeHierarchy")
-  // Supertag 关联
-  supertag Supertag? @relation(fields: [supertagId], references: [id], onDelete: SetNull)
+  payload     Json      @default("{}")
+  fields      Json      @default("{}")
+  sortOrder   Int       @default(0)
+  isCollapsed Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  parent      Node?     @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Node[]    @relation("NodeHierarchy")
+  supertag    Supertag? @relation(fields: [supertagId], references: [id])
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([parentId])
@@ -60,55 +51,75 @@ model Node {
   @@map("nodes")
 }
 
-// 笔记本表
 model Notebook {
-  id         String   @id @default(uuid())
+  id         String   @id @default(cuid())
   userId     String
   name       String
   icon       String?
-  rootNodeId String
+  rootNodeId String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-
-  // 用户关联
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("notebooks")
 }
 
-// 功能标签 (Supertag) - 定义节点的结构和属性
 model Supertag {
-  id               String   @id @default(uuid())
+  id               String     @id @default(cuid())
   userId           String
   name             String
-  color            String
+  color            String     @default("#6366F1")
   icon             String?
-  fieldDefinitions Json     @default("[]") // 字段定义数组
-  isSystem         Boolean  @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  categoryId       String?
+  fieldDefinitions Json       @default("[]")
+  isSystem         Boolean    @default(false)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  categoryId       String     @default("cat_uncategorized")
   description      String?
-  order            Int?
-  
-  // v2.1: 继承关系
-  parentId         String?  @map("parent_id")
-  parent           Supertag? @relation("TagInheritance", fields: [parentId], references: [id], onDelete: SetNull)
-  children         Supertag[] @relation("TagInheritance")
-  
-  // v2.1: 默认内容模版
-  templateContent  Json?    @map("template_content")
-
-  // 用户关联
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // 节点关联
-  nodes Node[]
+  order            Int        @default(0)
+  parentId         String?
+  templateContent  Json?
+  nodes            Node[]
+  parent           Supertag?  @relation("SupertagInheritance", fields: [parentId], references: [id])
+  children         Supertag[] @relation("SupertagInheritance")
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, name])
   @@index([userId])
-  @@index([categoryId])
   @@index([parentId])
+  @@index([categoryId])
   @@map("supertags")
+}
+
+model Category {
+  id          String   @id
+  userId      String
+  name        String
+  icon        String   @default("📂")
+  color       String   @default("#6B7280")
+  description String?
+  isSystem    Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, id])
+  @@index([userId])
+  @@map("categories")
+}
+
+model UserSetting {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+  @@map("user_settings")
 }

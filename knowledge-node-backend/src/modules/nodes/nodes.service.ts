@@ -9,15 +9,70 @@ import {
 } from './dto/node.dto';
 import { v4 as uuidv4 } from 'uuid';
 
+type NodeApiModel = {
+  id: string;
+  content: string;
+  type: string;
+  parentId: string | null;
+  sortOrder: number;
+  childrenIds: string[];
+  isCollapsed: boolean;
+  tags: string[];
+  supertagId: string | null;
+  fields: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+};
+
 @Injectable()
 export class NodesService {
   constructor(private prisma: PrismaService) {}
+
+  private async mapNodeToApiModel(
+    node: {
+      id: string;
+      content: string;
+      nodeType: string;
+      parentId: string | null;
+      sortOrder: number;
+      isCollapsed: boolean;
+      supertagId: string | null;
+      fields: unknown;
+      payload: unknown;
+      createdAt: Date;
+      updatedAt: Date;
+    },
+    userId: string,
+  ): Promise<NodeApiModel> {
+    const children = await this.prisma.node.findMany({
+      where: { userId, parentId: node.id },
+      select: { id: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    return {
+      id: node.id,
+      content: node.content,
+      type: node.nodeType,
+      parentId: node.parentId,
+      sortOrder: node.sortOrder,
+      childrenIds: children.map((c) => c.id),
+      isCollapsed: node.isCollapsed,
+      tags: [],
+      supertagId: node.supertagId,
+      fields: (node.fields as Record<string, unknown>) ?? {},
+      payload: (node.payload as Record<string, unknown>) ?? {},
+      createdAt: node.createdAt.getTime(),
+      updatedAt: node.updatedAt.getTime(),
+    };
+  }
 
   // 创建单个节点
   async create(userId: string, createNodeDto: CreateNodeDto) {
     const id = createNodeDto.id || uuidv4();
     
-    return this.prisma.node.create({
+    const node = await this.prisma.node.create({
       data: {
         id,
         content: createNodeDto.content || '',
@@ -31,6 +86,7 @@ export class NodesService {
         userId,
       },
     });
+    return this.mapNodeToApiModel(node, userId);
   }
 
   // 批量创建节点
@@ -48,28 +104,35 @@ export class NodesService {
       userId,
     }));
 
-    return this.prisma.node.createMany({
+    await this.prisma.node.createMany({
       data: nodes,
     });
+    const created = await this.prisma.node.findMany({
+      where: { userId, id: { in: nodes.map((n) => n.id) } },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    return Promise.all(created.map((node) => this.mapNodeToApiModel(node, userId)));
   }
 
   // 获取用户的所有节点
   async findAll(userId: string) {
-    return this.prisma.node.findMany({
+    const nodes = await this.prisma.node.findMany({
       where: { userId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+    return Promise.all(nodes.map((node) => this.mapNodeToApiModel(node, userId)));
   }
 
   // 获取根级别节点（没有父节点的节点）
   async findRootNodes(userId: string) {
-    return this.prisma.node.findMany({
+    const nodes = await this.prisma.node.findMany({
       where: {
         userId,
         parentId: null,
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+    return Promise.all(nodes.map((node) => this.mapNodeToApiModel(node, userId)));
   }
 
   // 获取单个节点
@@ -82,21 +145,27 @@ export class NodesService {
       throw new NotFoundException(`Node with ID ${id} not found`);
     }
 
-    return node;
+    return this.mapNodeToApiModel(node, userId);
   }
 
   // 获取节点的所有子节点
   async findChildren(userId: string, parentId: string) {
-    return this.prisma.node.findMany({
+    const nodes = await this.prisma.node.findMany({
       where: { userId, parentId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+    return Promise.all(nodes.map((node) => this.mapNodeToApiModel(node, userId)));
   }
 
   // 获取节点及其所有子节点（树形结构）
   async findNodeWithChildren(userId: string, id: string): Promise<any> {
-    const node = await this.findOne(userId, id);
-    const children = await this.findChildren(userId, id);
+    const rawNode = await this.prisma.node.findFirst({ where: { id, userId } });
+    if (!rawNode) throw new NotFoundException(`Node with ID ${id} not found`);
+    const node = await this.mapNodeToApiModel(rawNode, userId);
+    const children = await this.prisma.node.findMany({
+      where: { userId, parentId: id },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
     
     if (children.length === 0) {
       return { ...node, children: [] };
@@ -118,10 +187,11 @@ export class NodesService {
   async update(userId: string, id: string, updateNodeDto: UpdateNodeDto) {
     await this.findOne(userId, id); // 确保节点存在且属于该用户
 
-    return this.prisma.node.update({
+    const node = await this.prisma.node.update({
       where: { id },
       data: updateNodeDto,
     });
+    return this.mapNodeToApiModel(node, userId);
   }
 
   // 批量更新节点
@@ -140,13 +210,14 @@ export class NodesService {
   async move(userId: string, id: string, moveDto: MoveNodeDto) {
     await this.findOne(userId, id); // 确保节点存在
 
-    return this.prisma.node.update({
+    const node = await this.prisma.node.update({
       where: { id },
       data: {
         parentId: moveDto.newParentId || null,
         sortOrder: moveDto.newSortOrder ?? 0,
       },
     });
+    return this.mapNodeToApiModel(node, userId);
   }
 
   // 缩进节点（成为上一个兄弟节点的子节点）
@@ -200,7 +271,7 @@ export class NodesService {
 
   // 删除单个节点（包括其所有子节点）
   async remove(userId: string, id: string) {
-    const node = await this.findOne(userId, id);
+    await this.findOne(userId, id);
 
     // 递归删除所有子节点
     const children = await this.findChildren(userId, id);
@@ -212,9 +283,10 @@ export class NodesService {
       );
     }
 
-    return this.prisma.node.delete({
+    await this.prisma.node.delete({
       where: { id },
     });
+    return { success: true };
   }
 
   // 批量删除节点
@@ -228,15 +300,16 @@ export class NodesService {
 
   // 按标签查找节点
   async findBySupertag(userId: string, supertagId: string) {
-    return this.prisma.node.findMany({
+    const nodes = await this.prisma.node.findMany({
       where: { userId, supertagId },
       orderBy: { createdAt: 'desc' },
     });
+    return Promise.all(nodes.map((node) => this.mapNodeToApiModel(node, userId)));
   }
 
   // 搜索节点内容
   async search(userId: string, query: string) {
-    return this.prisma.node.findMany({
+    const nodes = await this.prisma.node.findMany({
       where: {
         userId,
         content: {
@@ -247,15 +320,18 @@ export class NodesService {
       orderBy: { updatedAt: 'desc' },
       take: 50,
     });
+    return Promise.all(nodes.map((node) => this.mapNodeToApiModel(node, userId)));
   }
 
   // 切换节点折叠状态
   async toggleCollapse(userId: string, id: string) {
-    const node = await this.findOne(userId, id);
+    const node = await this.prisma.node.findFirst({ where: { id, userId } });
+    if (!node) throw new NotFoundException(`Node with ID ${id} not found`);
 
-    return this.prisma.node.update({
+    const updated = await this.prisma.node.update({
       where: { id },
       data: { isCollapsed: !node.isCollapsed },
     });
+    return this.mapNodeToApiModel(updated, userId);
   }
 }

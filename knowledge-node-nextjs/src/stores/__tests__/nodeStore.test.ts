@@ -1,0 +1,81 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useNodeStore } from '@/stores/nodeStore';
+
+vi.mock('@/stores/syncStore', () => ({
+  useSyncStore: {
+    getState: () => ({
+      queueOperation: vi.fn(),
+      initialize: vi.fn(),
+      isInitialized: true,
+      isOnline: false,
+      setStatus: vi.fn(),
+      setError: vi.fn(),
+    }),
+  },
+}));
+
+describe('nodeStore', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useNodeStore.setState({
+      nodes: {},
+      rootIds: [],
+      focusedNodeId: null,
+      hoistedNodeId: null,
+    });
+  });
+
+  it('可以创建根节点和子节点（Happy Path）', () => {
+    const store = useNodeStore.getState();
+    const rootId = store.addNode(null);
+    const childId = store.addNode(rootId);
+
+    const state = useNodeStore.getState();
+    expect(state.rootIds).toContain(rootId);
+    expect(state.nodes[childId].parentId).toBe(rootId);
+    expect(state.nodes[rootId].childrenIds).toContain(childId);
+  });
+
+  it('支持 Tab 缩进和 Shift+Tab 反缩进', () => {
+    const store = useNodeStore.getState();
+    const firstId = store.addNode(null);
+    const secondId = store.addNode(null);
+
+    store.indentNode(secondId);
+    let state = useNodeStore.getState();
+    expect(state.nodes[secondId].parentId).toBe(firstId);
+    expect(state.rootIds).toEqual([firstId]);
+
+    store.outdentNode(secondId);
+    state = useNodeStore.getState();
+    expect(state.nodes[secondId].parentId).toBeNull();
+    expect(state.rootIds).toEqual([firstId, secondId]);
+  });
+
+  it('删除父节点时会级联删除整棵子树', () => {
+    const store = useNodeStore.getState();
+    const rootId = store.addNode(null);
+    const childId = store.addNode(rootId);
+    const grandChildId = store.addNode(childId);
+
+    store.deleteNode(rootId);
+    const state = useNodeStore.getState();
+
+    expect(state.nodes[rootId]).toBeUndefined();
+    expect(state.nodes[childId]).toBeUndefined();
+    expect(state.nodes[grandChildId]).toBeUndefined();
+    expect(state.rootIds).toEqual([]);
+  });
+
+  it('删除不存在节点时保持状态不变（Edge Case）', () => {
+    const store = useNodeStore.getState();
+    const rootId = store.addNode(null);
+    const before = useNodeStore.getState();
+
+    store.deleteNode('non-existent-id');
+    const after = useNodeStore.getState();
+
+    expect(after.rootIds).toEqual(before.rootIds);
+    expect(after.nodes[rootId]).toBeDefined();
+  });
+});

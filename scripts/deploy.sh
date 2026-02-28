@@ -14,6 +14,7 @@
 #   --no-cache    强制不使用 Docker 构建缓存
 #   --clean       完全清理后重建（删除旧镜像和卷）
 #   --dev         使用开发模式启动（不使用 Docker）
+#   --force-kill-ports  强制释放被占用端口（危险）
 #   --help        显示帮助信息
 #
 
@@ -37,6 +38,7 @@ unset DOCKER_HOST
 NO_CACHE=false
 CLEAN_BUILD=false
 DEV_MODE=false
+FORCE_KILL_PORTS=false
 BUILD_TIMESTAMP=$(date +%Y%m%d%H%M%S)
 
 # 显示帮助信息
@@ -50,6 +52,7 @@ show_help() {
     echo "  --no-cache    强制不使用 Docker 构建缓存"
     echo "  --clean       完全清理后重建（删除旧镜像）"
     echo "  --dev         使用开发模式启动（不使用 Docker）"
+    echo "  --force-kill-ports  强制释放被占用端口（危险）"
     echo "  --help        显示帮助信息"
     echo ""
     echo "示例："
@@ -74,6 +77,10 @@ while [[ $# -gt 0 ]]; do
             DEV_MODE=true
             shift
             ;;
+        --force-kill-ports)
+            FORCE_KILL_PORTS=true
+            shift
+            ;;
         --help)
             show_help
             exit 0
@@ -92,14 +99,18 @@ echo -e "${BLUE}║        构建时间: $BUILD_TIMESTAMP                       
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# 步骤 1: 检查并释放端口
-echo -e "${YELLOW}[1/7] 检查并释放端口...${NC}"
+# 步骤 1: 检查端口占用
+echo -e "${YELLOW}[1/7] 检查端口占用...${NC}"
 for port in 3000 4000 5433; do
     pid=$(lsof -ti :$port 2>/dev/null || true)
     if [ -n "$pid" ]; then
-        echo -e "  ${YELLOW}端口 $port 被占用 (PID: $pid)，正在释放...${NC}"
-        kill -9 $pid 2>/dev/null || true
-        sleep 1
+        if [ "$FORCE_KILL_PORTS" = true ]; then
+            echo -e "  ${YELLOW}端口 $port 被占用 (PID: $pid)，正在强制释放...${NC}"
+            kill -9 $pid 2>/dev/null || true
+            sleep 1
+        else
+            echo -e "  ${YELLOW}端口 $port 被占用 (PID: $pid)，默认不杀进程${NC}"
+        fi
     fi
 done
 echo -e "  ${GREEN}✓ 端口检查完成${NC}"

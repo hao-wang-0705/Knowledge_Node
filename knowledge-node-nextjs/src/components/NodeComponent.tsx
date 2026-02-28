@@ -1,28 +1,22 @@
 'use client';
 
 import React, { useRef, useEffect, memo, useCallback, useState } from 'react';
-import { ChevronRight, ChevronDown, GripVertical, Circle, Hash, X, Sparkles, Play, Loader2, CheckCircle2, AlertCircle, Settings2 } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useNotebookStore } from '@/stores/notebookStore';
 import { usePerspectiveStore } from '@/stores/perspectiveStore';
-import { Button } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import FieldEditor from './FieldEditor';
 import ContextMenu from './ContextMenu';
 import MentionPopover from './MentionPopover';
 import UnifiedTagSelector from './UnifiedTagSelector';
 import CommandConfigModal from './CommandConfigModal';
-import { ContentWithReferences } from './ReferenceChip';
-import { ReferenceBlock } from './ReferenceBlock';
 import { NodeReference, CommandConfig } from '@/types';
-import Backlinks from './Backlinks';
 import BacklinksBadge from './BacklinksBadge';
 import { createReferenceText, hasReferences } from '@/utils/reference-helpers';
 import { analyzeNavigationTarget } from '@/utils/navigation';
 import { getTemplateById } from '@/utils/command-templates';
-import { getTagStyle } from '@/utils/tag-styles';
+import { NodeActions, NodeCommand, NodeContent, NodeFields, NodeReferences } from './node';
 
 interface NodeComponentProps {
   nodeId: string;
@@ -33,7 +27,6 @@ interface NodeComponentProps {
 
 const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFocusPrevious, onFocusNext }) => {
   const contentRef = useRef<HTMLDivElement>(null);
-  const tagMenuRef = useRef<HTMLDivElement>(null);
   const [showTagSelector, setShowTagSelector] = useState(false);
   const [tagSelectorPosition, setTagSelectorPosition] = useState({ x: 0, y: 0 });  // 标签选择器位置
   const [tagSearchTerm, setTagSearchTerm] = useState('');  // 标签搜索词
@@ -772,303 +765,72 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         onContextMenu={handleContextMenu}
         onClick={handleRowClick}
       >
-        {/* 左侧操作区 */}
-        <div className="flex items-center gap-0.5 mr-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button 
-            className="p-0.5 text-gray-400 hover:text-gray-600 cursor-grab"
-            title="拖拽排序"
-          >
-            <GripVertical size={14} />
-          </button>
-        </div>
-
-        {/* AI指令节点专用图标 / 折叠按钮（始终显示）+ 圆点（可点击进入聚焦模式） */}
-        <div className="flex items-center mr-1 mt-0.5 flex-shrink-0">
-          {isCommandNode ? (
-            <>
-              {/* AI 指令节点专用图标 */}
-              <div className="flex items-center justify-center w-5 h-5 rounded bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-sm">
-                <Sparkles size={12} />
-              </div>
-              {/* 展开/收起按钮 */}
-              {hasChildren && (
-                <button
-                  onClick={handleCollapseClick}
-                  className="flex items-center justify-center w-5 h-5 rounded text-purple-600 hover:text-purple-700 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/30 ml-0.5"
-                  title={node.isCollapsed ? "展开 AI 响应" : "折叠 AI 响应"}
-                >
-                  {node.isCollapsed ? (
-                    <ChevronRight size={16} />
-                  ) : (
-                    <ChevronDown size={16} />
-                  )}
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              {/* 展开/收起按钮 - 所有节点都显示 */}
-              <button
-                onClick={handleCollapseClick}
-                className={cn(
-                  "flex items-center justify-center w-5 h-5 rounded transition-colors cursor-pointer",
-                  hasChildren || nodeTags.length > 0
-                    ? "text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    : "text-gray-300 hover:text-gray-500 hover:bg-gray-100 dark:text-gray-600 dark:hover:text-gray-400 dark:hover:bg-gray-700"
-                )}
-            title={hasChildren 
-              ? (node.isCollapsed ? "展开" : "折叠") 
-              : "点击创建子节点"
-            }
-          >
-            {node.isCollapsed ? (
-              <ChevronRight size={16} className="transition-transform" />
-            ) : (
-              <ChevronDown size={16} className="transition-transform" />
-            )}
-          </button>
-          
-          {/* 圆点 - 单击进入聚焦模式 */}
-          <button
-            onClick={handleBulletClick}
-            className={cn(
-              "flex items-center justify-center w-5 h-5 rounded transition-all",
-              "text-gray-400 hover:text-blue-500 hover:scale-125 cursor-pointer",
-              "group-hover:text-gray-500"
-            )}
-            title="点击进入聚焦模式"
-          >
-            <Circle size={6} className="fill-current" />
-          </button>
-            </>
-          )}
-        </div>
+        <NodeActions
+          isCommandNode={isCommandNode}
+          hasChildren={hasChildren}
+          isCollapsed={node.isCollapsed}
+          hasNodeTags={nodeTags.length > 0}
+          onCollapseClick={handleCollapseClick}
+          onBulletClick={handleBulletClick}
+        />
 
         {/* 内容区域 - 智能布局：标签与文本同行，空间不足时自然换行 */}
         <div className="flex-1 min-w-0 relative">
           {/* AI 指令节点专用内容区域 */}
           {isCommandNode ? (
-            <div className="flex flex-col gap-2">
-              {/* 指令标题行 */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium text-purple-700 dark:text-purple-300">
-                  {commandTemplate?.icon || '🤖'} {commandTemplate?.name || '自定义指令'}
-                </span>
-                {/* 执行状态指示器 */}
-                <div className="flex items-center gap-1">
-                  {isExecuting && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 animate-pulse">
-                      <Loader2 size={12} className="animate-spin" />
-                      执行中...
-                    </span>
-                  )}
-                  {!isExecuting && commandConfig?.lastExecutionStatus === 'pending' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-                      <Circle size={8} className="fill-gray-400" />
-                      待执行
-                    </span>
-                  )}
-                  {!isExecuting && commandConfig?.lastExecutionStatus === 'success' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                      <CheckCircle2 size={12} />
-                      已完成
-                    </span>
-                  )}
-                  {!isExecuting && commandConfig?.lastExecutionStatus === 'error' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                      <AlertCircle size={12} />
-                      执行失败
-                    </span>
-                  )}
-                </div>
-                {/* 操作按钮 */}
-                <div className="flex items-center gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "h-6 px-2",
-                      isExecuting
-                        ? "text-gray-400 cursor-not-allowed"
-                        : "text-purple-600 hover:text-purple-700 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/30"
-                    )}
-                    title={isExecuting ? "执行中..." : "执行指令"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleExecuteCommand();
-                    }}
-                    disabled={isExecuting}
-                  >
-                    {isExecuting ? (
-                      <Loader2 size={12} className="mr-1 animate-spin" />
-                    ) : (
-                      <Play size={12} className="mr-1" />
-                    )}
-                    {isExecuting ? '执行中' : '执行'}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-                    title="设置指令"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenCommandConfig();
-                    }}
-                  >
-                    <Settings2 size={14} />
-                  </Button>
-                </div>
-              </div>
-              {/* Prompt 预览（折叠状态下隐藏详情） */}
-              {commandConfig?.prompt && !node.isCollapsed && (
-                <div className="text-sm text-gray-600 dark:text-gray-400 bg-white/50 dark:bg-gray-800/50 rounded-md px-3 py-2 border border-purple-200/50 dark:border-purple-700/30">
-                  <div className="text-xs text-purple-500 dark:text-purple-400 mb-1 font-medium">📝 指令内容</div>
-                  <div className="line-clamp-2">{commandConfig.prompt}</div>
-                </div>
-              )}
-              {/* 错误信息显示 */}
-              {commandConfig?.lastExecutionStatus === 'error' && commandConfig?.lastError && !node.isCollapsed && (
-                <div className="text-sm bg-red-50 dark:bg-red-900/20 rounded-md px-3 py-2 border border-red-200 dark:border-red-800">
-                  <div className="text-xs text-red-600 dark:text-red-400 mb-1 font-medium flex items-center gap-1">
-                    <AlertCircle size={12} />
-                    执行失败
-                  </div>
-                  <div className="text-red-700 dark:text-red-300 text-xs whitespace-pre-wrap">
-                    {commandConfig.lastError}
-                  </div>
-                </div>
-              )}
-              {/* 未配置 Prompt 提示 */}
-              {!commandConfig?.prompt && !commandConfig?.templateId && !node.isCollapsed && (
-                <div className="text-sm bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2 border border-amber-200 dark:border-amber-800">
-                  <div className="text-amber-700 dark:text-amber-300 text-xs">
-                    ⚠️ 请点击设置按钮配置指令内容或选择模板
-                  </div>
-                </div>
-              )}
-            </div>
+            <NodeCommand
+              icon={commandTemplate?.icon}
+              name={commandTemplate?.name}
+              isExecuting={isExecuting}
+              lastExecutionStatus={commandConfig?.lastExecutionStatus}
+              prompt={commandConfig?.prompt}
+              lastError={commandConfig?.lastError}
+              isCollapsed={node.isCollapsed}
+              onExecute={(e) => {
+                e.stopPropagation();
+                handleExecuteCommand();
+              }}
+              onOpenConfig={(e) => {
+                e.stopPropagation();
+                handleOpenCommandConfig();
+              }}
+            />
           ) : (
-            /* 普通节点内容区域 */
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* 可编辑内容 / 引用渲染切换 */}
-              {showEditableContent ? (
-                <div className="relative flex-1 min-w-[120px]">
-                  {/* 真实输入框 - 独占整行宽度 */}
-                  <div
-                    ref={contentRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleContentChange}
-                    onKeyDown={handleKeyDown}
-                    onFocus={handleFocus}
-                    onBlur={handleBlur}
-                    onCompositionStart={handleCompositionStart}
-                    onCompositionEnd={handleCompositionEnd}
-                    className={cn(
-                      "relative outline-none min-h-[24px] leading-6 text-gray-800 dark:text-gray-200 w-full",
-                      "empty:before:content-['输入内容...'] empty:before:text-gray-400",
-                      "bg-transparent"
-                    )}
-                    style={{ 
-                      direction: 'ltr', 
-                      textAlign: 'left',
-                      unicodeBidi: 'plaintext'
-                    }}
-                    data-placeholder="输入内容..."
-                  >
-                    {node.content}
-                  </div>
-                </div>
-              ) : (
-                <div
-                  onClick={handleRowClick}
-                  className={cn(
-                    "min-h-[24px] leading-6 text-gray-800 dark:text-gray-200 flex-1 min-w-[80px] cursor-text"
-                  )}
-                >
-                  <ContentWithReferences content={node.content} />
-                </div>
-              )}
-
-              {/* 标签区域 - 与文本在同一行，空间不足时自然换行 */}
-              {typeTags.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
-                  {/* 功能标签 (Type Tags) - 渐变胶囊样式 */}
-                  {typeTags.map((tag) => {
-                    // 使用统一的标签样式函数，支持预设标签和自定义标签
-                    const typeStyle = getTagStyle(tag);
-                    return (
-                      <div
-                        key={tag.id}
-                        className="group/tag relative inline-flex items-center"
-                      >
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium rounded-full cursor-default select-none",
-                            "shadow-sm transition-all duration-200",
-                            "hover:shadow-md hover:scale-105",
-                            typeStyle.gradient,
-                            typeStyle.text
-                          )}
-                        >
-                          <span className="text-sm">{typeStyle.icon}</span>
-                          <span>{tag.name}</span>
-                        </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveTag(tag.id);
-                          }}
-                          className="absolute -right-1 -top-1 w-4 h-4 flex items-center justify-center rounded-full bg-gray-500 hover:bg-red-500 text-white opacity-0 group-hover/tag:opacity-100 transition-all shadow-sm"
-                          title={`移除 #${tag.name}`}
-                        >
-                          <X size={10} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              
-              {/* 添加标签按钮 - 始终显示，触发统一标签选择器 */}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="tag-selector opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 flex-shrink-0"
-                title="添加标签 (#)"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setTagSelectorPosition({
-                    x: rect.left,
-                    y: rect.bottom + 4,
-                  });
-                  setTagSearchTerm('');
-                  setShowTagSelector(true);
-                }}
-              >
-                <Hash size={12} />
-              </Button>
-              
-              {/* 反向链接徽标 - v2.2 新增，显示在标签区域之后 */}
-              {!isCommandNode && (
-                <BacklinksBadge 
-                  nodeId={nodeId} 
-                  className="flex-shrink-0"
-                />
-              )}
-            </div>
+            <NodeContent
+              nodeContent={node.content}
+              showEditableContent={showEditableContent}
+              contentRef={contentRef}
+              onInput={handleContentChange}
+              onKeyDown={handleKeyDown}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={handleCompositionEnd}
+              onRowClick={handleRowClick}
+              typeTags={typeTags}
+              onRemoveTag={handleRemoveTag}
+              onOpenTagSelector={(e) => {
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                setTagSelectorPosition({
+                  x: rect.left,
+                  y: rect.bottom + 4,
+                });
+                setTagSearchTerm('');
+                setShowTagSelector(true);
+              }}
+              backlinksBadge={<BacklinksBadge nodeId={nodeId} className="flex-shrink-0" />}
+            />
           )}
 
           {/* 第二行：独立引用区块 - 与正文分离，换行单独展示 */}
-          {!isCommandNode && (node.references && node.references.length > 0) && (
-            <ReferenceBlock
+          {!isCommandNode && node.references && (
+            <NodeReferences
               nodeId={nodeId}
               references={node.references}
               onRemove={handleRemoveReference}
+              isEditing={isEditing && isFocused}
               onAdd={() => {
-                // 打开引用选择弹窗
                 if (contentRef.current) {
                   const rect = contentRef.current.getBoundingClientRect();
                   setMentionPosition({
@@ -1078,38 +840,21 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
                 }
                 setShowMentionPopover(true);
               }}
-              readOnly={false}
-              isEditing={isEditing && isFocused}
-              maxDisplay={3}
             />
           )}
         </div>
       </div>
 
       {/* 字段表格区域 - 有标签时显示，带明显的视觉区分（非AI指令节点） */}
-      {!isCommandNode && nodeTags.length > 0 && !node.isCollapsed && (
-        <div 
-          className="fields-container bg-slate-50/80 border-l-2 border-blue-200 rounded-r-lg my-1"
-          style={{ marginLeft: `${depth * 24 + 44}px` }}
-        >
-          <div className="py-1">
-            {nodeTags.map((tag) =>
-              (getResolvedFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
-                <FieldEditor
-                  key={fieldDef.id}
-                  fieldDef={fieldDef}
-                  value={node.fields[fieldDef.key]}
-                  onChange={(value) => handleFieldChange(fieldDef.key, value)}
-                  nodeId={nodeId}
-                  tagId={tag.id}
-                />
-              ))
-            )}
-          </div>
-          
-          {/* 反向链接详情 - 在字段区域底部显示，默认折叠 */}
-          <Backlinks nodeId={nodeId} className="px-3 pb-2" defaultExpanded={false} />
-        </div>
+      {!isCommandNode && (
+        <NodeFields
+          node={node}
+          nodeId={nodeId}
+          depth={depth}
+          nodeTags={nodeTags}
+          getResolvedFieldDefinitions={getResolvedFieldDefinitions}
+          onFieldChange={handleFieldChange}
+        />
       )}
 
       {/* AI指令节点的子节点区域 - 特殊样式 */}

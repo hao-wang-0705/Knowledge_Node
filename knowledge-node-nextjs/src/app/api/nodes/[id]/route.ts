@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
 import type { UpdateNodeRequest } from '@/types';
+import { deleteNode, getNodeById, updateNode } from '@/services/server/nodesService';
 
 // GET /api/nodes/[id] - 获取单个节点
 export async function GET(
@@ -21,17 +21,7 @@ export async function GET(
 
     const { id } = await params;
 
-    const node = await prisma.node.findFirst({
-      where: {
-        id,
-        userId: session.user.id,
-      },
-      include: {
-        children: {
-          orderBy: { sortOrder: 'asc' },
-        },
-      },
-    });
+    const node = await getNodeById(session.user.id, id);
 
     if (!node) {
       return NextResponse.json(
@@ -42,20 +32,7 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      data: {
-        id: node.id,
-        content: node.content,
-        type: node.nodeType,
-        parentId: node.parentId,
-        childrenIds: node.children.map(c => c.id),
-        isCollapsed: node.isCollapsed,
-        tags: [],
-        supertagId: node.supertagId,
-        fields: node.fields,
-        payload: node.payload,
-        createdAt: node.createdAt.getTime(),
-        updatedAt: node.updatedAt.getTime(),
-      },
+      data: node,
     });
   } catch (error) {
     console.error('Error fetching node:', error);
@@ -84,56 +61,17 @@ export async function PUT(
     const { id } = await params;
     const body: UpdateNodeRequest = await req.json();
 
-    // 验证节点所有权
-    const existingNode = await prisma.node.findFirst({
-      where: {
-        id,
-        userId: session.user.id,
-      },
-    });
-
-    if (!existingNode) {
+    const node = await updateNode(session.user.id, id, body);
+    if (!node) {
       return NextResponse.json(
         { success: false, error: '节点不存在' },
         { status: 404 }
       );
     }
 
-    const node = await prisma.node.update({
-      where: { id },
-      data: {
-        ...(body.content !== undefined && { content: body.content }),
-        ...(body.parentId !== undefined && { parentId: body.parentId }),
-        ...(body.nodeType !== undefined && { nodeType: body.nodeType }),
-        ...(body.supertagId !== undefined && { supertagId: body.supertagId }),
-        ...(body.payload !== undefined && { payload: body.payload }),
-        ...(body.fields !== undefined && { fields: body.fields }),
-        ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
-        ...(body.isCollapsed !== undefined && { isCollapsed: body.isCollapsed }),
-      },
-      include: {
-        children: {
-          orderBy: { sortOrder: 'asc' },
-        },
-      },
-    });
-
     return NextResponse.json({
       success: true,
-      data: {
-        id: node.id,
-        content: node.content,
-        type: node.nodeType,
-        parentId: node.parentId,
-        childrenIds: node.children.map(c => c.id),
-        isCollapsed: node.isCollapsed,
-        tags: [],
-        supertagId: node.supertagId,
-        fields: node.fields,
-        payload: node.payload,
-        createdAt: node.createdAt.getTime(),
-        updatedAt: node.updatedAt.getTime(),
-      },
+      data: node,
     });
   } catch (error) {
     console.error('Error updating node:', error);
@@ -170,25 +108,13 @@ export async function DELETE(
 
     const { id } = await params;
 
-    // 验证节点所有权
-    const existingNode = await prisma.node.findFirst({
-      where: {
-        id,
-        userId: session.user.id,
-      },
-    });
-
-    if (!existingNode) {
+    const deleted = await deleteNode(session.user.id, id);
+    if (!deleted) {
       return NextResponse.json(
         { success: false, error: '节点不存在' },
         { status: 404 }
       );
     }
-
-    // 删除节点（级联删除子节点由数据库处理）
-    await prisma.node.delete({
-      where: { id },
-    });
 
     return NextResponse.json({
       success: true,
