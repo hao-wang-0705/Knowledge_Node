@@ -18,7 +18,6 @@ import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useNotebookStore } from '@/stores/notebookStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { Node } from '@/types';
 import { FIXED_TAG_IDS } from '@/utils/mockData';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
@@ -96,8 +95,6 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
   const notebooks = useNotebookStore((state) => state.notebooks);
   const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
   const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  
-  const setActiveTag = usePerspectiveStore((state) => state.setActiveTag);
   
   // 清空搜索
   useEffect(() => {
@@ -232,8 +229,6 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
     const node = nodes[nodeId];
     if (!node) return;
     
-    // 清除透视状态
-    setActiveTag(null);
     
     // 判断节点类型
     const isCalendarNode = node.tags.some(tagId => 
@@ -287,7 +282,7 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
     
     // 关闭弹窗
     onOpenChange(false);
-  }, [nodes, notebooks, setActiveTag, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode, onOpenChange]);
+  }, [nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode, onOpenChange]);
   
   // 获取节点显示图标
   const getNodeIcon = useCallback((item: SearchResultItem) => {

@@ -5,7 +5,6 @@ import { AtSign, ExternalLink, X, Link2, MessageSquare, ChevronDown, ChevronUp }
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useNotebookStore } from '@/stores/notebookStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { Node, NodeReference } from '@/types';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
 import { analyzeNavigationTarget } from '@/utils/navigation';
@@ -34,8 +33,6 @@ const ReferenceItem: React.FC<ReferenceItemProps> = ({
   const notebooks = useNotebookStore((state) => state.notebooks);
   const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
   const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  const setActiveTag = usePerspectiveStore((state) => state.setActiveTag);
-  
   const [isHoverOpen, setIsHoverOpen] = useState(false);
   
   // 检查目标节点是否存在
@@ -53,8 +50,6 @@ const ReferenceItem: React.FC<ReferenceItemProps> = ({
       return;
     }
     
-    // 清除透视状态
-    setActiveTag(null);
     
     // 分析导航目标
     const target = analyzeNavigationTarget(targetNode, nodes, notebooks);
@@ -68,7 +63,7 @@ const ReferenceItem: React.FC<ReferenceItemProps> = ({
       setHoistedNode(target.hoistNodeId);
     }
     setFocusedNode(target.nodeId);
-  }, [reference.targetNodeId, targetNode, nodes, notebooks, setActiveTag, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
+  }, [reference.targetNodeId, targetNode, nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
   
   // 删除引用
   const handleRemove = useCallback((e: React.MouseEvent) => {

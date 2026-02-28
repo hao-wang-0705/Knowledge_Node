@@ -7,7 +7,6 @@ import { Node } from '@/types';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useNotebookStore } from '@/stores/notebookStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import FieldEditor from './FieldEditor';
 import {
   Dialog,
@@ -27,7 +26,7 @@ interface NodeDetailModalProps {
 
 /**
  * 节点详情编辑弹窗
- * 用于在透视视图中快速编辑节点的表单内容
+ * 用于快速编辑节点表单内容
  */
 const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
   nodeId,
@@ -40,8 +39,6 @@ const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
   const supertags = useSupertagStore((state) => state.supertags);
   const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
   const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  const setActiveTag = usePerspectiveStore((state) => state.setActiveTag);
-  
   const [editingContent, setEditingContent] = useState('');
   
   // 获取当前节点
@@ -106,10 +103,9 @@ const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
   const handleNavigateToNode = useCallback(() => {
     if (!nodeId) return;
     onOpenChange(false);
-    setActiveTag(null);
     setNavigationMode('calendar');
     setHoistedNode(nodeId);
-  }, [nodeId, onOpenChange, setActiveTag, setNavigationMode, setHoistedNode]);
+  }, [nodeId, onOpenChange, setNavigationMode, setHoistedNode]);
   
   if (!node) return null;
   

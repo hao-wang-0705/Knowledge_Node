@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { FileText, Calendar, ChevronRight, Book, X, Hash, ArrowLeft, Plus } from 'lucide-react';
+import { FileText, Calendar, ChevronRight, Book, X, Hash, Plus } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useNotebookStore } from '@/stores/notebookStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { useSyncStore } from '@/stores/syncStore';
 import { useAuthErrorHandler } from '@/hooks/useAuthErrorHandler';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
@@ -17,7 +16,6 @@ import NodeComponent from './NodeComponent';
 import FieldEditor from './FieldEditor';
 import Sidebar from './Sidebar';
 import CommandCenter from './CommandCenter';
-import { TagViewFactory } from './perspectives';
 import { formatDate } from '@/utils/helpers';
 import { getCalendarNodeType } from '@/utils/date-helpers';
 import QuickInputNode from './QuickInputNode';
@@ -62,13 +60,6 @@ const OutlineEditor: React.FC = () => {
   const loadNotebooksFromAPI = useNotebookStore((state) => state.loadFromAPI);
   const updateNotebook = useNotebookStore((state) => state.updateNotebook);
   
-  // 透视相关
-  const activeTagId = usePerspectiveStore((state) => state.activeTagId);
-  const previousTagId = usePerspectiveStore((state) => state.previousTagId);
-  const returnToPreviousTag = usePerspectiveStore((state) => state.returnToPreviousTag);
-  const clearPreviousTag = usePerspectiveStore((state) => state.clearPreviousTag);
-  const loadPerspectives = usePerspectiveStore((state) => state.loadFromAPI);
-  
   // 认证错误处理
   const { withAuthErrorHandler } = useAuthErrorHandler();
 
@@ -82,7 +73,6 @@ const OutlineEditor: React.FC = () => {
             loadSupertagsFromAPI(),
             loadFromStorage(), // nodeStore 内部已实现数据库同步
             loadNotebooksFromAPI(), // 笔记本从 API 加载
-            loadPerspectives(),
           ]);
         });
       } catch (error) {
@@ -94,18 +84,7 @@ const OutlineEditor: React.FC = () => {
     };
     
     initializeData();
-  }, [loadFromStorage, loadSupertagsFromAPI, loadNotebooksFromAPI, loadPerspectives, withAuthErrorHandler]);
-
-  // 当导航模式切换到非透视模式时，清除透视返回记录
-  // 这样可以避免从透视进入节点后，切换到日历/笔记本模式时面包屑仍显示透视返回按钮
-  useEffect(() => {
-    if (navigationMode !== 'perspective' && previousTagId) {
-      // 只有当 activeTagId 也为 null 时才清除（即完全退出透视模式）
-      if (!activeTagId) {
-        clearPreviousTag();
-      }
-    }
-  }, [navigationMode, previousTagId, activeTagId, clearPreviousTag]);
+  }, [loadFromStorage, loadSupertagsFromAPI, loadNotebooksFromAPI, withAuthErrorHandler]);
 
   // 数据加载后，仅在首次加载时自动跳转到今日节点
   useEffect(() => {
@@ -160,11 +139,6 @@ const OutlineEditor: React.FC = () => {
   const isCalendarView = useMemo(() => {
     return navigationMode === 'calendar';
   }, [navigationMode]);
-
-  // 判断当前是否在透视视图
-  const isPerspectiveView = useMemo(() => {
-    return navigationMode === 'perspective' && activeTagId !== null;
-  }, [navigationMode, activeTagId]);
 
   // 判断当前聚焦节点的日历类型
   const calendarNodeType = useMemo(() => {
@@ -251,23 +225,6 @@ const OutlineEditor: React.FC = () => {
     return fullPath;
   }, [navigationMode, activeNotebookId, notebooks, hoistedNodeId, getNodePath]);
 
-  // 获取上一个透视的标签信息（用于从聚焦返回透视）
-  const previousTag = useMemo(() => {
-    if (!previousTagId) return null;
-    return supertags[previousTagId] || null;
-  }, [previousTagId, supertags]);
-
-  // 是否从透视进入聚焦（显示返回透视的面包屑）
-  const showReturnToPerspective = useMemo(() => {
-    return !isPerspectiveView && previousTag !== null && hoistedNodeId !== null;
-  }, [isPerspectiveView, previousTag, hoistedNodeId]);
-
-  // 处理返回透视
-  const handleReturnToPerspective = useCallback(() => {
-    setHoistedNode(null);  // 清除聚焦
-    returnToPreviousTag();  // 返回上一个透视
-  }, [setHoistedNode, returnToPreviousTag]);
-
   // 处理标题点击（进入编辑模式）
   const handleTitleClick = useCallback(() => {
     if (navigationMode === 'notebook' && activeNotebookId) {
@@ -350,31 +307,9 @@ const OutlineEditor: React.FC = () => {
 
           {/* 主内容区 */}
           <main className="flex-1 overflow-y-auto pb-32">
-            {/* 透视视图 */}
-            {isPerspectiveView && activeTagId ? (
-              <div className="h-full px-6 py-6">
-                <TagViewFactory tagId={activeTagId} />
-              </div>
-            ) : (
-              /* 普通大纲视图 */
-              <div className="max-w-3xl mx-auto px-6 py-8">
+            <div className="max-w-3xl mx-auto px-6 py-8">
               {/* 面包屑导航 */}
               <div className="flex items-center gap-1 text-sm text-gray-500 mb-4 flex-wrap">
-                {/* 从透视进入聚焦时显示返回透视的按钮 */}
-                {showReturnToPerspective && previousTag && (
-                  <>
-                    <button
-                      onClick={handleReturnToPerspective}
-                      className="flex items-center gap-1 px-2 py-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors"
-                    >
-                      <ArrowLeft size={14} />
-                      <Hash size={12} />
-                      <span>{previousTag.name}</span>
-                    </button>
-                    <ChevronRight size={14} className="text-gray-400" />
-                  </>
-                )}
-                
                 {navigationMode === 'calendar' ? (
                   <>
                     {/* 日历模式面包屑：全部笔记 > 年 > 月 > 周 > 日 > 用户节点... */}
@@ -576,7 +511,6 @@ const OutlineEditor: React.FC = () => {
                 />
               )}
             </div>
-            )}
           </main>
 
           {/* 底部状态栏 */}

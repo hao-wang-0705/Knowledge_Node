@@ -5,7 +5,6 @@ import { AtSign, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useNotebookStore } from '@/stores/notebookStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { useSplitPaneStore } from '@/stores/splitPaneStore';
 import { Node } from '@/types';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
@@ -35,8 +34,6 @@ export const ReferenceChip: React.FC<ReferenceChipProps> = ({
   const notebooks = useNotebookStore((state) => state.notebooks);
   const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
   const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  const setActiveTag = usePerspectiveStore((state) => state.setActiveTag);
-  
   // 右侧面板状态
   const splitPaneIsOpen = useSplitPaneStore((state) => state.isOpen);
   const openPanel = useSplitPaneStore((state) => state.openPanel);
@@ -76,9 +73,6 @@ export const ReferenceChip: React.FC<ReferenceChipProps> = ({
     }
     
     // 普通点击：跳转到节点
-    // 清除透视状态
-    setActiveTag(null);
-    
     // 判断节点类型
     const isCalendarNode = targetNode.tags.some(tagId => 
       [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as any)
@@ -125,7 +119,7 @@ export const ReferenceChip: React.FC<ReferenceChipProps> = ({
     }
     
     onClick?.();
-  }, [nodeId, targetNode, nodes, notebooks, setActiveTag, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode, onClick, splitPaneIsOpen, openPanel, navigateInPanel]);
+  }, [nodeId, targetNode, nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode, onClick, splitPaneIsOpen, openPanel, navigateInPanel]);
   
   // 截断过长的标题（提取引用中实际的标题部分，去除引用标记）
   const getCleanTitle = (text: string) => {

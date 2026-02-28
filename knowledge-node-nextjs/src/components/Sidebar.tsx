@@ -2,14 +2,12 @@
 
 import React, { useCallback, useMemo, useRef, useEffect, useState, useLayoutEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Eye, PinOff, Search, Command, Lock, Sparkles } from 'lucide-react';
+import { Calendar, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNotebookStore } from '@/stores/notebookStore';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useSupertagStore } from '@/stores/supertagStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { getGreeting } from '@/utils/helpers';
 import { getTodayId } from '@/utils/date-helpers';
 import CommandTemplateManager from './CommandTemplateManager';
@@ -57,26 +55,6 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   
   const hoistedNodeId = useNodeStore((state) => state.hoistedNodeId);
   
-  // 透视相关
-  const supertags = useSupertagStore((state) => state.supertags);
-  const pinnedTagIds = usePerspectiveStore((state) => state.pinnedTagIds);
-  const activeTagId = usePerspectiveStore((state) => state.activeTagId);
-  const setActiveTag = usePerspectiveStore((state) => state.setActiveTag);
-  const unpinTag = usePerspectiveStore((state) => state.unpinTag);
-  const loadPerspectives = usePerspectiveStore((state) => state.loadFromAPI);
-  
-  // 获取钉住的标签列表
-  const pinnedTags = useMemo(() => {
-    return pinnedTagIds
-      .map(id => supertags[id])
-      .filter(Boolean);
-  }, [pinnedTagIds, supertags]);
-  
-  // 加载透视数据
-  useEffect(() => {
-    loadPerspectives();
-  }, [loadPerspectives]);
-  
   // 获取问候语
   const greeting = useMemo(() => getGreeting(), []);
   
@@ -89,21 +67,8 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   
   // 处理点击今日笔记
   const handleGoToToday = useCallback(() => {
-    setActiveTag(null);  // 清除透视激活状态
     goToCalendar();
-  }, [goToCalendar, setActiveTag]);
-  
-  // 处理点击透视标签
-  const handleSelectPerspective = useCallback((tagId: string) => {
-    setActiveTag(tagId);
-    setNavigationMode('perspective');
-  }, [setActiveTag, setNavigationMode]);
-  
-  // 处理取消钉住透视
-  const handleUnpinTag = useCallback((tagId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    unpinTag(tagId);
-  }, [unpinTag]);
+  }, [goToCalendar]);
   
   // 处理创建新笔记本
   const handleCreateNotebook = useCallback(async () => {
@@ -118,9 +83,8 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   // 处理选择笔记本
   const handleSelectNotebook = useCallback((notebookId: string) => {
     if (editingNotebookId === notebookId) return; // 编辑中不响应点击
-    setActiveTag(null);  // 清除透视激活状态
     setActiveNotebook(notebookId);
-  }, [setActiveNotebook, editingNotebookId, setActiveTag]);
+  }, [setActiveNotebook, editingNotebookId]);
   
   // 处理双击编辑笔记本名称
   const handleDoubleClick = useCallback((notebookId: string, currentName: string) => {
@@ -370,59 +334,6 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             })}
           </div>
         </div>
-        
-        {/* 透视区域 (Perspectives) */}
-        {pinnedTags.length > 0 && (
-          <>
-            <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
-              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                <Eye size={12} />
-                👁️ 透视
-              </h3>
-            </div>
-            <div className="overflow-y-auto px-2 pb-2">
-              <div className="space-y-1">
-                {pinnedTags.map((tag) => {
-                  const isActive = navigationMode === 'perspective' && activeTagId === tag.id;
-                  
-                  return (
-                    <div
-                      key={tag.id}
-                      onClick={() => handleSelectPerspective(tag.id)}
-                      className={cn(
-                        "group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all",
-                        isActive
-                          ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300"
-                          : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-                      )}
-                    >
-                      <div 
-                        className="w-3 h-3 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: tag.color }}
-                      />
-                      <span className="flex-1 text-sm truncate">
-                        #{tag.name}
-                      </span>
-                      
-                      {/* 取消钉住按钮 */}
-                      <button
-                        onClick={(e) => handleUnpinTag(tag.id, e)}
-                        className="p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded"
-                        title="取消钉住"
-                      >
-                        <PinOff size={12} />
-                      </button>
-                      
-                      {isActive && (
-                        <ChevronRight size={14} className="text-purple-400" />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </>
-        )}
       </div>
       
       {/* 区域 C：底部工具 */}

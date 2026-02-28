@@ -3,14 +3,13 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { 
   X, Plus, Trash2, Edit2, Hash, ChevronRight, ChevronDown,
-  Type, Calendar, List, Check, Pin, PinOff, Eye, Link2, 
+  Type, Calendar, List, Check, Eye, Link2, 
   GripVertical, Sparkles, GitBranch, Circle, FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { FieldType, Supertag, FieldDefinition } from '@/types';
 import { TAG_COLORS } from '@/utils/mockData';
 
@@ -60,12 +59,6 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
   const updateFieldDefinition = useSupertagStore((state) => state.updateFieldDefinition);
   const removeFieldDefinition = useSupertagStore((state) => state.removeFieldDefinition);
   const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
-
-  // 透视相关
-  const pinnedTagIds = usePerspectiveStore((state) => state.pinnedTagIds);
-  const pinTag = usePerspectiveStore((state) => state.pinTag);
-  const unpinTag = usePerspectiveStore((state) => state.unpinTag);
-  const getViewType = usePerspectiveStore((state) => state.getViewType);
 
   // 获取非系统标签列表
   const userTags = Object.values(supertags).filter(tag => !tag.isSystem);
@@ -260,29 +253,6 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
     setIsEditingTemplate(false);
   }, [selectedTagId, templateValue, updateSupertag]);
 
-  // 钉住/取消钉住标签到透视
-  const handleTogglePin = useCallback((tagId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (pinnedTagIds.includes(tagId)) {
-      unpinTag(tagId);
-    } else {
-      pinTag(tagId);
-    }
-  }, [pinnedTagIds, pinTag, unpinTag]);
-
-  // 获取视图类型的显示名称
-  const getViewTypeName = (tagId: string): string => {
-    const viewType = getViewType(tagId);
-    switch (viewType) {
-      case 'kanban': return '看板视图';
-      case 'agenda': return '日程视图';
-      case 'card': return '卡片视图';
-      case 'flow': return '流程视图';
-      case 'table': return '表格视图';
-      default: return '默认视图';
-    }
-  };
-  
   // 渲染字段类型选择器
   const renderFieldTypeSelector = (field: FieldDefinition) => {
     const currentType = FIELD_TYPES.find(t => t.value === field.type) || FIELD_TYPES[0];
@@ -441,10 +411,6 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
                       {/* 继承指示 */}
                       {hasParent && (
                         <GitBranch size={10} className="text-purple-500 flex-shrink-0" />
-                      )}
-                      {/* 钉住状态指示 */}
-                      {pinnedTagIds.includes(tag.id) && (
-                        <Pin size={10} className="text-purple-500 flex-shrink-0" />
                       )}
                       <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">
                         #{tag.name}
@@ -636,20 +602,6 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
                       </div>
                     </PopoverContent>
                   </Popover>
-                  
-                  {/* 透视钉住按钮 */}
-                  <button
-                    onClick={(e) => handleTogglePin(selectedTag.id, e)}
-                    className={cn(
-                      "p-2 rounded-lg transition-colors ml-auto",
-                      pinnedTagIds.includes(selectedTag.id)
-                        ? "text-purple-600 bg-purple-100 hover:bg-purple-200"
-                        : "text-gray-400 hover:text-purple-500 hover:bg-gray-100"
-                    )}
-                    title={pinnedTagIds.includes(selectedTag.id) ? "取消钉住" : "钉住到侧栏"}
-                  >
-                    {pinnedTagIds.includes(selectedTag.id) ? <PinOff size={16} /> : <Pin size={16} />}
-                  </button>
                 </div>
                 
                 {/* 第二行：描述 */}

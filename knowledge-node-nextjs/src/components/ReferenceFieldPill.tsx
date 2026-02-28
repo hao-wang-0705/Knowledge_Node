@@ -5,7 +5,6 @@ import { ExternalLink, X, PanelRightOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useNotebookStore } from '@/stores/notebookStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { useSplitPaneStore } from '@/stores/splitPaneStore';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
@@ -46,8 +45,6 @@ const ReferenceFieldPill: React.FC<ReferenceFieldPillProps> = ({
   const notebooks = useNotebookStore((state) => state.notebooks);
   const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
   const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  const setActiveTag = usePerspectiveStore((state) => state.setActiveTag);
-  
   // 右侧面板状态
   const splitPaneIsOpen = useSplitPaneStore((state) => state.isOpen);
   const openPanel = useSplitPaneStore((state) => state.openPanel);
@@ -84,9 +81,6 @@ const ReferenceFieldPill: React.FC<ReferenceFieldPillProps> = ({
   // 默认跳转逻辑
   const handleDefaultJump = useCallback(() => {
     if (!targetNode) return;
-    
-    // 清除透视状态
-    setActiveTag(null);
     
     // 判断节点类型
     const isCalendarNode = targetNode.tags.some(tagId => 
@@ -132,7 +126,7 @@ const ReferenceFieldPill: React.FC<ReferenceFieldPillProps> = ({
       }
       setFocusedNode(nodeId);
     }
-  }, [targetNode, nodes, nodeId, notebooks, setActiveTag, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
+  }, [targetNode, nodes, nodeId, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
 
   // 处理点击
   const handleClick = useCallback((e: React.MouseEvent) => {

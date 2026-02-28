@@ -164,10 +164,7 @@ export interface Notebook {
 }
 
 // 导航模式
-export type NavigationMode = 'calendar' | 'notebook' | 'perspective';
-
-// 视图类型 - 用于透视功能
-export type ViewType = 'kanban' | 'agenda' | 'card' | 'flow' | 'table';
+export type NavigationMode = 'calendar' | 'notebook';
 
 // 字段定义
 export interface FieldDefinition {

@@ -5,7 +5,6 @@ import { Link2, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useNotebookStore } from '@/stores/notebookStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { Node } from '@/types';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
 import { findBacklinks, findBacklinksFromFields, getPlainTextWithoutReferences } from '@/utils/reference-helpers';
@@ -54,8 +53,6 @@ const Backlinks: React.FC<BacklinksProps> = ({
   const notebooks = useNotebookStore((state) => state.notebooks);
   const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
   const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  const setActiveTag = usePerspectiveStore((state) => state.setActiveTag);
-  
   const currentNode = nodes[nodeId];
   const targetTitle = currentNode?.content?.trim().slice(0, 50);
 
@@ -136,8 +133,6 @@ const Backlinks: React.FC<BacklinksProps> = ({
     const targetNode = nodes[targetNodeId];
     if (!targetNode) return;
     
-    // 清除透视状态
-    setActiveTag(null);
     
     // 判断节点类型
     const isCalendarNode = targetNode.tags.some(tagId => 
@@ -183,7 +178,7 @@ const Backlinks: React.FC<BacklinksProps> = ({
       }
       setFocusedNode(targetNodeId);
     }
-  }, [nodes, notebooks, setActiveTag, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
+  }, [nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
 
   // 点击处理
   const handleItemClick = useCallback((targetNodeId: string, e: React.MouseEvent) => {

@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect, useCallback } from 'react';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { useAuthErrorHandler } from '@/hooks/useAuthErrorHandler';
 import TagLibraryPage from '@/components/tag-library/TagLibraryPage';
 
@@ -37,7 +36,6 @@ function ErrorState({ message }: { message: string }) {
 // 标签库内容组件
 function TagLibraryContent() {
   const loadSupertags = useSupertagStore((state) => state.loadFromAPI);
-  const loadPerspectives = usePerspectiveStore((state) => state.loadFromAPI);
   const isInitialized = useSupertagStore((state) => state.isInitialized);
   const isLoading = useSupertagStore((state) => state.isLoading);
   const error = useSupertagStore((state) => state.error);
@@ -47,12 +45,9 @@ function TagLibraryContent() {
   // 初始化数据
   const initializeData = useCallback(async () => {
     await withAuthErrorHandler(async () => {
-      await Promise.all([
-        loadSupertags(),
-        loadPerspectives(),
-      ]);
+      await loadSupertags();
     });
-  }, [loadSupertags, loadPerspectives, withAuthErrorHandler]);
+  }, [loadSupertags, withAuthErrorHandler]);
 
   useEffect(() => {
     if (!isInitialized && !isLoading) {

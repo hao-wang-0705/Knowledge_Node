@@ -5,7 +5,6 @@ import { Link2, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useNotebookStore } from '@/stores/notebookStore';
-import { usePerspectiveStore } from '@/stores/perspectiveStore';
 import { useSplitPaneStore } from '@/stores/splitPaneStore';
 import { Node } from '@/types';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
@@ -47,8 +46,6 @@ const BacklinksBadge: React.FC<BacklinksBadgeProps> = ({
   const notebooks = useNotebookStore((state) => state.notebooks);
   const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
   const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  const setActiveTag = usePerspectiveStore((state) => state.setActiveTag);
-  
   // 右侧面板状态
   const splitPaneIsOpen = useSplitPaneStore((state) => state.isOpen);
   const openPanel = useSplitPaneStore((state) => state.openPanel);
@@ -139,8 +136,6 @@ const BacklinksBadge: React.FC<BacklinksBadgeProps> = ({
     const targetNode = nodes[targetNodeId];
     if (!targetNode) return;
     
-    setActiveTag(null);
-    
     const isCalendarNode = targetNode.tags.some(tagId => 
       [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as typeof SYSTEM_TAGS.YEAR)
     );
@@ -182,7 +177,7 @@ const BacklinksBadge: React.FC<BacklinksBadgeProps> = ({
       }
       setFocusedNode(targetNodeId);
     }
-  }, [nodes, notebooks, setActiveTag, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
+  }, [nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
 
   const handleItemClick = useCallback((targetNodeId: string, e: React.MouseEvent) => {
     e.stopPropagation();
