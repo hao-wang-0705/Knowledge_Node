@@ -4,13 +4,15 @@ import { generateId, STORAGE_KEYS, CURRENT_DATA_VERSION, debounce } from '@/util
 import { getTemplateById } from '@/utils/command-templates';
 import { createMockNodes, createMockSupertags } from '@/utils/mockData';
 import { getCalendarPath, SYSTEM_TAGS, getCalendarNodeType } from '@/utils/date-helpers';
+import {
+  findCalendarNodeActualId,
+  resolveCalendarParentId,
+  initCalendarNodeIdMap,
+  setCalendarNodeIdMapping,
+} from '@/utils/calendarNodeId';
 import { getUserStorageKey, migrateOldData } from '@/utils/userStorage';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useSyncStore } from '@/stores/syncStore';
-
-// 日历节点 ID 映射：原始 ID -> 实际 ID（可能带前缀）
-// 这个映射用于处理多用户场景下，日历节点 ID 被添加前缀的情况
-let calendarNodeIdMap: Record<string, string> = {};
 
 // 样例数据初始化 key（内联定义，替代原 sampleData.ts）
 const SAMPLE_DATA_INITIALIZED_KEY = 'knowledge-node-sample-initialized';
@@ -62,85 +64,6 @@ const debouncedSave = debounce((nodes: Record<string, Node>, rootIds: string[]) 
   localStorage.setItem(getNodesKey(), JSON.stringify(nodes));
   localStorage.setItem(getRootIdsKey(), JSON.stringify(rootIds));
 }, 500);
-
-/**
- * 查找日历节点的实际 ID（处理带前缀的情况）
- * @param originalId 原始日历节点 ID（如 day-2026-02-27）
- * @param nodes 当前节点字典
- * @returns 实际使用的节点 ID，如果不存在则返回 null
- */
-const findCalendarNodeActualId = (originalId: string, nodes: Record<string, Node>): string | null => {
-  // 首先检查映射缓存
-  if (calendarNodeIdMap[originalId] && nodes[calendarNodeIdMap[originalId]]) {
-    return calendarNodeIdMap[originalId];
-  }
-  
-  // 检查原始 ID 是否直接存在
-  if (nodes[originalId]) {
-    calendarNodeIdMap[originalId] = originalId;
-    return originalId;
-  }
-  
-  // 搜索带前缀的版本（格式：{userPrefix}_{originalId}）
-  for (const nodeId of Object.keys(nodes)) {
-    // 检查是否以 _originalId 结尾（带前缀的日历节点）
-    if (nodeId.endsWith(`_${originalId}`)) {
-      calendarNodeIdMap[originalId] = nodeId;
-      return nodeId;
-    }
-  }
-  
-  return null;
-};
-
-/**
- * 获取日历节点的实际 parentId（处理带前缀的情况）
- * @param originalParentId 原始父节点 ID
- * @param nodes 当前节点字典
- * @returns 实际使用的父节点 ID
- */
-const resolveCalendarParentId = (originalParentId: string | null, nodes: Record<string, Node>): string | null => {
-  if (!originalParentId) return null;
-  
-  // 检查是否是日历节点
-  const calendarType = getCalendarNodeType(originalParentId);
-  if (calendarType) {
-    // 尝试查找实际 ID
-    const actualId = findCalendarNodeActualId(originalParentId, nodes);
-    if (actualId) {
-      return actualId;
-    }
-  }
-  
-  // 非日历节点或未找到，返回原始 ID
-  return originalParentId;
-};
-
-/**
- * 初始化日历节点 ID 映射（从已加载的节点中构建）
- * @param nodes 节点字典
- */
-const initCalendarNodeIdMap = (nodes: Record<string, Node>) => {
-  calendarNodeIdMap = {};
-  
-  for (const nodeId of Object.keys(nodes)) {
-    // 检查是否是日历节点（年/月/周/日）
-    if (nodeId.startsWith('year-') || nodeId.startsWith('month-') || 
-        nodeId.startsWith('week-') || nodeId.startsWith('day-')) {
-      // 原始 ID，直接映射
-      calendarNodeIdMap[nodeId] = nodeId;
-    } else {
-      // 检查是否是带前缀的日历节点
-      const prefixMatch = nodeId.match(/^[a-z0-9]+_(year-|month-|week-|day-)(.+)$/);
-      if (prefixMatch) {
-        const originalId = nodeId.substring(nodeId.indexOf('_') + 1);
-        calendarNodeIdMap[originalId] = nodeId;
-      }
-    }
-  }
-  
-  console.log('[NodeStore] 日历节点 ID 映射已初始化:', Object.keys(calendarNodeIdMap).length, '个映射');
-};
 
 // ============ 数据库同步 API（通过 SyncStore 队列） ============
 
@@ -794,8 +717,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         const actualId = findCalendarNodeActualId(id, currentState.nodes);
         if (actualId) {
           console.log(`[ensureNode] 日历节点 ${id} 已存在，实际 ID: ${actualId}`);
-          // 更新映射
-          calendarNodeIdMap[id] = actualId;
+          setCalendarNodeIdMapping(id, actualId);
           return currentState; // 不需要创建
         }
       } else {
@@ -835,9 +757,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         }
       }
       
-      // 更新日历节点映射
       if (isCalendarNode) {
-        calendarNodeIdMap[id] = id;
+        setCalendarNodeIdMapping(id, id);
       }
 
       debouncedSave(newNodes, newRootIds);

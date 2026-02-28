@@ -16,6 +16,7 @@ import BacklinksBadge from './BacklinksBadge';
 import { createReferenceText, hasReferences } from '@/utils/reference-helpers';
 import { analyzeNavigationTarget } from '@/utils/navigation';
 import { getTemplateById } from '@/utils/command-templates';
+import { useNodeCommand } from '@/hooks/useNodeCommand';
 import { NodeActions, NodeCommand, NodeContent, NodeFields, NodeReferences } from './node';
 
 interface NodeComponentProps {
@@ -38,11 +39,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const [mentionPosition, setMentionPosition] = useState({ x: 0, y: 0 }); // 引用弹窗位置
   const [isEditing, setIsEditing] = useState(false); // 是否正在编辑
   const [localContent, setLocalContent] = useState(''); // 本地编辑内容
-  const [isExecuting, setIsExecuting] = useState(false); // AI 指令执行中
-  const [showCommandConfig, setShowCommandConfig] = useState(false); // 指令配置弹窗
-  const [pendingCommandNodeId, setPendingCommandNodeId] = useState<string | null>(null); // 待配置的指令节点ID
-  const [deleteAfterCommandCreate, setDeleteAfterCommandCreate] = useState(false); // 创建后是否删除当前节点（/ai 触发）
-  
+
   const node = useNodeStore((state) => state.nodes[nodeId]);
   const focusedNodeId = useNodeStore((state) => state.focusedNodeId);
   const nodes = useNodeStore((state) => state.nodes);
@@ -63,6 +60,8 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
   const trackTagUsage = useSupertagStore((state) => state.trackTagUsage);
   const getRecentTags = useSupertagStore((state) => state.getRecentTags);
+
+  const nodeCommand = useNodeCommand(nodeId);
 
   // 当此节点获得焦点时，聚焦 contentEditable
   const isFocused = focusedNodeId === nodeId;
@@ -366,16 +365,11 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       // 检测 /ai 快捷指令
       const content = contentRef.current?.textContent?.trim() || '';
       if (content.toLowerCase() === '/ai') {
-        // 清空当前节点内容
         if (contentRef.current) {
           contentRef.current.textContent = '';
         }
         updateNode(nodeId, { content: '' });
-        
-        // 打开配置弹窗而不是直接创建
-        setPendingCommandNodeId(null);
-        setDeleteAfterCommandCreate(true); // 标记创建后删除当前空节点
-        setShowCommandConfig(true);
+        nodeCommand.openCommandConfigAndDeleteCurrentAfterCreate();
         return;
       } else if (content.toLowerCase().startsWith('/ai ')) {
         // 如果有自定义 prompt，直接创建
@@ -429,7 +423,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       setShowTagSelector(false);
     }
     // 注意：移除了 ArrowUp/ArrowDown 的拦截，让光标可以在文本内自由移动
-  }, [node, nodeId, rootIds, nodes, addNode, addCommandNode, updateNode, indentNode, outdentNode, deleteNode, setFocusedNode, saveCursorPosition, isComposing, showTagSelector, supertags, selectedTagIndex, handleAddTag]);
+  }, [node, nodeId, rootIds, nodes, addNode, addCommandNode, updateNode, indentNode, outdentNode, deleteNode, setFocusedNode, saveCursorPosition, isComposing, showTagSelector, supertags, selectedTagIndex, handleAddTag, nodeCommand]);
 
   const handleFocus = useCallback(() => {
     setFocusedNode(nodeId);
@@ -512,7 +506,6 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
 
   // 从右键菜单触发引用插入
   const handleInsertReferenceFromContext = useCallback(() => {
-    // 获取光标位置，如果没有则使用节点末尾
     if (contentRef.current) {
       const rect = contentRef.current.getBoundingClientRect();
       setMentionPosition({
@@ -522,83 +515,6 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     }
     setShowMentionPopover(true);
   }, []);
-
-  // 从右键菜单创建指令节点 - 先打开配置弹窗
-  const handleAddCommandNodeFromContext = useCallback(() => {
-    // 打开配置弹窗，而不是直接创建
-    setPendingCommandNodeId(null); // 表示这是新建模式
-    setShowCommandConfig(true);
-  }, []);
-
-  // 打开现有指令节点的配置弹窗
-  const handleOpenCommandConfig = useCallback(() => {
-    if (node?.type === 'command') {
-      setPendingCommandNodeId(nodeId);
-      setShowCommandConfig(true);
-    }
-  }, [node?.type, nodeId]);
-
-  // 处理指令配置确认
-  const handleCommandConfigConfirm = useCallback((config: { templateId?: string; prompt: string }) => {
-    if (pendingCommandNodeId) {
-      // 编辑现有指令节点
-      const existingNode = nodes[pendingCommandNodeId];
-      if (existingNode && existingNode.type === 'command') {
-        const existingConfig = existingNode.payload as CommandConfig;
-        const template = config.templateId ? getTemplateById(config.templateId) : undefined;
-        updateNode(pendingCommandNodeId, {
-          content: template ? `🤖 ${template.icon} ${template.name}` : '🤖 自定义指令',
-          payload: {
-            ...existingConfig,
-            templateId: config.templateId,
-            prompt: config.prompt,
-          },
-        });
-      }
-    } else {
-      // 创建新指令节点
-      addCommandNode(node?.parentId || null, config.templateId, config.prompt, nodeId);
-      
-      // 如果是通过 /ai 触发的，删除当前空节点
-      if (deleteAfterCommandCreate) {
-        deleteNode(nodeId);
-      }
-    }
-    setShowCommandConfig(false);
-    setPendingCommandNodeId(null);
-    setDeleteAfterCommandCreate(false);
-  }, [pendingCommandNodeId, nodes, node?.parentId, nodeId, updateNode, addCommandNode, deleteAfterCommandCreate, deleteNode]);
-
-  // 关闭配置弹窗
-  const handleCloseCommandConfig = useCallback(() => {
-    setShowCommandConfig(false);
-    setPendingCommandNodeId(null);
-    setDeleteAfterCommandCreate(false);
-  }, []);
-
-  // 执行 AI 指令
-  const handleExecuteCommand = useCallback(async () => {
-    if (!node || node.type !== 'command' || isExecuting) return;
-    
-    // 检查是否配置了 prompt
-    const config = node.payload as CommandConfig;
-    if (!config?.prompt && !config?.templateId) {
-      // 打开配置弹窗
-      setPendingCommandNodeId(nodeId);
-      setShowCommandConfig(true);
-      return;
-    }
-    
-    setIsExecuting(true);
-    try {
-      await executeCommandNode(nodeId);
-    } catch (error) {
-      // 错误已经保存到节点的 lastError 中，这里可以添加额外的通知
-      console.error('[handleExecuteCommand] AI 执行失败:', error);
-    } finally {
-      setIsExecuting(false);
-    }
-  }, [node, nodeId, executeCommandNode, isExecuting]);
 
   // 生成唯一 ID
   const generateRefId = useCallback(() => {
@@ -709,7 +625,6 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   // 如果有引用且不在编辑状态，则渲染引用块
   const showEditableContent = isEditing || !contentHasReferences;
   
-  // 检查是否为AI指令节点
   const isCommandNode = node.type === 'command';
   const commandConfig = isCommandNode ? (node.payload as CommandConfig) : null;
   const commandTemplate = commandConfig?.templateId ? getTemplateById(commandConfig.templateId) : null;
@@ -781,18 +696,18 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
             <NodeCommand
               icon={commandTemplate?.icon}
               name={commandTemplate?.name}
-              isExecuting={isExecuting}
+              isExecuting={nodeCommand.isExecuting}
               lastExecutionStatus={commandConfig?.lastExecutionStatus}
               prompt={commandConfig?.prompt}
               lastError={commandConfig?.lastError}
               isCollapsed={node.isCollapsed}
               onExecute={(e) => {
                 e.stopPropagation();
-                handleExecuteCommand();
+                nodeCommand.handleExecuteCommand();
               }}
               onOpenConfig={(e) => {
                 e.stopPropagation();
-                handleOpenCommandConfig();
+                nodeCommand.handleOpenCommandConfig();
               }}
             />
           ) : (
@@ -911,7 +826,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           onOutdent={handleOutdentFromContext}
           onAddChild={handleAddChild}
           onInsertReference={handleInsertReferenceFromContext}
-          onAddCommandNode={handleAddCommandNodeFromContext}
+          onAddCommandNode={nodeCommand.handleAddCommandNodeFromContext}
           canIndent={(() => {
             // 检查是否可以缩进：需要有前一个兄弟节点
             const siblings = node?.parentId === null ? rootIds : (nodes[node?.parentId || '']?.childrenIds || []);
@@ -948,14 +863,11 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       
       {/* AI 指令配置弹窗 */}
       <CommandConfigModal
-        open={showCommandConfig}
-        onClose={handleCloseCommandConfig}
-        onConfirm={handleCommandConfigConfirm}
-        initialConfig={pendingCommandNodeId 
-          ? (nodes[pendingCommandNodeId]?.payload as CommandConfig) 
-          : undefined
-        }
-        mode={pendingCommandNodeId ? 'edit' : 'create'}
+        open={nodeCommand.showCommandConfig}
+        onClose={nodeCommand.handleCloseCommandConfig}
+        onConfirm={nodeCommand.handleCommandConfigConfirm}
+        initialConfig={nodeCommand.commandConfigForModal}
+        mode={nodeCommand.pendingCommandNodeId ? 'edit' : 'create'}
       />
     </div>
   );

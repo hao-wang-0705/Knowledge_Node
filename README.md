@@ -121,6 +121,19 @@ npx prisma studio
 npx prisma migrate reset
 ```
 
+### Prisma Schema 同步约定
+
+本仓库存在两份 Prisma schema：`knowledge-node-nextjs/prisma/schema.prisma` 与 `knowledge-node-backend/prisma/schema.prisma`。**修改任意一份 schema 时，必须同步更新另一份**（模型与字段保持一致，顺序可不同）。校验方式：
+
+```bash
+# 从仓库根目录执行
+./scripts/check-prisma-schema-sync.sh
+# 或
+node scripts/check-prisma-schema-sync.mjs
+```
+
+CI 中可加入此步骤，不一致时构建失败。
+
 ## 项目结构
 
 ```

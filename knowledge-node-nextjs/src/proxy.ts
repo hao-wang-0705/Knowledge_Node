@@ -38,15 +38,15 @@ function isStaticPath(pathname: string): boolean {
 }
 
 /**
- * 全局认证中间件
- * 
+ * 全局认证代理（Next 16 proxy 约定）
+ *
  * 功能：
  * 1. 拦截所有请求，验证 JWT Token
  * 2. 未登录用户访问受保护路由时重定向到登录页
  * 3. 已登录用户访问登录/注册页时重定向到首页
  * 4. API 路由返回 401 状态码而非重定向
  */
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
   // 跳过静态资源
@@ -54,7 +54,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next();
   }
 
-  // 获取 JWT Token（Edge Runtime 兼容）
+  // 获取 JWT Token（Node 运行时兼容）
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
@@ -75,15 +75,15 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     // API 路由返回 401
     if (isApiRoute) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: '未登录，请先登录',
           code: 'UNAUTHORIZED'
         },
         { status: 401 }
       );
     }
-    
+
     // 页面路由重定向到登录页，并记录来源 URL
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('callbackUrl', pathname);
@@ -95,8 +95,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 /**
- * 配置中间件匹配规则
- * 
+ * 配置代理匹配规则
+ *
  * 排除：
  * - _next/static（静态文件）
  * - _next/image（图片优化）

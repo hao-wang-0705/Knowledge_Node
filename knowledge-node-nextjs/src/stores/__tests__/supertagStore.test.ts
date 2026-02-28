@@ -106,4 +106,59 @@ describe('supertagStore', () => {
     const defs = useSupertagStore.getState().getResolvedFieldDefinitions('a');
     expect(defs.length).toBeGreaterThan(0);
   });
+
+  it('fieldDefinitions 更新后 getResolvedFieldDefinitions 返回新字段列表', () => {
+    useSupertagStore.setState({
+      supertags: {
+        tag1: createTag({
+          id: 'tag1',
+          name: 'Tag1',
+          fieldDefinitions: [
+            { id: 'f1', key: 'old', name: '旧字段', type: 'text' },
+          ],
+        }),
+      },
+    });
+
+    let defs = useSupertagStore.getState().getResolvedFieldDefinitions('tag1');
+    expect(defs).toHaveLength(1);
+    expect(defs[0].key).toBe('old');
+
+    useSupertagStore.setState({
+      supertags: {
+        tag1: createTag({
+          id: 'tag1',
+          name: 'Tag1',
+          fieldDefinitions: [
+            { id: 'f1', key: 'old', name: '旧字段', type: 'text' },
+            { id: 'f2', key: 'new', name: '新字段', type: 'number' },
+          ],
+        }),
+      },
+    });
+
+    defs = useSupertagStore.getState().getResolvedFieldDefinitions('tag1');
+    expect(defs).toHaveLength(2);
+    expect(defs.map((d) => d.key)).toEqual(expect.arrayContaining(['old', 'new']));
+    expect(defs.find((d) => d.key === 'new')?.type).toBe('number');
+  });
+
+  it('优先使用 API 返回的 resolvedFieldDefinitions（Edge Case）', () => {
+    useSupertagStore.setState({
+      supertags: {
+        apiTag: createTag({
+          id: 'apiTag',
+          name: 'API 标签',
+          fieldDefinitions: [{ id: 'f1', key: 'local', name: '本地', type: 'text' }],
+          resolvedFieldDefinitions: [
+            { id: 'f2', key: 'resolved', name: '合并后', type: 'text' as const },
+          ],
+        }),
+      },
+    });
+
+    const defs = useSupertagStore.getState().getResolvedFieldDefinitions('apiTag');
+    expect(defs).toHaveLength(1);
+    expect(defs[0].key).toBe('resolved');
+  });
 });

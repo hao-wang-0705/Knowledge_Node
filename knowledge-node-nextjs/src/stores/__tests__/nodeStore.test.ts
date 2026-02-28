@@ -52,6 +52,44 @@ describe('nodeStore', () => {
     expect(state.rootIds).toEqual([firstId, secondId]);
   });
 
+  it('多层缩进后 childrenIds 顺序正确（Edge Case）', () => {
+    const store = useNodeStore.getState();
+    const aId = store.addNode(null);
+    const bId = store.addNode(null);
+    const cId = store.addNode(null);
+
+    store.indentNode(cId);
+    let state = useNodeStore.getState();
+    expect(state.nodes[bId].childrenIds).toEqual([cId]);
+    expect(state.nodes[cId].parentId).toBe(bId);
+
+    store.indentNode(bId);
+    state = useNodeStore.getState();
+    expect(state.nodes[aId].childrenIds).toEqual([bId]);
+    expect(state.nodes[bId].childrenIds).toEqual([cId]);
+    expect(state.rootIds).toEqual([aId]);
+  });
+
+  it('反缩进后 rootIds 与兄弟顺序符合预期（Edge Case）', () => {
+    const store = useNodeStore.getState();
+    const aId = store.addNode(null);
+    const bId = store.addNode(null);
+    const cId = store.addNode(null);
+
+    store.indentNode(cId);
+    store.indentNode(bId);
+
+    store.outdentNode(bId);
+    let state = useNodeStore.getState();
+    expect(state.rootIds).toEqual([aId, bId]);
+    expect(state.nodes[bId].parentId).toBeNull();
+    expect(state.nodes[bId].childrenIds).toEqual([cId]);
+
+    store.outdentNode(cId);
+    state = useNodeStore.getState();
+    expect(state.rootIds).toEqual([aId, bId, cId]);
+  });
+
   it('删除父节点时会级联删除整棵子树', () => {
     const store = useNodeStore.getState();
     const rootId = store.addNode(null);
@@ -65,6 +103,20 @@ describe('nodeStore', () => {
     expect(state.nodes[childId]).toBeUndefined();
     expect(state.nodes[grandChildId]).toBeUndefined();
     expect(state.rootIds).toEqual([]);
+  });
+
+  it('删除多根场景下某一子树后 rootIds 正确收缩（Edge Case）', () => {
+    const store = useNodeStore.getState();
+    const r1 = store.addNode(null);
+    const c1 = store.addNode(r1);
+    const r2 = store.addNode(null);
+
+    store.deleteNode(r1);
+    const state = useNodeStore.getState();
+
+    expect(state.nodes[r1]).toBeUndefined();
+    expect(state.nodes[c1]).toBeUndefined();
+    expect(state.rootIds).toEqual([r2]);
   });
 
   it('删除不存在节点时保持状态不变（Edge Case）', () => {
