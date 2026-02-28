@@ -199,8 +199,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       style={{ 
         left: position.x, 
         top: position.y,
-        // 添加更好的阴影效果
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)',
+        boxShadow: 'var(--shadow-dropdown)',
       }}
     >
       {menuItems.map((item, index) => {

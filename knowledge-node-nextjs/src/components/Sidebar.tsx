@@ -218,7 +218,12 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
       <div className="p-4 border-b border-gray-200 dark:border-gray-800">
         {/* 用户状态 */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-md">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center shadow-md"
+            style={{
+              background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
+            }}
+          >
             <User size={20} className="text-white" />
           </div>
           <div>
@@ -341,7 +346,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         {/* 全局搜索入口 */}
         <button
           onClick={onOpenCommandCenter}
-          className="w-full flex items-center gap-2 px-3 py-2.5 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 bg-gray-100 dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2.5 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-[var(--brand-primary)] bg-gray-100 dark:bg-gray-800 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 rounded-lg transition-colors"
         >
           <Search size={16} />
           <span className="flex-1 text-left">🔍 搜索笔记...</span>
@@ -354,7 +359,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         {/* 标签库入口 */}
         <button
           onClick={() => router.push('/library/tags')}
-          className="w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-[var(--brand-primary)] hover:bg-gray-200/80 dark:hover:bg-gray-700/80 rounded-lg transition-colors"
         >
           <Hash size={16} />
           <span>🏷️ 标签库</span>
@@ -421,7 +426,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
           style={{
             left: menuPosition.x,
             top: menuPosition.y,
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)',
+            boxShadow: 'var(--shadow-dropdown)',
           }}
         >
           <button

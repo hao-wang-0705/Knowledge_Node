@@ -97,7 +97,12 @@ export function UserMenu({ className }: UserMenuProps) {
           disabled={isLoggingOut}
         >
           {/* 用户头像 */}
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-medium shadow-sm">
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-white text-sm font-medium shadow-sm"
+            style={{
+              background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
+            }}
+          >
             {avatarContent}
           </div>
           

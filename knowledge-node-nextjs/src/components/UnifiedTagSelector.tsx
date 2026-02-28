@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Check, Hash, Sparkles, Clock, Tag, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BRAND } from '@/lib/brand';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { TYPE_TAG_ICONS, PRESET_CATEGORY_IDS } from '@/types';
 
@@ -231,7 +232,7 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
         list.push({
           id: '__create__',
           name: searchTerm.trim(),
-          color: '#6366f1',
+          color: BRAND.primaryHex,
           type: 'type',
           isNew: true,
         });

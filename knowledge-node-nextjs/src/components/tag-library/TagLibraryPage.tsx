@@ -85,7 +85,12 @@ const TagLibraryPage: React.FC = () => {
         {/* 标题 */}
         <div className="p-6 pt-16 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg"
+              style={{
+                background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
+              }}
+            >
               <Hash size={20} className="text-white" />
             </div>
             <div>

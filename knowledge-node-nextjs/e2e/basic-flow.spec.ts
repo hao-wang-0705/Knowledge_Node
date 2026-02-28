@@ -20,4 +20,7 @@ test('登录后首页展示大纲与同步指示器（E2E 冒烟）', async ({ p
 
   const syncIndicator = page.getByRole('button', { name: /就绪|同步|已同步|离线|失败/ });
   await expect(syncIndicator).toBeVisible({ timeout: 3000 });
+
+  // Nexus 品牌展示
+  await expect(page.getByText('Nexus')).toBeVisible({ timeout: 3000 });
 });

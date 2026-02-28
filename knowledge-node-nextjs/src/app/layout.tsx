@@ -3,10 +3,11 @@ import "./globals.css";
 import { ToastProvider } from "@/components/ui/toast";
 import { SessionProvider } from "@/components/SessionProvider";
 import { QueryProvider } from "@/components/QueryProvider";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: "Project Nexus - AI-Native 节点式知识操作系统",
-  description: "将笔记的灵活性与数据库的强大功能相结合，让 AI 成为您的知识管理助手",
+  title: BRAND.metaTitle,
+  description: BRAND.metaDescription,
 };
 
 export default function RootLayout({

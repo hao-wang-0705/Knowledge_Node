@@ -20,6 +20,7 @@ import { formatDate } from '@/utils/helpers';
 import { getCalendarNodeType } from '@/utils/date-helpers';
 import QuickInputNode from './QuickInputNode';
 import { CaptureBar } from './capture';
+import { BRAND } from '@/lib/brand';
 import { getTagStyle } from '@/utils/tag-styles';
 import { SplitPaneProvider } from './split-pane';
 import { SyncStatusIndicator } from './SyncStatusIndicator';
@@ -316,7 +317,7 @@ const OutlineEditor: React.FC = () => {
                     {hoistedNodeId ? (
                       <button
                         onClick={() => setHoistedNode(null)}
-                        className="hover:text-blue-600 hover:underline"
+                        className="hover:text-[var(--brand-primary)] hover:underline"
                       >
                         全部笔记
                       </button>
@@ -331,7 +332,7 @@ const OutlineEditor: React.FC = () => {
                         ) : (
                           <button
                             onClick={() => setHoistedNode(node.id)}
-                            className="hover:text-blue-600 hover:underline"
+                            className="hover:text-[var(--brand-primary)] hover:underline"
                           >
                             {node.content}
                           </button>
