@@ -418,37 +418,25 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
             </CommandList>
             
             {/* 底部快捷键提示 */}
-            <div className="flex flex-col gap-2 border-t border-gray-200 dark:border-gray-700 px-4 py-2.5 text-xs text-gray-400">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="flex items-center gap-1">
-                    <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">↑</kbd>
-                    <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">↓</kbd>
-                    <span className="ml-1">导航</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">↵</kbd>
-                    <span className="ml-1">跳转</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">esc</kbd>
-                    <span className="ml-1">关闭</span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Clock size={12} />
-                  <span>手不离键盘，直达任意节点</span>
-                </div>
+            <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-2.5 text-xs text-gray-400">
+              <div className="flex items-center gap-4">
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">↑</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">↓</kbd>
+                  <span className="ml-1">导航</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">↵</kbd>
+                  <span className="ml-1">跳转</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">esc</kbd>
+                  <span className="ml-1">关闭</span>
+                </span>
               </div>
-              <div className="flex items-center gap-4 text-gray-500 dark:text-gray-500">
-                <span><kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">⌘K</kbd> 打开</span>
-                <span><kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">/</kbd> 块级命令</span>
-                <span><kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">#</kbd> 标签</span>
-                <span><kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">@</kbd> 引用</span>
-                <span><kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">⌘Z</kbd> 撤销</span>
-                <span><kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">⌘⇧Z</kbd> 重做</span>
-                <span><kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">Tab</kbd> 缩进</span>
-                <span><kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">Enter</kbd> 新建</span>
+              <div className="flex items-center gap-1">
+                <Clock size={12} />
+                <span>手不离键盘，直达任意节点</span>
               </div>
             </div>
           </Command>

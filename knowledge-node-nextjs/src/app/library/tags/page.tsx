@@ -4,7 +4,25 @@ import { Suspense, useEffect, useCallback } from 'react';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useAuthErrorHandler } from '@/hooks/useAuthErrorHandler';
 import TagLibraryPage from '@/components/tag-library/TagLibraryPage';
-import { TagLibrarySkeleton } from '@/components/tag-library/TagLibrarySkeleton';
+
+// 加载状态组件
+function LoadingState() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
+      <div className="text-center">
+        <div
+          className="w-12 h-12 mx-auto mb-4 rounded-xl flex items-center justify-center animate-pulse"
+          style={{
+            background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
+          }}
+        >
+          <span className="text-white text-xl">#</span>
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">加载中...</p>
+      </div>
+    </div>
+  );
+}
 
 // 错误状态组件
 function ErrorState({ message }: { message: string }) {
@@ -47,7 +65,7 @@ function TagLibraryContent() {
   }
 
   if (!isInitialized || isLoading) {
-    return <TagLibrarySkeleton />;
+    return <LoadingState />;
   }
 
   return <TagLibraryPage />;
@@ -55,7 +73,7 @@ function TagLibraryContent() {
 
 export default function TagLibraryRoute() {
   return (
-    <Suspense fallback={<TagLibrarySkeleton />}>
+    <Suspense fallback={<LoadingState />}>
       <TagLibraryContent />
     </Suspense>
   );

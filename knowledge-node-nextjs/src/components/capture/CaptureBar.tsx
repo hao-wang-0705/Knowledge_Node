@@ -30,7 +30,6 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { useCaptureStore, useCaptureHasContent, type CaptureImage } from '@/stores/captureStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useToastActions } from '@/components/ui/toast';
 import { generateId } from '@/utils/helpers';
 import PreviewBubble from './PreviewBubble';
 
@@ -88,7 +87,6 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   const ensureTodayNode = useNodeStore((s) => s.ensureTodayNode);
   const hoistedNodeId = useNodeStore((s) => s.hoistedNodeId);
   
-  const toast = useToastActions();
   const hasContent = useCaptureHasContent();
   
   // 获取非系统标签
@@ -410,13 +408,12 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
         trackTagUsage(newNode.supertagId);
       }
       
-      toast.success('已添加');
       // 如果不保留输入框内容
       if (!keepInput) {
         inputRef.current?.focus();
       }
     }
-  }, [confirmPreview, hoistedNodeId, ensureTodayNode, addNode, updateNode, trackTagUsage, toast]);
+  }, [confirmPreview, hoistedNodeId, ensureTodayNode, addNode, updateNode, trackTagUsage]);
   
   const handleCancel = useCallback(() => {
     cancelPreview();

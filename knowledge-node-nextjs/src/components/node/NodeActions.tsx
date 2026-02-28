@@ -9,7 +9,6 @@ interface NodeActionsProps {
   hasNodeTags: boolean;
   onCollapseClick: (e: MouseEvent) => void;
   onBulletClick: (e: MouseEvent) => void;
-  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
 }
 
 export default function NodeActions({
@@ -19,17 +18,11 @@ export default function NodeActions({
   hasNodeTags,
   onCollapseClick,
   onBulletClick,
-  dragHandleProps,
 }: NodeActionsProps) {
   return (
     <>
-      <div className="flex items-center gap-0.5 mr-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <button
-          className="p-0.5 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing touch-none"
-          title="拖拽排序"
-          aria-label="拖拽排序"
-          {...dragHandleProps}
-        >
+      <div className="flex items-center gap-0.5 mr-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button className="p-0.5 text-gray-400 hover:text-gray-600 cursor-grab" title="拖拽排序">
           <GripVertical size={14} />
         </button>
       </div>

@@ -11,13 +11,17 @@ export interface ShortcutDef {
 }
 
 export function matchShortcut(e: KeyboardEvent, def: ShortcutDef): boolean {
-  if (e.key.toLowerCase() !== def.key.toLowerCase()) return false;
-  const mods = def.modifiers ?? [];
-  if (mods.includes('meta') !== e.metaKey) return false;
-  if (mods.includes('ctrl') !== e.ctrlKey) return false;
-  if (mods.includes('shift') !== e.shiftKey) return false;
-  if (mods.includes('alt') !== e.altKey) return false;
-  return true;
+  const keyMatch = e.key.toLowerCase() === def.key.toLowerCase();
+  const metaMatch = (def.modifiers?.includes('meta') ?? false) === e.metaKey;
+  const ctrlMatch = (def.modifiers?.includes('ctrl') ?? false) === e.ctrlKey;
+  const shiftMatch = (def.modifiers?.includes('shift') ?? false) === e.shiftKey;
+  const altMatch = (def.modifiers?.includes('alt') ?? false) === e.altKey;
+  const noExtraModifiers =
+    (!def.modifiers?.includes('meta') || e.metaKey) &&
+    (!def.modifiers?.includes('ctrl') || e.ctrlKey) &&
+    (!def.modifiers?.includes('shift') || e.shiftKey) &&
+    (!def.modifiers?.includes('alt') || e.altKey);
+  return keyMatch && metaMatch && ctrlMatch && shiftMatch && altMatch && noExtraModifiers;
 }
 
 export function registerShortcuts(shortcuts: ShortcutDef[]) {

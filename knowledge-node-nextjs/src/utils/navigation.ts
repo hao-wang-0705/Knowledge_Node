@@ -8,67 +8,6 @@
  */
 
 import { Node, Notebook, NavigationMode } from '@/types';
-
-/** 获取大纲中下一个节点 ID（深度优先，考虑折叠） */
-export function getNextNodeId(
-  nodeId: string,
-  nodes: Record<string, Node>,
-  rootIds: string[]
-): string | null {
-  const node = nodes[nodeId];
-  if (!node) return null;
-
-  const siblings = node.parentId === null ? rootIds : (nodes[node.parentId]?.childrenIds ?? []);
-  const idx = siblings.indexOf(nodeId);
-  if (idx === -1) return null;
-
-  if (!node.isCollapsed && node.childrenIds.length > 0) {
-    return node.childrenIds[0];
-  }
-  if (idx + 1 < siblings.length) {
-    return siblings[idx + 1];
-  }
-  let parentId = node.parentId;
-  while (parentId) {
-    const parent = nodes[parentId];
-    if (!parent) break;
-    const parentSiblings = parent.parentId === null ? rootIds : (nodes[parent.parentId]?.childrenIds ?? []);
-    const parentIdx = parentSiblings.indexOf(parentId);
-    if (parentIdx + 1 < parentSiblings.length) return parentSiblings[parentIdx + 1];
-    parentId = parent.parentId;
-  }
-  return null;
-}
-
-/** 获取大纲中上一个节点 ID */
-export function getPrevNodeId(
-  nodeId: string,
-  nodes: Record<string, Node>,
-  rootIds: string[]
-): string | null {
-  const node = nodes[nodeId];
-  if (!node) return null;
-
-  const siblings = node.parentId === null ? rootIds : (nodes[node.parentId]?.childrenIds ?? []);
-  const idx = siblings.indexOf(nodeId);
-  if (idx === -1) return null;
-
-  if (idx > 0) {
-    const prevId = siblings[idx - 1];
-    const prev = nodes[prevId];
-    if (prev && !prev.isCollapsed && prev.childrenIds.length > 0) {
-      let lastId = prev.childrenIds[prev.childrenIds.length - 1];
-      let last = nodes[lastId];
-      while (last && !last.isCollapsed && last.childrenIds.length > 0) {
-        lastId = last.childrenIds[last.childrenIds.length - 1];
-        last = nodes[lastId];
-      }
-      return lastId;
-    }
-    return prevId;
-  }
-  return node.parentId;
-}
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
 
 /**

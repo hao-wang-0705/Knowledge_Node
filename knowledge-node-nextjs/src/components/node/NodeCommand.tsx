@@ -1,7 +1,6 @@
 import { AlertCircle, CheckCircle2, Circle, Loader2, Play, Settings2 } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 interface NodeCommandProps {
@@ -114,15 +113,6 @@ export default function NodeCommand({
           <div className="text-amber-700 dark:text-amber-300 text-xs">
             ⚠️ 请点击设置按钮配置指令内容或选择模板
           </div>
-        </div>
-      )}
-
-      {/* AI 执行中 Skeleton 占位 */}
-      {isExecuting && !isCollapsed && (
-        <div className="space-y-2 pt-1">
-          <Skeleton className="h-3 w-full" />
-          <Skeleton className="h-3 w-5/6" />
-          <Skeleton className="h-3 w-3/4" />
         </div>
       )}
     </div>
