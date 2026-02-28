@@ -19,11 +19,15 @@ const SAMPLE_DATA_INITIALIZED_KEY = 'knowledge-node-sample-initialized';
 
 export const ROOT_NODE_ID = 'root';
 
+const MAX_HISTORY = 50;
+
 interface NodeStoreState {
   nodes: Record<string, Node>;
   rootIds: string[];
   focusedNodeId: string | null;
   hoistedNodeId: string | null;
+  history: Array<{ nodes: Record<string, Node>; rootIds: string[] }>;
+  historyIndex: number;
 }
 
 interface NodeStoreActions {
@@ -34,6 +38,7 @@ interface NodeStoreActions {
   executeCommandNode: (commandNodeId: string) => Promise<void>;
   updateNode: (id: string, updates: Partial<Node>) => void;
   deleteNode: (id: string) => void;
+  moveNode: (nodeId: string, targetParentId: string | null, targetIndex: number) => void;
   indentNode: (id: string) => void;
   outdentNode: (id: string) => void;
   toggleCollapse: (id: string) => void;
@@ -51,6 +56,8 @@ interface NodeStoreActions {
   initWithGuideData: () => void;
   /** v2.1: 应用 Supertag 到节点，可选自动填充默认内容模版 */
   applySupertag: (nodeId: string, supertagId: string, options?: { fillTemplateIfEmpty?: boolean }) => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 type NodeStore = NodeStoreState & NodeStoreActions;
@@ -64,6 +71,29 @@ const debouncedSave = debounce((nodes: Record<string, Node>, rootIds: string[]) 
   localStorage.setItem(getNodesKey(), JSON.stringify(nodes));
   localStorage.setItem(getRootIdsKey(), JSON.stringify(rootIds));
 }, 500);
+
+const pushCurrentToHistory = () => {
+  const state = useNodeStore.getState();
+  const snapshot = {
+    nodes: JSON.parse(JSON.stringify(state.nodes)),
+    rootIds: [...state.rootIds],
+  };
+  let { history, historyIndex } = state;
+  history = history.slice(0, historyIndex + 1);
+  history.push(snapshot);
+  if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+  useNodeStore.setState({ history, historyIndex: history.length - 1 });
+};
+
+const schedulePushHistory = debounce(pushCurrentToHistory, 300);
+
+const ensureHistoryBeforeMutation = () => {
+  const state = useNodeStore.getState();
+  if (state.history.length === 0) {
+    pushCurrentToHistory();
+  }
+  schedulePushHistory();
+};
 
 // ============ 数据库同步 API（通过 SyncStore 队列） ============
 
@@ -94,7 +124,7 @@ const queueCreateNode = (node: Node, sortOrder: number = 0) => {
 /**
  * 更新节点到数据库（通过同步队列，内置合并逻辑）
  */
-const queueUpdateNode = (nodeId: string, updates: Partial<Node>) => {
+const queueUpdateNode = (nodeId: string, updates: Partial<Node> & { sortOrder?: number }) => {
   const syncStore = useSyncStore.getState();
   
   syncStore.queueOperation({
@@ -109,6 +139,7 @@ const queueUpdateNode = (nodeId: string, updates: Partial<Node>) => {
       fields: updates.fields,
       payload: updates.payload,
       isCollapsed: updates.isCollapsed,
+      sortOrder: updates.sortOrder,
     },
   });
 };
@@ -180,8 +211,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   rootIds: [],
   focusedNodeId: null,
   hoistedNodeId: null,
+  history: [],
+  historyIndex: -1,
 
   addNode: (parentId, afterId) => {
+    ensureHistoryBeforeMutation();
     const newId = generateId();
     
     // 使用一个变量来存储实际创建的节点和父节点 ID
@@ -280,6 +314,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   addNodes: (newNodes, newRootIds, targetParentId, afterId) => {
+    ensureHistoryBeforeMutation();
     set((state) => {
       const mergedNodes = { ...state.nodes, ...newNodes };
       let mergedRootIds = [...state.rootIds];
@@ -317,6 +352,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   // 添加指令节点
   addCommandNode: (parentId, templateId, prompt, afterId) => {
+    ensureHistoryBeforeMutation();
     const newId = generateId();
     
     // 获取模板信息
@@ -563,6 +599,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   updateNode: (id, updates) => {
+    ensureHistoryBeforeMutation();
     set((state) => {
       const existingNode = state.nodes[id];
       if (!existingNode) return state;
@@ -576,6 +613,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   deleteNode: (id) => {
+    ensureHistoryBeforeMutation();
     // 收集要删除的节点 ID（在 set 外部收集，以便后续同步到数据库）
     const state = get();
     const nodesToDelete = new Set<string>();
@@ -611,7 +649,58 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     queueDeleteNode(id);
   },
 
+  moveNode: (nodeId, targetParentId, targetIndex) => {
+    ensureHistoryBeforeMutation();
+    set((state) => {
+      const node = state.nodes[nodeId];
+      if (!node) return state;
+
+      const sourceParentId = node.parentId;
+      const sourceSiblingIds = sourceParentId === null
+        ? state.rootIds
+        : (state.nodes[sourceParentId]?.childrenIds || []);
+      const targetSiblingIds = targetParentId === null
+        ? state.rootIds.filter((id) => id !== nodeId)
+        : (state.nodes[targetParentId]?.childrenIds || []).filter((id) => id !== nodeId);
+
+      const currentSourceIndex = sourceSiblingIds.indexOf(nodeId);
+      if (currentSourceIndex === -1) return state;
+
+      const newNodes = { ...state.nodes };
+      let newRootIds = [...state.rootIds];
+
+      const newTargetSiblingIds = [...targetSiblingIds];
+      newTargetSiblingIds.splice(Math.min(targetIndex, newTargetSiblingIds.length), 0, nodeId);
+
+      newNodes[nodeId] = { ...node, parentId: targetParentId };
+
+      if (sourceParentId === null) {
+        newRootIds = newRootIds.filter((id) => id !== nodeId);
+      } else if (newNodes[sourceParentId]) {
+        newNodes[sourceParentId] = {
+          ...newNodes[sourceParentId],
+          childrenIds: sourceSiblingIds.filter((id) => id !== nodeId),
+        };
+      }
+
+      if (targetParentId === null) {
+        newRootIds = newTargetSiblingIds;
+      } else if (newNodes[targetParentId]) {
+        newNodes[targetParentId] = {
+          ...newNodes[targetParentId],
+          childrenIds: newTargetSiblingIds,
+        };
+      }
+
+      debouncedSave(newNodes, newRootIds);
+      return { nodes: newNodes, rootIds: newRootIds };
+    });
+
+    queueUpdateNode(nodeId, { parentId: targetParentId, sortOrder: targetIndex } as Partial<Node> & { sortOrder: number });
+  },
+
   indentNode: (id) => {
+    ensureHistoryBeforeMutation();
     set((state) => {
       const targetNode = state.nodes[id];
       if (!targetNode) return state;
@@ -649,6 +738,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   outdentNode: (id) => {
+    ensureHistoryBeforeMutation();
     set((state) => {
       const targetNode = state.nodes[id];
       if (!targetNode || targetNode.parentId === null) return state;
@@ -1094,5 +1184,33 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }
 
     get().addNodes(newNodes, rootIds, nodeId);
+  },
+
+  undo: () => {
+    const state = get();
+    if (state.historyIndex <= 0) return;
+    const prevIndex = state.historyIndex - 1;
+    const snapshot = state.history[prevIndex];
+    if (!snapshot) return;
+    set({
+      nodes: JSON.parse(JSON.stringify(snapshot.nodes)),
+      rootIds: [...snapshot.rootIds],
+      historyIndex: prevIndex,
+    });
+    debouncedSave(snapshot.nodes, snapshot.rootIds);
+  },
+
+  redo: () => {
+    const state = get();
+    if (state.historyIndex < 0 || state.historyIndex >= state.history.length - 1) return;
+    const nextIndex = state.historyIndex + 1;
+    const snapshot = state.history[nextIndex];
+    if (!snapshot) return;
+    set({
+      nodes: JSON.parse(JSON.stringify(snapshot.nodes)),
+      rootIds: [...snapshot.rootIds],
+      historyIndex: nextIndex,
+    });
+    debouncedSave(snapshot.nodes, snapshot.rootIds);
   },
 }));

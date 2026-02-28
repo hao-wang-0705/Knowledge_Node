@@ -42,6 +42,7 @@ export interface UpdateNodeParams {
   type?: string;
   parentId?: string;
   childrenIds?: string[];
+  sortOrder?: number;
   isCollapsed?: boolean;
   fields?: Record<string, any>;
   supertagId?: string;

@@ -6,68 +6,64 @@ import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { registerSchema, type RegisterFormData } from '@/schemas/auth';
+import { Input } from '@/components/ui/input';
 
 export function RegisterForm() {
   const router = useRouter();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  const {
+    register,
+    handleSubmit,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<RegisterFormData>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
+    },
+  });
 
-    // 验证密码匹配
-    if (password !== confirmPassword) {
-      setError('两次输入的密码不一致');
-      return;
-    }
-
-    // 验证密码长度
-    if (password.length < 6) {
-      setError('密码长度至少为6位');
-      return;
-    }
-
-    setIsLoading(true);
-
+  const onSubmit = async (data: RegisterFormData) => {
     try {
-      // 注册
       const registerRes = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password,
+          name: data.name || undefined,
+        }),
       });
 
       const registerData = await registerRes.json();
 
       if (!registerRes.ok) {
-        setError(registerData.error || '注册失败');
+        setError('root', { message: registerData.error || '注册失败' });
         return;
       }
 
-      // 注册成功后自动登录
       const result = await signIn('credentials', {
-        email,
-        password,
+        email: data.email,
+        password: data.password,
         redirect: false,
       });
 
       if (result?.error) {
-        setError('注册成功，但自动登录失败，请手动登录');
+        setError('root', { message: '注册成功，但自动登录失败，请手动登录' });
         router.push('/login');
       } else {
         router.push('/');
         router.refresh();
       }
     } catch {
-      setError('注册失败，请稍后重试');
-    } finally {
-      setIsLoading(false);
+      setError('root', { message: '注册失败，请稍后重试' });
     }
   };
 
@@ -83,10 +79,10 @@ export function RegisterForm() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {error && (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          {errors.root && (
             <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
-              {error}
+              {errors.root.message}
             </div>
           )}
 
@@ -98,15 +94,14 @@ export function RegisterForm() {
               昵称 <span className="text-zinc-400">(可选)</span>
             </label>
             <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
-              <input
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400 pointer-events-none" />
+              <Input
                 id="name"
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] focus:border-transparent transition-all"
                 placeholder="您的昵称"
-                disabled={isLoading}
+                disabled={isSubmitting}
+                className="w-full pl-10 pr-4 py-3 rounded-lg border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 focus:ring-[var(--brand-primary)]"
+                {...register('name')}
               />
             </div>
           </div>
@@ -119,18 +114,19 @@ export function RegisterForm() {
               邮箱
             </label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
-              <input
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400 pointer-events-none" />
+              <Input
                 id="email"
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] focus:border-transparent transition-all"
                 placeholder="your@email.com"
-                required
-                disabled={isLoading}
+                disabled={isSubmitting}
+                className="w-full pl-10 pr-4 py-3 rounded-lg border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 focus:ring-[var(--brand-primary)]"
+                {...register('email')}
               />
             </div>
+            {errors.email && (
+              <p className="text-sm text-red-500 dark:text-red-400">{errors.email.message}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -141,16 +137,14 @@ export function RegisterForm() {
               密码
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
-              <input
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400 pointer-events-none" />
+              <Input
                 id="password"
                 type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-12 py-3 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] focus:border-transparent transition-all"
                 placeholder="至少6位字符"
-                required
-                disabled={isLoading}
+                disabled={isSubmitting}
+                className="w-full pl-10 pr-12 py-3 rounded-lg border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 focus:ring-[var(--brand-primary)]"
+                {...register('password')}
               />
               <button
                 type="button"
@@ -164,6 +158,9 @@ export function RegisterForm() {
                 )}
               </button>
             </div>
+            {errors.password && (
+              <p className="text-sm text-red-500 dark:text-red-400">{errors.password.message}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -174,27 +171,30 @@ export function RegisterForm() {
               确认密码
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
-              <input
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400 pointer-events-none" />
+              <Input
                 id="confirmPassword"
                 type={showPassword ? 'text' : 'password'}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] focus:border-transparent transition-all"
                 placeholder="再次输入密码"
-                required
-                disabled={isLoading}
+                disabled={isSubmitting}
+                className="w-full pl-10 pr-4 py-3 rounded-lg border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 focus:ring-[var(--brand-primary)]"
+                {...register('confirmPassword')}
               />
             </div>
+            {errors.confirmPassword && (
+              <p className="text-sm text-red-500 dark:text-red-400">
+                {errors.confirmPassword.message}
+              </p>
+            )}
           </div>
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isSubmitting}
             className="w-full py-3 px-4 text-white font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:opacity-90"
             style={{ backgroundColor: 'var(--brand-primary)' }}
           >
-            {isLoading ? (
+            {isSubmitting ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
                 注册中...

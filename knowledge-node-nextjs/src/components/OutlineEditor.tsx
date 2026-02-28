@@ -1,6 +1,16 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { FileText, Calendar, ChevronRight, Book, X, Hash, Plus } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { Button } from '@/components/ui/button';
@@ -12,6 +22,8 @@ import { useNotebookStore } from '@/stores/notebookStore';
 import { useSyncStore } from '@/stores/syncStore';
 import { useAuthErrorHandler } from '@/hooks/useAuthErrorHandler';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useSyncFeedback } from '@/hooks/useSyncFeedback';
+import { useShortcuts } from '@/hooks/useShortcuts';
 import NodeComponent from './NodeComponent';
 import FieldEditor from './FieldEditor';
 import Sidebar from './Sidebar';
@@ -36,6 +48,15 @@ const OutlineEditor: React.FC = () => {
   
   // 初始化网络状态检测
   useNetworkStatus();
+  // 同步状态 Toast 反馈
+  useSyncFeedback();
+  // 全局 Undo/Redo 快捷键（Mac: Cmd，Windows/Linux: Ctrl）
+  useShortcuts([
+    { key: 'z', modifiers: ['meta'], handler: () => undo() },
+    { key: 'z', modifiers: ['meta', 'shift'], handler: () => redo() },
+    { key: 'z', modifiers: ['ctrl'], handler: () => undo() },
+    { key: 'z', modifiers: ['ctrl', 'shift'], handler: () => redo() },
+  ]);
   
   // 同步状态
   const pendingOperations = useSyncStore((state) => state.pendingOperations);
@@ -50,6 +71,9 @@ const OutlineEditor: React.FC = () => {
   const getNodePath = useNodeStore((state) => state.getNodePath);
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
   
+  const moveNode = useNodeStore((state) => state.moveNode);
+  const undo = useNodeStore((state) => state.undo);
+  const redo = useNodeStore((state) => state.redo);
   const loadSupertagsFromAPI = useSupertagStore((state) => state.loadFromAPI);
   const supertags = useSupertagStore((state) => state.supertags);
   const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
@@ -63,6 +87,34 @@ const OutlineEditor: React.FC = () => {
   
   // 认证错误处理
   const { withAuthErrorHandler } = useAuthErrorHandler();
+
+  // 拖拽传感器
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor)
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const draggedNode = nodes[active.id as string];
+      const overNode = nodes[over.id as string];
+      if (!draggedNode || !overNode) return;
+
+      const parentId = draggedNode.parentId;
+      if (overNode.parentId !== parentId) return;
+
+      const siblings = parentId === null ? rootIds : nodes[parentId]?.childrenIds ?? [];
+      const oldIndex = siblings.indexOf(active.id as string);
+      const newIndex = siblings.indexOf(over.id as string);
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+      moveNode(active.id as string, parentId, newIndex);
+    },
+    [nodes, rootIds, moveNode]
+  );
 
   // 初始化加载数据
   useEffect(() => {
@@ -270,7 +322,7 @@ const OutlineEditor: React.FC = () => {
                   <FileText size={18} className="text-white" />
                 </div>
                 <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-                  知识节点
+                  {BRAND.name}
                 </h1>
               </div>
 
@@ -468,15 +520,19 @@ const OutlineEditor: React.FC = () => {
               </div>
 
               {/* 节点列表 */}
-              <div className="space-y-1">
+              <div
+                className="space-y-1"
+                role="tree"
+                aria-label="大纲"
+              >
                 {displayedNodeIds.length > 0 ? (
-                  displayedNodeIds.map((nodeId) => (
-                    <NodeComponent
-                      key={nodeId}
-                      nodeId={nodeId}
-                      depth={0}
-                    />
-                  ))
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                    <SortableContext items={displayedNodeIds} strategy={verticalListSortingStrategy}>
+                      {displayedNodeIds.map((nodeId) => (
+                        <NodeComponent key={nodeId} nodeId={nodeId} depth={0} siblingIds={displayedNodeIds} />
+                      ))}
+                    </SortableContext>
+                  </DndContext>
                 ) : (
                   <div className="text-center py-12">
                     <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">

@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useRef, useEffect, memo, useCallback, useState } from 'react';
+import React, { useRef, useEffect, memo, useCallback, useState, useMemo } from 'react';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -10,22 +13,25 @@ import ContextMenu from './ContextMenu';
 import MentionPopover from './MentionPopover';
 import UnifiedTagSelector from './UnifiedTagSelector';
 import CommandConfigModal from './CommandConfigModal';
+import { SlashCommandPopover, filterSlashCommands, type SlashCommandItem } from './SlashCommandPopover';
 import { NodeReference, CommandConfig } from '@/types';
 import BacklinksBadge from './BacklinksBadge';
 import { createReferenceText, hasReferences } from '@/utils/reference-helpers';
-import { analyzeNavigationTarget } from '@/utils/navigation';
+import { analyzeNavigationTarget, getNextNodeId, getPrevNodeId } from '@/utils/navigation';
 import { getTemplateById } from '@/utils/command-templates';
 import { useNodeCommand } from '@/hooks/useNodeCommand';
+import { useToastActions } from '@/components/ui/toast';
 import { NodeActions, NodeCommand, NodeContent, NodeFields, NodeReferences } from './node';
 
 interface NodeComponentProps {
   nodeId: string;
   depth: number;
+  siblingIds?: string[];
   onFocusPrevious?: () => void;
   onFocusNext?: () => void;
 }
 
-const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFocusPrevious, onFocusNext }) => {
+const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, siblingIds, onFocusPrevious, onFocusNext }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [showTagSelector, setShowTagSelector] = useState(false);
   const [tagSelectorPosition, setTagSelectorPosition] = useState({ x: 0, y: 0 });  // 标签选择器位置
@@ -36,6 +42,10 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const [selectedTagIndex, setSelectedTagIndex] = useState(0); // 标签选择索引
   const [showMentionPopover, setShowMentionPopover] = useState(false); // @ 引用弹窗
   const [mentionPosition, setMentionPosition] = useState({ x: 0, y: 0 }); // 引用弹窗位置
+  const [showSlashCommand, setShowSlashCommand] = useState(false); // / 块级命令
+  const [slashCommandPosition, setSlashCommandPosition] = useState({ x: 0, y: 0 });
+  const [slashCommandSearch, setSlashCommandSearch] = useState('');
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [isEditing, setIsEditing] = useState(false); // 是否正在编辑
   const [localContent, setLocalContent] = useState(''); // 本地编辑内容
 
@@ -61,6 +71,20 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const getRecentTags = useSupertagStore((state) => state.getRecentTags);
 
   const nodeCommand = useNodeCommand(nodeId);
+  const toast = useToastActions();
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: nodeId, data: { nodeId, parentId: node?.parentId } });
+
+  const style = transform
+    ? { transform: CSS.Transform.toString(transform), transition }
+    : undefined;
 
   // 当此节点获得焦点时，聚焦 contentEditable
   const isFocused = focusedNodeId === nodeId;
@@ -98,16 +122,25 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   // 关闭右键菜单当点击其他地方时
   useEffect(() => {
     const handleGlobalClick = () => {
-      if (contextMenu) {
-        setContextMenu(null);
-      }
+      if (contextMenu) setContextMenu(null);
     };
-
     if (contextMenu) {
       document.addEventListener('click', handleGlobalClick);
       return () => document.removeEventListener('click', handleGlobalClick);
     }
   }, [contextMenu]);
+
+  // 关闭 / 块级命令当点击外部时
+  useEffect(() => {
+    if (!showSlashCommand) return;
+    const handle = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-slash-command-popover]') || target.closest('[contenteditable="true"]')) return;
+      setShowSlashCommand(false);
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [showSlashCommand]);
 
   // 保存光标位置
   const saveCursorPosition = useCallback(() => {
@@ -188,18 +221,28 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           
           // @ 触发引用选择 (保持不变)
           if (textBeforeCursor.endsWith('@')) {
-            // 获取光标位置
             const mentionRect = range.getBoundingClientRect();
-            setMentionPosition({
-              x: mentionRect.left,
-              y: mentionRect.bottom + 4,
-            });
+            setMentionPosition({ x: mentionRect.left, y: mentionRect.bottom + 4 });
             setShowMentionPopover(true);
+          } else if (showMentionPopover) {
+            setShowMentionPopover(false);
+          }
+
+          // / 触发块级命令
+          const slashMatch = textBeforeCursor.match(/\/([^\s/]*)$/);
+          if (slashMatch) {
+            const rect = range.getBoundingClientRect();
+            setSlashCommandPosition({ x: rect.left - 8, y: rect.bottom + 4 });
+            setSlashCommandSearch(slashMatch[1] || '');
+            setSelectedSlashIndex(0);
+            setShowSlashCommand(true);
+          } else if (showSlashCommand) {
+            setShowSlashCommand(false);
           }
         }
       }
     }
-  }, [nodeId, node?.content, updateNode, saveCursorPosition, isComposing, showTagSelector]);
+  }, [nodeId, node?.content, updateNode, saveCursorPosition, isComposing, showTagSelector, showMentionPopover, showSlashCommand]);
 
   // 中文输入法组合开始
   const handleCompositionStart = useCallback(() => {
@@ -257,6 +300,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     setShowTagSelector(false);
     setSelectedTagIndex(0);
     setTagSearchTerm('');
+    toast.success('标签已添加');
   }, [node, nodeId, updateNode, supertags, getResolvedFieldDefinitions]);
 
   // 统一标签选择器回调 - 选择标签
@@ -324,9 +368,70 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     setTimeout(() => contentRef.current?.focus(), 50);
   }, [node]);
 
+  const filteredSlashCommands = useMemo(
+    () => filterSlashCommands(slashCommandSearch),
+    [slashCommandSearch]
+  );
+
+  const handleSlashCommandSelect = useCallback(
+    (cmd: SlashCommandItem) => {
+      if (!contentRef.current || !node) return;
+      const content = contentRef.current.textContent || '';
+      const newContent = content.replace(/\/[^\s/]*$/, '').trimEnd();
+      contentRef.current.textContent = newContent;
+      setLocalContent(newContent);
+      updateNode(nodeId, { content: newContent });
+      setShowSlashCommand(false);
+      setSlashCommandSearch('');
+      if (cmd.id === 'tag') {
+        const rect = contentRef.current.getBoundingClientRect();
+        setTagSelectorPosition({ x: rect.right - 80, y: rect.bottom + 4 });
+        setTagSearchTerm('');
+        setShowTagSelector(true);
+      } else if (cmd.id === 'ref') {
+        const rect = contentRef.current.getBoundingClientRect();
+        setMentionPosition({ x: rect.left, y: rect.bottom + 4 });
+        setShowMentionPopover(true);
+      } else if (cmd.id === 'child') {
+        if (node.isCollapsed) updateNode(nodeId, { isCollapsed: false });
+        addNode(nodeId);
+        toast.success('子节点已添加');
+      } else if (cmd.id === 'ai') {
+        contentRef.current.textContent = '/ai ';
+        setLocalContent('/ai ');
+        updateNode(nodeId, { content: '/ai ' });
+        nodeCommand.openCommandConfigAndDeleteCurrentAfterCreate();
+      }
+      setTimeout(() => contentRef.current?.focus(), 50);
+    },
+    [node, nodeId, updateNode, addNode, toast, nodeCommand]
+  );
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // 如果正在进行中文输入法组合，不处理快捷键
     if (isComposing) return;
+
+    if (showSlashCommand) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSlashIndex((i) => Math.min(i + 1, filteredSlashCommands.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSlashIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === 'Enter' && filteredSlashCommands[selectedSlashIndex]) {
+        e.preventDefault();
+        handleSlashCommandSelect(filteredSlashCommands[selectedSlashIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowSlashCommand(false);
+        return;
+      }
+    }
     
     // 标签选择器打开时的键盘导航
     if (showTagSelector) {
@@ -404,25 +509,43 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       const content = contentRef.current?.textContent || '';
       if (content === '') {
         e.preventDefault();
-        // 如果内容为空，删除节点并聚焦上一个
         const siblings = node?.parentId === null ? rootIds : (nodes[node?.parentId || '']?.childrenIds || []);
         const currentIndex = siblings.indexOf(nodeId);
         
         if (currentIndex > 0) {
-          // 聚焦上一个兄弟节点
           setFocusedNode(siblings[currentIndex - 1]);
         } else if (node?.parentId) {
-          // 聚焦父节点
           setFocusedNode(node.parentId);
         }
         
         deleteNode(nodeId);
+        toast.success('节点已删除');
       }
     } else if (e.key === 'Escape') {
       setShowTagSelector(false);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const sel = window.getSelection();
+      const content = contentRef.current?.textContent ?? '';
+      if (sel && sel.rangeCount > 0 && contentRef.current) {
+        const range = sel.getRangeAt(0);
+        const isCursorAtEnd = range.endOffset >= content.length;
+        const isCursorAtStart = range.startOffset === 0 && range.endOffset === 0;
+        if (e.key === 'ArrowDown' && isCursorAtEnd) {
+          const nextId = getNextNodeId(nodeId, nodes, rootIds);
+          if (nextId) {
+            e.preventDefault();
+            setFocusedNode(nextId);
+          }
+        } else if (e.key === 'ArrowUp' && isCursorAtStart) {
+          const prevId = getPrevNodeId(nodeId, nodes, rootIds);
+          if (prevId) {
+            e.preventDefault();
+            setFocusedNode(prevId);
+          }
+        }
+      }
     }
-    // 注意：移除了 ArrowUp/ArrowDown 的拦截，让光标可以在文本内自由移动
-  }, [node, nodeId, rootIds, nodes, addNode, addCommandNode, updateNode, indentNode, outdentNode, deleteNode, setFocusedNode, saveCursorPosition, isComposing, showTagSelector, supertags, selectedTagIndex, handleAddTag, nodeCommand]);
+  }, [node, nodeId, rootIds, nodes, addNode, addCommandNode, updateNode, indentNode, outdentNode, deleteNode, setFocusedNode, saveCursorPosition, isComposing, showTagSelector, showSlashCommand, filteredSlashCommands, selectedSlashIndex, handleSlashCommandSelect, supertags, selectedTagIndex, handleAddTag, nodeCommand, toast]);
 
   const handleFocus = useCallback(() => {
     setFocusedNode(nodeId);
@@ -446,41 +569,40 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     setContextMenu(null);
   }, []);
 
-  const handleDeleteFromContext = useCallback(() => {
-    // 找到要聚焦的节点
+  const handleDeleteFromContext = useCallback((options?: { skipToast?: boolean }) => {
     const siblings = node?.parentId === null ? rootIds : (nodes[node?.parentId || '']?.childrenIds || []);
     const currentIndex = siblings.indexOf(nodeId);
     
     if (currentIndex > 0) {
-      // 聚焦上一个兄弟节点
       setFocusedNode(siblings[currentIndex - 1]);
     } else if (currentIndex < siblings.length - 1) {
-      // 聚焦下一个兄弟节点
       setFocusedNode(siblings[currentIndex + 1]);
     } else if (node?.parentId) {
-      // 聚焦父节点
       setFocusedNode(node.parentId);
     } else {
       setFocusedNode(null);
     }
     
     deleteNode(nodeId);
-  }, [node, nodeId, rootIds, nodes, deleteNode, setFocusedNode]);
+    if (!options?.skipToast) {
+      toast.success('节点已删除');
+    }
+  }, [node, nodeId, rootIds, nodes, deleteNode, setFocusedNode, toast]);
 
   const handleCopyNode = useCallback(() => {
     if (node) {
-      // 复制节点内容到剪贴板
       navigator.clipboard.writeText(node.content);
+      toast.success('已复制');
     }
-  }, [node]);
+  }, [node, toast]);
 
   const handleCutNode = useCallback(() => {
     if (node) {
-      // 复制到剪贴板然后删除
       navigator.clipboard.writeText(node.content);
-      handleDeleteFromContext();
+      handleDeleteFromContext({ skipToast: true });
+      toast.success('已剪切');
     }
-  }, [node, handleDeleteFromContext]);
+  }, [node, handleDeleteFromContext, toast]);
 
   const handleAddTagFromContext = useCallback(() => {
     setShowTagSelector(true);
@@ -496,12 +618,12 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
 
   // 添加子节点
   const handleAddChild = useCallback(() => {
-    // 确保父节点展开
     if (node?.isCollapsed) {
       updateNode(nodeId, { isCollapsed: false });
     }
-    addNode(nodeId); // parentId 是当前节点，没有 afterId 表示添加到末尾
-  }, [nodeId, node?.isCollapsed, updateNode, addNode]);
+    addNode(nodeId);
+    toast.success('子节点已添加');
+  }, [nodeId, node?.isCollapsed, updateNode, addNode, toast]);
 
   // 从右键菜单触发引用插入
   const handleInsertReferenceFromContext = useCallback(() => {
@@ -657,11 +779,20 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   }, [nodeId, hasChildren, node.isCollapsed, addNode, toggleCollapse, setFocusedNode]);
 
   return (
-    <div className="node-container">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="node-container"
+      role="treeitem"
+      aria-expanded={node.childrenIds.length > 0 ? !node.isCollapsed : undefined}
+      aria-selected={isFocused}
+      tabIndex={isFocused ? 0 : -1}
+    >
       {/* 节点主行 - 标题和标签 */}
       <div
         className={cn(
           "node-row group flex items-start py-1 px-2 rounded-lg transition-all duration-150",
+          isDragging && "opacity-50 shadow-lg",
           // AI 指令节点特殊样式
           isCommandNode 
             ? cn(
@@ -686,6 +817,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           hasNodeTags={nodeTags.length > 0}
           onCollapseClick={handleCollapseClick}
           onBulletClick={handleBulletClick}
+          dragHandleProps={{ ...attributes, ...listeners }}
         />
 
         {/* 内容区域 - 智能布局：标签与文本同行，空间不足时自然换行 */}
@@ -787,13 +919,11 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           </div>
           {/* AI 生成的子节点（可编辑） */}
           <div className="border-l-2 border-purple-200 dark:border-purple-700 ml-2 pl-1 rounded-bl-lg">
-            {node.childrenIds.map((childId) => (
-              <NodeComponent
-                key={childId}
-                nodeId={childId}
-                depth={depth + 1}
-              />
-            ))}
+            <SortableContext items={node.childrenIds} strategy={verticalListSortingStrategy}>
+              {node.childrenIds.map((childId) => (
+                <NodeComponent key={childId} nodeId={childId} depth={depth + 1} siblingIds={node.childrenIds} />
+              ))}
+            </SortableContext>
           </div>
         </div>
       )}
@@ -801,13 +931,11 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       {/* 普通节点的子节点区域 */}
       {!isCommandNode && hasChildren && !node.isCollapsed && (
         <div className="children-container mt-1">
-          {node.childrenIds.map((childId) => (
-            <NodeComponent
-              key={childId}
-              nodeId={childId}
-              depth={depth + 1}
-            />
-          ))}
+          <SortableContext items={node.childrenIds} strategy={verticalListSortingStrategy}>
+            {node.childrenIds.map((childId) => (
+              <NodeComponent key={childId} nodeId={childId} depth={depth + 1} siblingIds={node.childrenIds} />
+            ))}
+          </SortableContext>
         </div>
       )}
 
@@ -858,6 +986,15 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         initialSearchTerm={tagSearchTerm}
         excludeTagIds={node?.tags || []}
         recentTags={getRecentTags(5)}
+      />
+
+      {/* / 块级命令 */}
+      <SlashCommandPopover
+        open={showSlashCommand}
+        position={slashCommandPosition}
+        commands={filteredSlashCommands}
+        selectedIndex={selectedSlashIndex}
+        onSelect={handleSlashCommandSelect}
       />
       
       {/* AI 指令配置弹窗 */}

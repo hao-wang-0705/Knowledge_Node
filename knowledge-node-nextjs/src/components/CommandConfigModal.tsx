@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { customPromptSchema } from '@/schemas/command';
 import { Sparkles, FileText, Zap, Brain, PenTool, ChevronRight, Check } from 'lucide-react';
 import {
   Dialog,
@@ -50,10 +51,12 @@ const CommandConfigModal: React.FC<CommandConfigModalProps> = ({
     initialConfig?.templateId
   );
   const [customPrompt, setCustomPrompt] = useState(initialConfig?.prompt || '');
+  const [customPromptError, setCustomPromptError] = useState<string | null>(null);
 
   // 初始化状态
   useEffect(() => {
     if (open) {
+      setCustomPromptError(null);
       if (initialConfig?.templateId) {
         setActiveTab('template');
         setSelectedTemplateId(initialConfig.templateId);
@@ -76,19 +79,26 @@ const CommandConfigModal: React.FC<CommandConfigModalProps> = ({
   const categories = getTemplateCategories();
 
   const handleConfirm = useCallback(() => {
+    setCustomPromptError(null);
     if (activeTab === 'template' && selectedTemplateId) {
       const template = getTemplateById(selectedTemplateId);
       onConfirm({
         templateId: selectedTemplateId,
         prompt: template?.prompt || '',
       });
-    } else {
-      onConfirm({
-        templateId: undefined,
-        prompt: customPrompt,
-      });
+      onClose();
+      return;
     }
-    onClose();
+    if (activeTab === 'custom') {
+      const result = customPromptSchema.safeParse({ customPrompt: customPrompt.trim() });
+      if (!result.success) {
+        const firstIssue = result.error.issues[0];
+        setCustomPromptError(firstIssue?.message ?? '请输入自定义指令内容');
+        return;
+      }
+      onConfirm({ templateId: undefined, prompt: result.data.customPrompt });
+      onClose();
+    }
   }, [activeTab, selectedTemplateId, customPrompt, onConfirm, onClose]);
 
   const currentTemplates = getTemplatesByCategory(
@@ -234,7 +244,10 @@ const CommandConfigModal: React.FC<CommandConfigModalProps> = ({
               </label>
               <Textarea
                 value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
+                onChange={(e) => {
+                  setCustomPrompt(e.target.value);
+                  setCustomPromptError(null);
+                }}
                 placeholder="输入你的 AI 指令...
 
 例如：
@@ -242,11 +255,14 @@ const CommandConfigModal: React.FC<CommandConfigModalProps> = ({
 - 根据上下文生成待办事项
 - 分析这些数据并给出建议
 
-支持使用变量：
+                支持使用变量：
 {{context}} - 当前节点及子节点内容
 {{date}} - 当前日期"
                 className="flex-1 min-h-[200px] resize-none"
               />
+              {customPromptError && (
+                <p className="mt-2 text-sm text-red-500 dark:text-red-400">{customPromptError}</p>
+              )}
               <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                 提示：使用 <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{'{{context}}'}</code> 引用节点内容
               </div>

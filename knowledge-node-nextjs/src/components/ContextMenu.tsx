@@ -179,9 +179,18 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     },
   ];
 
+  useEffect(() => {
+    if (isVisible && menuRef.current) {
+      const firstBtn = menuRef.current.querySelector('button:not([disabled])') as HTMLElement;
+      firstBtn?.focus();
+    }
+  }, [isVisible]);
+
   return (
     <div
       ref={menuRef}
+      role="menu"
+      aria-label="节点操作"
       className={cn(
         "fixed z-[9999] min-w-[200px] max-w-[280px]",
         "bg-white dark:bg-gray-800",
@@ -216,6 +225,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         return (
           <button
             key={index}
+            role="menuitem"
             onClick={() => {
               if (item.enabled && item.onClick) {
                 item.onClick();
