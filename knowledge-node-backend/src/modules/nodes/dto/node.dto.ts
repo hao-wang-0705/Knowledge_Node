@@ -52,6 +52,16 @@ export class CreateNodeDto {
   @IsString()
   @IsOptional()
   supertagId?: string;
+
+  @ApiPropertyOptional({ description: '树域 scope (ADR-005)', enum: ['general', 'daily', 'notebook'] })
+  @IsString()
+  @IsOptional()
+  scope?: string;
+
+  @ApiPropertyOptional({ description: '笔记本ID，scope=notebook 时必填' })
+  @IsString()
+  @IsOptional()
+  notebookId?: string;
 }
 
 export class UpdateNodeDto {
@@ -94,6 +104,16 @@ export class UpdateNodeDto {
   @IsString()
   @IsOptional()
   supertagId?: string;
+
+  @ApiPropertyOptional({ description: '树域 scope (ADR-005)' })
+  @IsString()
+  @IsOptional()
+  scope?: string;
+
+  @ApiPropertyOptional({ description: '笔记本ID' })
+  @IsString()
+  @IsOptional()
+  notebookId?: string;
 }
 
 export class BatchUpdateNodesDto {

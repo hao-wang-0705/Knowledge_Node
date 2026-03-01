@@ -280,6 +280,14 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         `[SyncStore] 队列处理完成: 成功 ${successCount}, 失败 ${failCount}, 耗时 ${duration}ms`
       );
 
+      // 同步过程中可能新增了 pending 操作（例如结构调整批量入队），继续 drain 队列直到清空
+      const hasPendingOps = get().pendingOperations.some((op) => op.status === 'pending');
+      if (get().isOnline && hasPendingOps) {
+        setTimeout(() => {
+          get().processQueue();
+        }, 0);
+      }
+
       // 3秒后如果状态是 synced，自动切换到 idle
       if (get().status === 'synced') {
         setTimeout(() => {

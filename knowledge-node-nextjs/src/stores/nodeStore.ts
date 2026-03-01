@@ -44,8 +44,9 @@ interface NodeStoreActions {
   goToToday: () => void;
   goToRoot: () => void;
   getNodePath: (nodeId: string) => Node[];
-  loadFromStorage: () => void;
+  loadFromStorage: () => void | Promise<void>;
   loadFromAPI: () => Promise<void>;
+  mergeNotebookTree: (notebookId: string) => Promise<void>;
   saveToStorage: () => void;
   initWithMockData: () => void;
   initWithGuideData: () => void;
@@ -94,7 +95,7 @@ const queueCreateNode = (node: Node, sortOrder: number = 0) => {
 /**
  * 更新节点到数据库（通过同步队列，内置合并逻辑）
  */
-const queueUpdateNode = (nodeId: string, updates: Partial<Node>) => {
+const queueUpdateNode = (nodeId: string, updates: Partial<Node> & { sortOrder?: number }) => {
   const syncStore = useSyncStore.getState();
   
   syncStore.queueOperation({
@@ -127,24 +128,43 @@ const queueDeleteNode = (nodeId: string) => {
   });
 };
 
-/** 从数据库加载节点 */
+/**
+ * 将指定父节点下的兄弟节点顺序同步到数据库。
+ * 约束：数据库层采用 parentId + sortOrder 表示层级与顺序，需确保其与前端 childrenIds 一致。
+ */
+const queueSortOrderSyncForParent = (
+  parentId: string | null,
+  nodes: Record<string, Node>,
+  rootIds: string[],
+  skipNodeIds: Set<string> = new Set()
+) => {
+  const siblingIds =
+    parentId === null ? rootIds : nodes[parentId]?.childrenIds ?? [];
+
+  siblingIds.forEach((siblingId, index) => {
+    if (skipNodeIds.has(siblingId)) return;
+    queueUpdateNode(siblingId, { parentId, sortOrder: index });
+  });
+};
+
+/** 从数据库加载节点（ADR-005：默认仅拉取日历/通用树，后端已按 scope 排除 notebook） */
 const loadNodesFromDB = async (): Promise<{ nodes: Record<string, Node>; rootIds: string[] } | null> => {
   try {
-    const res = await fetch('/api/nodes');
-    if (!res.ok) {
-      const data = await res.json();
+    const nodesRes = await fetch('/api/nodes');
+
+    if (!nodesRes.ok) {
+      const data = await nodesRes.json();
       console.error('[loadNodesFromDB] Failed:', data.error);
       return null;
     }
-    const data = await res.json();
+    const data = await nodesRes.json();
     if (!data.success || !Array.isArray(data.data)) {
       return null;
     }
-    
-    // 转换为前端格式
+
     const nodes: Record<string, Node> = {};
     const rootIds: string[] = [];
-    
+
     for (const node of data.data) {
       nodes[node.id] = {
         id: node.id,
@@ -155,20 +175,62 @@ const loadNodesFromDB = async (): Promise<{ nodes: Record<string, Node>; rootIds
         isCollapsed: node.isCollapsed,
         tags: node.tags || [],
         supertagId: node.supertagId,
+        scope: node.scope,
+        notebookId: node.notebookId,
         fields: node.fields || {},
         payload: node.payload,
         createdAt: node.createdAt,
         updatedAt: node.updatedAt,
       };
-      
+
       if (!node.parentId) {
         rootIds.push(node.id);
       }
     }
-    
+
     return { nodes, rootIds };
   } catch (error) {
     console.error('[loadNodesFromDB] Error:', error);
+    return null;
+  }
+};
+
+/** 加载指定笔记本树并合并到 store（ADR-005） */
+const loadNotebookTreeFromDB = async (
+  notebookId: string
+): Promise<{ nodes: Record<string, Node>; rootId: string | null } | null> => {
+  try {
+    const res = await fetch(`/api/nodes?scope=notebook&notebookId=${encodeURIComponent(notebookId)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.success || !Array.isArray(data.data)) return null;
+
+    const nodes: Record<string, Node> = {};
+    let rootId: string | null = null;
+
+    for (const node of data.data) {
+      nodes[node.id] = {
+        id: node.id,
+        content: node.content,
+        type: node.type,
+        parentId: node.parentId,
+        childrenIds: node.childrenIds || [],
+        isCollapsed: node.isCollapsed,
+        tags: node.tags || [],
+        supertagId: node.supertagId,
+        scope: node.scope,
+        notebookId: node.notebookId,
+        fields: node.fields || {},
+        payload: node.payload,
+        createdAt: node.createdAt,
+        updatedAt: node.updatedAt,
+      };
+      if (!node.parentId) rootId = node.id;
+    }
+
+    return { nodes, rootId };
+  } catch (error) {
+    console.error('[loadNotebookTreeFromDB] Error:', error);
     return null;
   }
 };
@@ -274,6 +336,12 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         ? updatedState.nodes[resolvedParentId]?.childrenIds.indexOf(newId) ?? 0
         : updatedState.rootIds.indexOf(newId);
       queueCreateNode(createdNode, sortOrder);
+      queueSortOrderSyncForParent(
+        resolvedParentId,
+        updatedState.nodes,
+        updatedState.rootIds,
+        new Set([newId])
+      );
     }
 
     return newId;
@@ -586,9 +654,12 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     };
     collectNodesToDelete(id);
     
+    let oldParentId: string | null = null;
+
     set((state) => {
       const targetNode = state.nodes[id];
       if (!targetNode) return state;
+      oldParentId = targetNode.parentId;
 
       const newNodes = { ...state.nodes };
       nodesToDelete.forEach((nodeId) => delete newNodes[nodeId]);
@@ -609,9 +680,17 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     
     // 异步同步删除到数据库（通过同步队列，只删除根节点，子节点由数据库级联删除）
     queueDeleteNode(id);
+
+    // 同步删除后的同级顺序，避免 sortOrder 与前端结构漂移
+    const updatedState = get();
+    queueSortOrderSyncForParent(oldParentId, updatedState.nodes, updatedState.rootIds);
   },
 
   indentNode: (id) => {
+    let oldParentId: string | null = null;
+    let newParentId: string | null = null;
+    let moved = false;
+
     set((state) => {
       const targetNode = state.nodes[id];
       if (!targetNode) return state;
@@ -623,12 +702,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       const currentIndex = siblings.indexOf(id);
       if (currentIndex <= 0) return state;
 
-      const newParentId = siblings[currentIndex - 1];
-      const newParent = state.nodes[newParentId];
+      const nextParentId = siblings[currentIndex - 1];
+      const newParent = state.nodes[nextParentId];
       if (!newParent) return state;
 
       const newNodes = { ...state.nodes };
       let newRootIds = [...state.rootIds];
+      oldParentId = targetNode.parentId;
+      newParentId = nextParentId;
+      moved = true;
 
       newNodes[id] = { ...targetNode, parentId: newParentId };
       newNodes[newParentId] = { ...newParent, childrenIds: [...newParent.childrenIds, id] };
@@ -646,9 +728,27 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       debouncedSave(newNodes, newRootIds);
       return { nodes: newNodes, rootIds: newRootIds };
     });
+
+    if (!moved) return;
+
+    const updatedState = get();
+    const movedSortOrder = newParentId
+      ? updatedState.nodes[newParentId]?.childrenIds.indexOf(id) ?? 0
+      : updatedState.rootIds.indexOf(id);
+
+    queueUpdateNode(id, { parentId: newParentId, sortOrder: movedSortOrder });
+
+    const syncParentIds = new Set<string | null>([oldParentId, newParentId]);
+    syncParentIds.forEach((parentId) => {
+      queueSortOrderSyncForParent(parentId, updatedState.nodes, updatedState.rootIds, new Set([id]));
+    });
   },
 
   outdentNode: (id) => {
+    let oldParentId: string | null = null;
+    let newParentId: string | null = null;
+    let moved = false;
+
     set((state) => {
       const targetNode = state.nodes[id];
       if (!targetNode || targetNode.parentId === null) return state;
@@ -658,8 +758,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
       const newNodes = { ...state.nodes };
       let newRootIds = [...state.rootIds];
+      oldParentId = targetNode.parentId;
 
-      const newParentId = parentNode.parentId;
+      newParentId = parentNode.parentId;
+      moved = true;
       newNodes[id] = { ...targetNode, parentId: newParentId };
       newNodes[targetNode.parentId] = {
         ...parentNode,
@@ -679,6 +781,20 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
       debouncedSave(newNodes, newRootIds);
       return { nodes: newNodes, rootIds: newRootIds };
+    });
+
+    if (!moved) return;
+
+    const updatedState = get();
+    const movedSortOrder = newParentId
+      ? updatedState.nodes[newParentId]?.childrenIds.indexOf(id) ?? 0
+      : updatedState.rootIds.indexOf(id);
+
+    queueUpdateNode(id, { parentId: newParentId, sortOrder: movedSortOrder });
+
+    const syncParentIds = new Set<string | null>([oldParentId, newParentId]);
+    syncParentIds.forEach((parentId) => {
+      queueSortOrderSyncForParent(parentId, updatedState.nodes, updatedState.rootIds, new Set([id]));
     });
   },
 
@@ -874,29 +990,21 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     
     // 判断网络状态，决定加载策略
     if (syncStore.isOnline) {
-      // ====== 在线模式：数据库优先 ======
+      // ====== 在线模式：数据库优先（可 await，ADR-005） ======
       syncStore.setStatus('syncing');
-      
-      // 异步从数据库加载（数据库优先）
-      setTimeout(async () => {
+      return (async () => {
         try {
           const dbData = await loadNodesFromDB();
-          
+
           if (dbData && Object.keys(dbData.nodes).length > 0) {
             console.log('[NodeStore] 从数据库加载数据:', { nodesCount: Object.keys(dbData.nodes).length });
             set({ nodes: dbData.nodes, rootIds: dbData.rootIds });
-            
-            // 初始化日历节点 ID 映射
             initCalendarNodeIdMap(dbData.nodes);
-            
-            // 更新 localStorage 缓存
             localStorage.setItem(getNodesKey(), JSON.stringify(dbData.nodes));
             localStorage.setItem(getRootIdsKey(), JSON.stringify(dbData.rootIds));
-            
             syncStore.setStatus('synced');
           } else {
             console.log('[NodeStore] 数据库无数据，清空本地缓存以保持一致');
-
             clearClientCaches({ clearUserIdentity: false, clearQueryCache: true });
             syncStore.clearQueue();
             set({ nodes: {}, rootIds: [], hoistedNodeId: null, focusedNodeId: null });
@@ -908,27 +1016,20 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           console.error('[NodeStore] 数据库加载失败:', error);
           syncStore.setStatus('error');
           syncStore.setError('数据库连接失败，使用本地缓存');
-          
-          // 降级：使用本地缓存
           const nodesJson = localStorage.getItem(getNodesKey());
           const rootIdsJson = localStorage.getItem(getRootIdsKey());
-          
           if (nodesJson && rootIdsJson) {
             try {
               const parsedNodes = JSON.parse(nodesJson);
               const parsedRootIds = JSON.parse(rootIdsJson);
-              set({ 
-                nodes: parsedNodes, 
-                rootIds: parsedRootIds 
-              });
-              // 初始化日历节点 ID 映射
+              set({ nodes: parsedNodes, rootIds: parsedRootIds });
               initCalendarNodeIdMap(parsedNodes);
             } catch (e) {
               console.error('[NodeStore] 降级加载失败:', e);
             }
           }
         }
-      }, 100);
+      })();
     } else {
       // ====== 离线模式：直接使用 localStorage ======
       console.log('[NodeStore] 离线模式，使用本地缓存');
@@ -961,18 +1062,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     localStorage.setItem(getRootIdsKey(), JSON.stringify(rootIds));
   },
 
-  // 从数据库 API 加载节点数据
+  // 从数据库 API 加载节点数据（仅日历/通用树）
   loadFromAPI: async () => {
     try {
       const dbData = await loadNodesFromDB();
       if (dbData && Object.keys(dbData.nodes).length > 0) {
         console.log('[NodeStore] 从数据库加载数据:', { nodesCount: Object.keys(dbData.nodes).length });
         set({ nodes: dbData.nodes, rootIds: dbData.rootIds });
-        
-        // 初始化日历节点 ID 映射
+
         initCalendarNodeIdMap(dbData.nodes);
-        
-        // 更新 localStorage 缓存
         localStorage.setItem(getNodesKey(), JSON.stringify(dbData.nodes));
         localStorage.setItem(getRootIdsKey(), JSON.stringify(dbData.rootIds));
       } else {
@@ -985,6 +1083,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       console.error('[NodeStore] loadFromAPI 失败:', error);
       throw error;
     }
+  },
+
+  /** ADR-005: 加载并合并指定笔记本树到当前 nodes，便于笔记本视图展示 */
+  mergeNotebookTree: async (notebookId: string) => {
+    const data = await loadNotebookTreeFromDB(notebookId);
+    if (!data || !data.rootId) return;
+    set((state) => ({
+      nodes: { ...state.nodes, ...data.nodes },
+    }));
   },
 
   initWithMockData: () => {

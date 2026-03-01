@@ -108,8 +108,14 @@ export async function DELETE(
 
     const { id } = await params;
 
-    const deleted = await deleteNode(session.user.id, id);
-    if (!deleted) {
+    const result = await deleteNode(session.user.id, id);
+    if (!result.ok) {
+      if (result.conflict === 'notebook_root') {
+        return NextResponse.json(
+          { success: false, error: '不能直接删除笔记本根节点，请通过删除笔记本操作', code: 'NOTEBOOK_ROOT' },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         { success: false, error: '节点不存在' },
         { status: 404 }

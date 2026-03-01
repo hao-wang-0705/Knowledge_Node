@@ -199,11 +199,15 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   }, [contextMenu, notebooks]);
 
   // 处理删除笔记本
-  const handleDeleteNotebook = useCallback(() => {
+  const handleDeleteNotebook = useCallback(async () => {
     if (contextMenu) {
       const notebook = notebooks[contextMenu.notebookId];
       if (notebook && confirm(`确定要删除笔记本"${notebook.name}"吗？此操作不可撤销。`)) {
-        deleteNotebook(contextMenu.notebookId);
+        try {
+          await deleteNotebook(contextMenu.notebookId);
+        } catch (error) {
+          console.error('[Sidebar] 删除笔记本失败:', error);
+        }
       }
       setContextMenu(null);
     }

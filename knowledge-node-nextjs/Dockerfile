@@ -41,8 +41,8 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN echo "BUILD_TIMESTAMP=$BUILD_TIMESTAMP" > public/build-info.txt && \
     echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> public/build-info.txt
 
-# Build the application
-RUN npm run build
+# Build the application (Next.js 16 在 Alpine + arm64 下禁用 turbopack 构建，避免 swc/wasm 兼容问题)
+RUN npm run build -- --webpack
 
 # Production image
 FROM base AS runner

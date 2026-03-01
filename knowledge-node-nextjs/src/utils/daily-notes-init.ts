@@ -76,13 +76,14 @@ export async function initializeDailyNotes(userId: string) {
 
   // 使用事务确保原子性
   const result = await prisma.$transaction(async (tx) => {
-    // 1. 创建年节点
+    // 1. 创建年节点（ADR-005：每日树隔离）
     const yearNode = await tx.node.create({
       data: {
         userId,
         parentId: null,
         content: getYearContent(currentYear),
         nodeType: 'daily',
+        scope: 'daily',
         sortOrder: 0,
         payload: {
           level: 'year',
@@ -98,6 +99,7 @@ export async function initializeDailyNotes(userId: string) {
         parentId: yearNode.id,
         content: getMonthContent(currentMonth),
         nodeType: 'daily',
+        scope: 'daily',
         sortOrder: 0,
         payload: {
           level: 'month',
@@ -114,6 +116,7 @@ export async function initializeDailyNotes(userId: string) {
         parentId: monthNode.id,
         content: getWeekContent(currentWeek, weekStart, weekEnd),
         nodeType: 'daily',
+        scope: 'daily',
         sortOrder: 0,
         payload: {
           level: 'week',
@@ -134,6 +137,7 @@ export async function initializeDailyNotes(userId: string) {
           parentId: weekNode.id,
           content: getDayContent(date),
           nodeType: 'daily',
+          scope: 'daily',
           sortOrder: i,
           payload: {
             level: 'day',

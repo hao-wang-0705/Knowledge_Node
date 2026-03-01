@@ -20,7 +20,7 @@ interface NotebookStoreActions {
   deleteNotebook: (id: string) => Promise<void>;
   
   // 导航操作
-  setActiveNotebook: (id: string | null) => void;
+  setActiveNotebook: (id: string | null) => void | Promise<void>;
   setNavigationMode: (mode: NavigationMode) => void;
   goToCalendar: () => void;
   
@@ -217,6 +217,11 @@ export const useNotebookStore = create<NotebookStore>((set, get) => ({
     try {
       // 调用 API 删除（API 会级联删除根节点和所有子节点）
       await notebooksApi.delete(id);
+
+      // 删除成功后刷新节点缓存，避免已删除笔记本子树残留在内存中
+      const nodeStore = useNodeStore.getState();
+      await nodeStore.loadFromAPI?.();
+
       console.log(`[notebookStore] 删除笔记本成功: ${id}`);
     } catch (error) {
       // 回滚本地状态
@@ -240,20 +245,18 @@ export const useNotebookStore = create<NotebookStore>((set, get) => ({
   // ============================================
   // 导航操作（纯内存状态）
   // ============================================
-  setActiveNotebook: (id) => {
+  setActiveNotebook: async (id) => {
     const state = get();
     if (id === null) {
       set({ activeNotebookId: null });
       return;
     }
-    
     const notebook = state.notebooks[id];
-    if (!notebook) return;
-    
-    // 切换到笔记本模式，设置 hoisted 到笔记本根节点
+    if (!notebook || !notebook.rootNodeId) return;
+
     const nodeStore = useNodeStore.getState();
+    await nodeStore.mergeNotebookTree(id);
     nodeStore.setHoistedNode(notebook.rootNodeId);
-    
     set({
       activeNotebookId: id,
       navigationMode: 'notebook',

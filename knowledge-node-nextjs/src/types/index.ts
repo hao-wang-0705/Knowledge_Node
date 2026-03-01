@@ -9,6 +9,14 @@ export * from './sync';
 // - daily: 每日笔记节点
 export type NodeType = 'text' | 'heading' | 'todo' | 'command' | 'daily';
 
+/**
+ * 节点所属树域（树隔离契约，ADR-005）
+ * - general: 通用根级笔记，不归属每日/笔记本
+ * - daily: 每日笔记树（年/月/周/日及下属）
+ * - notebook: 用户笔记本树，此时 notebookId 必填
+ */
+export type NodeScope = 'general' | 'daily' | 'notebook';
+
 // =============================================================================
 // 指令节点系统 (Command Node System)
 // =============================================================================
@@ -225,6 +233,10 @@ export interface Node {
   parentId: string | null;
   childrenIds: string[]; // 子节点 ID 排序列表
   isCollapsed: boolean;
+  // ========== 树隔离 (ADR-005) ==========
+  scope?: NodeScope;     // 所属树域，默认 general
+  notebookId?: string | null;  // scope=notebook 时必填
+  // ===================================
   // ========== 超级标签体系 ==========
   tags: string[];        // 应用于此节点的 Supertag ID 列表
   supertagId?: string | null;  // 功能标签 ID（排他性，建议只有一个）
@@ -340,6 +352,10 @@ export interface CreateNodeRequest {
   payload?: Record<string, any>;
   fields?: Record<string, any>;
   sortOrder?: number;
+  /** 树隔离：所属域，默认 general */
+  scope?: NodeScope;
+  /** 树隔离：scope=notebook 时必填 */
+  notebookId?: string | null;
 }
 
 /**
@@ -354,6 +370,8 @@ export interface UpdateNodeRequest {
   fields?: Record<string, any>;
   sortOrder?: number;
   isCollapsed?: boolean;
+  scope?: NodeScope;
+  notebookId?: string | null;
 }
 
 /**

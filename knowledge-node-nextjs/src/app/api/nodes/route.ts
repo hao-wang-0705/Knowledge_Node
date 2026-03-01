@@ -5,11 +5,11 @@ import type { CreateNodeRequest } from '@/types';
 import { prisma } from '@/lib/prisma';
 import { createOrUpsertNode, listNodes } from '@/services/server/nodesService';
 
-// GET /api/nodes - 获取用户所有节点
-export async function GET() {
+// GET /api/nodes - 获取用户节点（ADR-005：支持 scope 树隔离）
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    
+
     if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: '未登录' },
@@ -17,7 +17,16 @@ export async function GET() {
       );
     }
 
-    const formattedNodes = await listNodes(session.user.id);
+    const { searchParams } = new URL(req.url);
+    const scope = searchParams.get('scope') as 'general' | 'daily' | 'notebook' | null;
+    const notebookId = searchParams.get('notebookId') ?? undefined;
+
+    const options =
+      scope === 'notebook' && notebookId
+        ? { scope: 'notebook' as const, notebookId }
+        : undefined;
+
+    const formattedNodes = await listNodes(session.user.id, options);
 
     return NextResponse.json({
       success: true,

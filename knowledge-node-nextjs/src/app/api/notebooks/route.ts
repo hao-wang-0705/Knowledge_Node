@@ -91,12 +91,14 @@ export async function POST(req: Request) {
         },
       });
 
-      // 创建根节点
+      // 创建根节点（ADR-005：笔记本树隔离）
       const rootNode = await tx.node.create({
         data: {
           userId: session.user.id,
           content: name,
           nodeType: 'text',
+          scope: 'notebook',
+          notebookId: notebook.id,
         },
       });
 

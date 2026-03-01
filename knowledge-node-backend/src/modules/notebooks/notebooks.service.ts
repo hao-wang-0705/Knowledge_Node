@@ -7,15 +7,13 @@ import { v4 as uuidv4 } from 'uuid';
 export class NotebooksService {
   constructor(private prisma: PrismaService) {}
 
-  // 创建笔记本
+  // 创建笔记本（ADR-005：笔记本树隔离）
   async create(userId: string, createNotebookDto: CreateNotebookDto) {
     const notebookId = uuidv4();
     const rootNodeId = createNotebookDto.rootNodeId || `root-${notebookId}`;
 
-    // 使用事务同时创建笔记本和根节点
-    const [notebook] = await this.prisma.$transaction([
-      // 创建笔记本
-      this.prisma.notebook.create({
+    const result = await this.prisma.$transaction(async (tx) => {
+      const notebook = await tx.notebook.create({
         data: {
           id: notebookId,
           name: createNotebookDto.name,
@@ -23,19 +21,21 @@ export class NotebooksService {
           rootNodeId,
           userId,
         },
-      }),
-      // 创建根节点
-      this.prisma.node.create({
+      });
+      await tx.node.create({
         data: {
           id: rootNodeId,
           content: createNotebookDto.name,
           nodeType: 'root',
           userId,
+          scope: 'notebook',
+          notebookId: notebook.id,
         },
-      }),
-    ]);
+      });
+      return notebook;
+    });
 
-    return notebook;
+    return result;
   }
 
   // 获取用户的所有笔记本
@@ -174,7 +174,7 @@ export class NotebooksService {
       }
     });
 
-    // 复制节点并更新ID引用
+    // 复制节点并更新ID引用（ADR-005：新笔记本树隔离）
     const newNodes = original.nodes.map((node: any) => ({
       id: idMapping[node.id],
       content: node.content,
@@ -185,6 +185,8 @@ export class NotebooksService {
       fields: node.fields,
       payload: node.payload,
       supertagId: node.supertagId,
+      scope: 'notebook',
+      notebookId: newNotebookId,
       userId,
     }));
 
