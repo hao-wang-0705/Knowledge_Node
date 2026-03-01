@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { Node, CommandConfig, TemplateNode } from '@/types';
 import { generateId, STORAGE_KEYS, CURRENT_DATA_VERSION, debounce } from '@/utils/helpers';
 import { getTemplateById } from '@/utils/command-templates';
-import { createMockNodes, createMockSupertags } from '@/utils/mockData';
 import { getCalendarPath, SYSTEM_TAGS, getCalendarNodeType } from '@/utils/date-helpers';
 import {
   findCalendarNodeActualId,
@@ -11,6 +10,7 @@ import {
   setCalendarNodeIdMapping,
 } from '@/utils/calendarNodeId';
 import { getUserStorageKey, migrateOldData } from '@/utils/userStorage';
+import { clearClientCaches } from '@/utils/cache';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useSyncStore } from '@/stores/syncStore';
 
@@ -871,29 +871,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     
     // 检查是否需要初始化样例数据（用户专属的 key）
     const sampleDataKey = getUserStorageKey(SAMPLE_DATA_INITIALIZED_KEY);
-    const sampleDataInitialized = localStorage.getItem(sampleDataKey) === 'true';
     
     // 判断网络状态，决定加载策略
     if (syncStore.isOnline) {
       // ====== 在线模式：数据库优先 ======
       syncStore.setStatus('syncing');
-      
-      // 先从 localStorage 快速加载（避免白屏）
-      const nodesJson = localStorage.getItem(getNodesKey());
-      const rootIdsJson = localStorage.getItem(getRootIdsKey());
-      
-      if (nodesJson && rootIdsJson) {
-        try {
-          const parsedNodes = JSON.parse(nodesJson);
-          const parsedRootIds = JSON.parse(rootIdsJson);
-          set({ nodes: parsedNodes, rootIds: parsedRootIds });
-          // 初始化日历节点 ID 映射
-          initCalendarNodeIdMap(parsedNodes);
-          console.log('[NodeStore] 快速加载 localStorage 缓存');
-        } catch (e) {
-          console.error('[NodeStore] localStorage 解析失败:', e);
-        }
-      }
       
       // 异步从数据库加载（数据库优先）
       setTimeout(async () => {
@@ -913,35 +895,13 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
             
             syncStore.setStatus('synced');
           } else {
-            console.log('[NodeStore] 数据库无数据，使用本地数据');
-            
-            // 检查本地是否有数据需要上传
-            const currentState = get();
-            if (Object.keys(currentState.nodes).length > 0) {
-              console.log('[NodeStore] 将本地数据批量同步到数据库...');
-              
-              // 通过同步队列批量上传
-              const nodeEntries = Object.entries(currentState.nodes);
-              for (let i = 0; i < nodeEntries.length; i++) {
-                const [, node] = nodeEntries[i];
-                queueCreateNode(node, i);
-              }
-            } else if (storedVersion !== CURRENT_DATA_VERSION || !sampleDataInitialized) {
-              // 新用户：初始化日历数据
-              console.log('[NodeStore] 新用户，初始化日历数据...');
-              const calendarData = createMockNodes(createMockSupertags());
-              set({ nodes: calendarData.nodes, rootIds: calendarData.rootIds });
-              localStorage.setItem(getVersionKey(), CURRENT_DATA_VERSION);
-              localStorage.setItem(sampleDataKey, 'true');
-              
-              // 同步到数据库
-              const entries = Object.entries(calendarData.nodes);
-              for (let i = 0; i < entries.length; i++) {
-                const [, node] = entries[i];
-                queueCreateNode(node, i);
-              }
-            }
-            
+            console.log('[NodeStore] 数据库无数据，清空本地缓存以保持一致');
+
+            clearClientCaches({ clearUserIdentity: false, clearQueryCache: true });
+            syncStore.clearQueue();
+            set({ nodes: {}, rootIds: [], hoistedNodeId: null, focusedNodeId: null });
+            localStorage.setItem(getVersionKey(), CURRENT_DATA_VERSION);
+            localStorage.removeItem(sampleDataKey);
             syncStore.setStatus('synced');
           }
         } catch (error) {
@@ -968,9 +928,6 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
             }
           }
         }
-        
-        // 确保当天日记节点存在
-        get().ensureTodayNode();
       }, 100);
     } else {
       // ====== 离线模式：直接使用 localStorage ======
@@ -991,18 +948,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           console.error('[NodeStore] localStorage 解析失败:', e);
         }
       } else if (storedVersion !== CURRENT_DATA_VERSION) {
-        // 版本更新或新用户：初始化日历数据
-        console.log('[NodeStore] 离线模式，初始化日历数据...');
-        const calendarData = createMockNodes(createMockSupertags());
-        set({ nodes: calendarData.nodes, rootIds: calendarData.rootIds });
+        // 版本更新后在离线模式仅标记版本，不隐式创建业务数据
         localStorage.setItem(getVersionKey(), CURRENT_DATA_VERSION);
-        localStorage.setItem(sampleDataKey, 'true');
+        localStorage.removeItem(sampleDataKey);
       }
-      
-      // 确保当天日记节点存在
-      setTimeout(() => {
-        get().ensureTodayNode();
-      }, 100);
     }
   },
 
@@ -1027,7 +976,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         localStorage.setItem(getNodesKey(), JSON.stringify(dbData.nodes));
         localStorage.setItem(getRootIdsKey(), JSON.stringify(dbData.rootIds));
       } else {
-        console.log('[NodeStore] 数据库无数据');
+        console.log('[NodeStore] 数据库无数据，清空本地节点缓存');
+        clearClientCaches({ clearUserIdentity: false, clearQueryCache: true });
+        set({ nodes: {}, rootIds: [], hoistedNodeId: null, focusedNodeId: null });
+        localStorage.setItem(getVersionKey(), CURRENT_DATA_VERSION);
       }
     } catch (error) {
       console.error('[NodeStore] loadFromAPI 失败:', error);

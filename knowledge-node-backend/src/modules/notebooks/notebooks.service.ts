@@ -64,10 +64,15 @@ export class NotebooksService {
   // 获取笔记本及其所有节点
   async findOneWithNodes(userId: string, id: string) {
     const notebook = await this.findOne(userId, id);
+    const rootNodeId = notebook.rootNodeId;
+
+    if (!rootNodeId) {
+      return { ...notebook, nodes: [] };
+    }
 
     // 获取根节点及其所有子节点
     const rootNode = await this.prisma.node.findFirst({
-      where: { id: notebook.rootNodeId, userId },
+      where: { id: rootNodeId, userId },
     });
 
     if (!rootNode) {
@@ -90,7 +95,7 @@ export class NotebooksService {
       return descendants;
     };
 
-    const descendants = await getAllDescendants(notebook.rootNodeId);
+    const descendants = await getAllDescendants(rootNodeId);
     const nodes = [rootNode, ...descendants];
 
     return {
@@ -129,7 +134,9 @@ export class NotebooksService {
     };
 
     // 删除根节点及其所有子节点
-    await deleteNodeAndDescendants(notebook.rootNodeId);
+    if (notebook.rootNodeId) {
+      await deleteNodeAndDescendants(notebook.rootNodeId);
+    }
 
     // 删除笔记本
     await this.prisma.notebook.delete({
@@ -145,15 +152,24 @@ export class NotebooksService {
 
     const newNotebookId = uuidv4();
     const newRootNodeId = `root-${newNotebookId}`;
+    const sourceRootNodeId = original.rootNodeId;
+
+    if (!sourceRootNodeId) {
+      return this.create(userId, {
+        name: newName || `${original.name} (副本)`,
+        icon: original.icon ?? undefined,
+        rootNodeId: newRootNodeId,
+      });
+    }
 
     // 创建节点ID映射
     const idMapping: Record<string, string> = {
-      [original.rootNodeId]: newRootNodeId,
+      [sourceRootNodeId]: newRootNodeId,
     };
 
     // 为每个节点生成新ID
     original.nodes.forEach((node: any) => {
-      if (node.id !== original.rootNodeId) {
+      if (node.id !== sourceRootNodeId) {
         idMapping[node.id] = uuidv4();
       }
     });

@@ -1,14 +1,22 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   async create(createUserDto: CreateUserDto) {
+    const email = createUserDto.email ?? `user-${randomUUID()}@knowledge-node.local`;
+
     return this.prisma.user.create({
-      data: createUserDto,
+      data: {
+        email,
+        name: createUserDto.name,
+        // 默认用户创建走系统占位密码，注册流程会写入真实哈希
+        passwordHash: '',
+      },
     });
   }
 
@@ -60,6 +68,7 @@ export class UsersService {
         data: {
           email: defaultEmail,
           name: 'Default User',
+          passwordHash: '',
         },
       });
     }

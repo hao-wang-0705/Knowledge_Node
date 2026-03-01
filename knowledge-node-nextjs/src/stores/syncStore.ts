@@ -17,14 +17,16 @@ import {
   SyncStats,
   DEFAULT_SYNC_CONFIG,
 } from '@/types/sync';
+import { getUserStorageKey } from '@/utils/userStorage';
 
 // =============================================================================
 // 常量配置
 // =============================================================================
 
-const OFFLINE_QUEUE_KEY = DEFAULT_SYNC_CONFIG.queue.storageKey;
+const OFFLINE_QUEUE_BASE_KEY = DEFAULT_SYNC_CONFIG.queue.storageKey;
 const MAX_QUEUE_SIZE = DEFAULT_SYNC_CONFIG.queue.maxSize;
 const PERSIST_DEBOUNCE = DEFAULT_SYNC_CONFIG.queue.persistDebounce;
+const getOfflineQueueKey = () => getUserStorageKey(OFFLINE_QUEUE_BASE_KEY);
 
 // =============================================================================
 // 初始状态
@@ -54,7 +56,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
   const debouncedPersist = debounce(() => {
     const { pendingOperations } = get();
     try {
-      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(pendingOperations));
+      localStorage.setItem(getOfflineQueueKey(), JSON.stringify(pendingOperations));
       console.log(`[SyncStore] 队列已持久化，共 ${pendingOperations.length} 个操作`);
     } catch (error) {
       console.error('[SyncStore] 持久化队列失败:', error);
@@ -341,7 +343,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
           queueSize: 0,
         },
       });
-      localStorage.removeItem(OFFLINE_QUEUE_KEY);
+      localStorage.removeItem(getOfflineQueueKey());
       console.log('[SyncStore] 队列已清空');
     },
 
@@ -355,7 +357,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
 
     loadQueue: () => {
       try {
-        const stored = localStorage.getItem(OFFLINE_QUEUE_KEY);
+        const stored = localStorage.getItem(getOfflineQueueKey());
         if (stored) {
           const queue = JSON.parse(stored) as SyncOperation[];
           // 验证数据格式
@@ -386,7 +388,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
       } catch (error) {
         console.error('[SyncStore] 加载队列失败:', error);
         // 清除损坏的数据
-        localStorage.removeItem(OFFLINE_QUEUE_KEY);
+        localStorage.removeItem(getOfflineQueueKey());
       }
     },
 

@@ -8,6 +8,8 @@ import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { AuthenticationError } from '@/services/api';
+import { ApiError } from '@/services/api';
+import { clearClientCaches } from '@/utils/cache';
 
 /**
  * 认证错误处理钩子
@@ -20,8 +22,15 @@ export function useAuthErrorHandler() {
    * 如果是认证错误，登出并重定向到登录页
    */
   const handleAuthError = useCallback(async (error: unknown) => {
-    if (error instanceof AuthenticationError) {
+    const isAuthError =
+      error instanceof AuthenticationError ||
+      (error instanceof ApiError && error.status === 401);
+
+    if (isAuthError) {
       console.warn('[Auth] 认证失败，正在重定向到登录页...');
+
+      // 会话失效时清理前端缓存，避免继续展示旧数据
+      clearClientCaches({ clearUserIdentity: true, clearQueryCache: true });
       
       // 登出当前会话
       await signOut({ redirect: false });
