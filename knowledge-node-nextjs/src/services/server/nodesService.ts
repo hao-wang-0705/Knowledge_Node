@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import type { CreateNodeRequest, UpdateNodeRequest } from '@/types';
 
@@ -144,7 +145,7 @@ export async function listNodes(userId: string, options?: ListNodesOptions): Pro
   const scope = options?.scope;
   const notebookId = options?.notebookId;
 
-  const where: Parameters<typeof prisma.node.findMany>[0]['where'] = { userId };
+  const where: Prisma.NodeWhereInput = { userId };
 
   if (scope === 'notebook' && notebookId) {
     where.scope = 'notebook';
@@ -157,9 +158,7 @@ export async function listNodes(userId: string, options?: ListNodesOptions): Pro
     }).then((rows) => rows.map((r) => r.rootNodeId).filter((id): id is string => id != null));
 
     where.AND = [
-      {
-        OR: [{ scope: 'general' }, { scope: 'daily' }, { scope: null }],
-      },
+      { OR: [{ scope: 'general' }, { scope: 'daily' }] },
       ...(notebookRootIds.length > 0 ? [{ id: { notIn: notebookRootIds } }] : []),
     ];
   }
