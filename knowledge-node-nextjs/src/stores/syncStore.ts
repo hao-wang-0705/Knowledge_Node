@@ -3,6 +3,11 @@
  * 
  * 负责管理全局同步状态、离线操作队列和网络状态检测。
  * 与业务 Store（nodeStore、notebookStore）解耦，提供统一的同步基础设施。
+ * 
+ * v3.1 增强：
+ * - 依赖图管理：跨批次的父子节点依赖追踪
+ * - 就绪状态追踪：只有依赖满足的操作才能执行
+ * - 完成通知机制：操作完成后广播通知下游依赖
  */
 
 import { create } from 'zustand';
@@ -16,6 +21,7 @@ import {
   CreateSyncOperationParams,
   SyncStats,
   DEFAULT_SYNC_CONFIG,
+  DependencyReadyState,
 } from '@/types/sync';
 import { getUserStorageKey } from '@/utils/userStorage';
 
@@ -83,6 +89,51 @@ function sortByParentDependency(ops: SyncOperation[]): SyncOperation[] {
   for (const op of creates) visit(op);
 
   return [...sorted, ...rest];
+}
+
+// =============================================================================
+// 依赖就绪状态管理
+// =============================================================================
+
+/**
+ * 已完成的操作 entityId 集合（用于判断依赖是否满足）
+ * 注意：这是一个会话级别的缓存，页面刷新后会清空
+ */
+const completedOperations = new Set<string>();
+
+/**
+ * 判断操作的依赖是否全部满足
+ */
+function areDependenciesSatisfied(op: SyncOperation): boolean {
+  if (!op.dependsOn || op.dependsOn.length === 0) {
+    return true;
+  }
+  return op.dependsOn.every((depId) => completedOperations.has(depId));
+}
+
+/**
+ * 计算操作的就绪状态
+ */
+function computeReadyState(op: SyncOperation): DependencyReadyState {
+  if (op.type !== 'create' || !op.dependsOn || op.dependsOn.length === 0) {
+    return 'ready';
+  }
+  return areDependenciesSatisfied(op) ? 'ready' : 'blocked';
+}
+
+/**
+ * 标记操作完成并通知依赖
+ */
+function markOperationComplete(entityId: string): void {
+  completedOperations.add(entityId);
+  console.log(`[SyncStore] 操作完成，标记 entityId: ${entityId}`);
+}
+
+/**
+ * 清除完成状态缓存（用于重置）
+ */
+function clearCompletedOperations(): void {
+  completedOperations.clear();
 }
 
 // =============================================================================
@@ -164,28 +215,40 @@ export const useSyncStore = create<SyncStore>((set, get) => {
           (p.status === 'pending' || p.status === 'failed')
       );
 
+      // 计算依赖就绪状态
+      const readyState = computeReadyState({
+        ...op,
+        dependsOn: op.dependsOn,
+      } as SyncOperation);
+
       const newOperation: SyncOperation = {
         ...op,
         id: generateId(),
         timestamp: Date.now(),
         retryCount: 0,
         status: 'pending',
+        readyState,
       };
 
       if (existingIndex !== -1 && op.type === 'update') {
-        // 合并更新操作：用新的 payload 替换旧的，并重置状态以便重试
+        // 合并更新操作：用新的 payload 替换旧的，过滤 undefined 防止覆盖 create 中的有效字段（如 parentId）
         set((state) => {
           const updated = [...state.pendingOperations];
+          const incomingPayload = (op.payload as Record<string, unknown>) ?? {};
+          const filteredPayload = Object.fromEntries(
+            Object.entries(incomingPayload).filter(([, v]) => v !== undefined)
+          );
           updated[existingIndex] = {
             ...updated[existingIndex],
             payload: {
               ...(updated[existingIndex].payload as object),
-              ...(op.payload as object),
+              ...filteredPayload,
             },
             timestamp: Date.now(),
             status: 'pending',
             retryCount: 0,
             error: undefined,
+            readyState: computeReadyState(updated[existingIndex]),
           };
           return { pendingOperations: updated };
         });
@@ -207,7 +270,16 @@ export const useSyncStore = create<SyncStore>((set, get) => {
             queueSize: state.pendingOperations.length + 1,
           },
         }));
-        console.log(`[SyncStore] 添加操作: ${op.type} ${op.entityType}/${op.entityId}`);
+        
+        // 日志：包含依赖信息
+        if (op.dependsOn && op.dependsOn.length > 0) {
+          console.log(
+            `[SyncStore] 添加操作 (依赖 ${op.dependsOn.length} 个): ${op.type} ${op.entityType}/${op.entityId}`,
+            { dependsOn: op.dependsOn, readyState }
+          );
+        } else {
+          console.log(`[SyncStore] 添加操作: ${op.type} ${op.entityType}/${op.entityId}`);
+        }
       }
 
       // 持久化队列
@@ -236,7 +308,8 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         return;
       }
 
-      const rawPendingOps = state.pendingOperations.filter(
+      // 筛选待处理的操作
+      let rawPendingOps = state.pendingOperations.filter(
         (op) => op.status === 'pending' || op.status === 'failed'
       );
 
@@ -245,10 +318,31 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         return;
       }
 
-      // 按依赖关系排序：父节点 create 必须先于子节点 create
-      const pendingOps = sortByParentDependency(rawPendingOps);
+      // 更新所有操作的就绪状态
+      rawPendingOps = rawPendingOps.map((op) => ({
+        ...op,
+        readyState: computeReadyState(op),
+      }));
 
-      console.log(`[SyncStore] 开始处理队列，共 ${pendingOps.length} 个操作`);
+      // 筛选就绪的操作（无依赖或依赖已满足）
+      const readyOps = rawPendingOps.filter((op) => op.readyState === 'ready');
+      const blockedOps = rawPendingOps.filter((op) => op.readyState === 'blocked');
+
+      if (blockedOps.length > 0) {
+        console.log(`[SyncStore] ${blockedOps.length} 个操作因依赖未满足而阻塞`);
+      }
+
+      if (readyOps.length === 0) {
+        console.log('[SyncStore] 没有就绪的操作，所有操作都在等待依赖');
+        // 更新状态但不标记为 idle，因为还有阻塞的操作
+        set({ status: blockedOps.length > 0 ? 'syncing' : 'idle' });
+        return;
+      }
+
+      // 按依赖关系排序：父节点 create 必须先于子节点 create
+      const pendingOps = sortByParentDependency(readyOps);
+
+      console.log(`[SyncStore] 开始处理队列，共 ${pendingOps.length} 个就绪操作（${blockedOps.length} 个阻塞）`);
       set({ status: 'syncing', error: null });
 
       const startTime = Date.now();
@@ -257,6 +351,8 @@ export const useSyncStore = create<SyncStore>((set, get) => {
 
       // 动态导入同步引擎，避免循环依赖
       const { executeOperation } = await import('@/lib/syncEngine');
+      // 动态导入节点同步通知函数
+      const { notifyNodeSyncComplete } = await import('@/utils/nodeCreationGuard');
 
       for (const op of pendingOps) {
         // 更新操作状态为处理中
@@ -274,6 +370,15 @@ export const useSyncStore = create<SyncStore>((set, get) => {
             pendingOperations: state.pendingOperations.filter((o) => o.id !== op.id),
           }));
           successCount++;
+          
+          // 标记操作完成（用于依赖追踪）
+          markOperationComplete(op.entityId);
+          
+          // 通知等待该节点同步完成的 Promise
+          if (op.entityType === 'node' && op.type === 'create') {
+            notifyNodeSyncComplete(op.entityId, true);
+          }
+
           console.log(`[SyncStore] 操作成功: ${op.type} ${op.entityType}/${op.entityId}`);
         } catch (error) {
           // 失败：标记状态并增加重试次数
@@ -301,9 +406,13 @@ export const useSyncStore = create<SyncStore>((set, get) => {
             errorMessage
           );
 
-          // 超过最大重试次数，标记为永久失败
+          // 超过最大重试次数，标记为永久失败并通知
           if (newRetryCount >= maxRetries) {
             console.error(`[SyncStore] 操作已达最大重试次数，放弃: ${op.id}`);
+            // 通知等待该节点同步完成的 Promise（失败）
+            if (op.entityType === 'node' && op.type === 'create') {
+              notifyNodeSyncComplete(op.entityId, false);
+            }
           }
         }
       }
@@ -332,12 +441,15 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         `[SyncStore] 队列处理完成: 成功 ${successCount}, 失败 ${failCount}, 耗时 ${duration}ms`
       );
 
-      // 同步过程中可能新增了 pending 操作（例如结构调整批量入队），继续 drain 队列直到清空
-      const hasPendingOps = get().pendingOperations.some((op) => op.status === 'pending');
+      // 同步过程中可能新增了 pending 操作（例如结构调整批量入队），或有阻塞操作变为就绪
+      // 继续 drain 队列直到清空
+      const hasPendingOps = get().pendingOperations.some(
+        (op) => op.status === 'pending' || (op.status === 'failed' && op.retryCount < DEFAULT_SYNC_CONFIG.retry.maxRetries)
+      );
       if (get().isOnline && hasPendingOps) {
         setTimeout(() => {
           get().processQueue();
-        }, 0);
+        }, 100); // 稍微延迟，让依赖状态更新
       }
 
       // 3秒后如果状态是 synced，自动切换到 idle
@@ -404,6 +516,8 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         },
       });
       localStorage.removeItem(getOfflineQueueKey());
+      // 清除完成状态缓存
+      clearCompletedOperations();
       console.log('[SyncStore] 队列已清空');
     },
 

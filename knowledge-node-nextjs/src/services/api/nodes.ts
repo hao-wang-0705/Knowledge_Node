@@ -46,6 +46,8 @@ export interface UpdateNodeParams {
   supertagId?: string;
   tags?: string[];
   references?: Record<string, any>;
+  payload?: Record<string, any>;
+  sortOrder?: number;
 }
 
 // 移动节点参数

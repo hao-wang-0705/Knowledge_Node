@@ -13,6 +13,10 @@ import { getUserStorageKey, migrateOldData } from '@/utils/userStorage';
 import { clearClientCaches } from '@/utils/cache';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useSyncStore } from '@/stores/syncStore';
+import {
+  queueCreateWithDependency,
+  waitForNodeSync,
+} from '@/utils/nodeCreationGuard';
 
 // 样例数据初始化 key（内联定义，替代原 sampleData.ts）
 const SAMPLE_DATA_INITIALIZED_KEY = 'knowledge-node-sample-initialized';
@@ -40,7 +44,11 @@ interface NodeStoreActions {
   setFocusedNode: (id: string | null) => void;
   setHoistedNode: (id: string | null) => void;
   ensureNode: (id: string, parentId: string | null, tagId: string | null, content: string) => string;
+  /** v3.1: 异步版本，等待同步完成 */
+  ensureNodeAsync: (id: string, parentId: string | null, tagId: string | null, content: string) => Promise<string>;
   ensureTodayNode: () => string;
+  /** v3.1: 异步版本，串行创建并等待同步 */
+  ensureTodayNodeAsync: () => Promise<string>;
   goToToday: () => void;
   goToRoot: () => void;
   getNodePath: (nodeId: string) => Node[];
@@ -73,47 +81,63 @@ const debouncedSave = debounce((nodes: Record<string, Node>, rootIds: string[]) 
 
 /**
  * 将节点创建操作加入同步队列
+ * v3.1 增强：使用 nodeCreationGuard 进行依赖追踪
+ * @param node 待创建的节点
+ * @param sortOrder 排序顺序
+ * @param awaitSync 是否等待同步完成（用于日历节点串行创建）
  */
-const queueCreateNode = (node: Node, sortOrder: number = 0) => {
-  const syncStore = useSyncStore.getState();
+const queueCreateNode = (
+  node: Node,
+  sortOrder: number = 0,
+  awaitSync: boolean = false
+): void | Promise<boolean> => {
+  const nodeStore = useNodeStore.getState();
   
-  // 检查网络状态，如果在线则直接入队
-  syncStore.queueOperation({
-    type: 'create',
-    entityType: 'node',
-    entityId: node.id,
-    payload: {
-      id: node.id,
-      content: node.content,
-      parentId: node.parentId,
-      nodeType: node.type || 'text',
-      supertagId: node.supertagId,
-      fields: node.fields,
-      payload: node.payload,
-      sortOrder,
-    },
+  // 使用 nodeCreationGuard 进行统一入队
+  const result = queueCreateWithDependency({
+    node,
+    sortOrder,
+    awaitSync,
+    nodes: nodeStore.nodes,
   });
+
+  // 如果需要等待同步完成，返回 Promise
+  if (awaitSync && result instanceof Promise) {
+    return result.then((r) => r.queued);
+  }
+  
+  // 记录未能入队的情况（通常是校验失败）
+  if (!(result instanceof Promise) && !result.queued) {
+    console.error(`[queueCreateNode] 节点 ${node.id} 入队失败:`, result.error);
+  }
 };
 
 /**
  * 更新节点到数据库（通过同步队列，内置合并逻辑）
+ * 仅传递已定义字段，避免 undefined 覆盖 pending create 中的 parentId 等字段
  */
 const queueUpdateNode = (nodeId: string, updates: Partial<Node> & { sortOrder?: number }) => {
   const syncStore = useSyncStore.getState();
-  
+
+  const payload: Record<string, unknown> = {};
+  if (updates.content !== undefined) payload.content = updates.content;
+  if (updates.parentId !== undefined) payload.parentId = updates.parentId;
+  if (updates.type !== undefined) payload.nodeType = updates.type;
+  if (updates.supertagId !== undefined) payload.supertagId = updates.supertagId;
+  if (updates.fields !== undefined) payload.fields = updates.fields;
+  if (updates.payload !== undefined) payload.payload = updates.payload;
+  if (updates.isCollapsed !== undefined) payload.isCollapsed = updates.isCollapsed;
+  if (updates.tags !== undefined) payload.tags = updates.tags;
+  if (updates.references !== undefined) payload.references = updates.references;
+  if (updates.sortOrder !== undefined) payload.sortOrder = updates.sortOrder;
+
+  if (Object.keys(payload).length === 0) return;
+
   syncStore.queueOperation({
     type: 'update',
     entityType: 'node',
     entityId: nodeId,
-    payload: {
-      content: updates.content,
-      parentId: updates.parentId,
-      nodeType: updates.type,
-      supertagId: updates.supertagId,
-      fields: updates.fields,
-      payload: updates.payload,
-      isCollapsed: updates.isCollapsed,
-    },
+    payload,
   });
 };
 
@@ -178,6 +202,7 @@ const loadNodesFromDB = async (): Promise<{ nodes: Record<string, Node>; rootIds
         childrenIds: node.childrenIds || [],
         isCollapsed: node.isCollapsed,
         tags: node.tags || [],
+        references: node.references || [],
         supertagId: node.supertagId,
         nodeRole: node.nodeRole,
         fields: node.fields || {},
@@ -282,11 +307,13 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           }
           newNodes[resolvedParentId] = { ...parentNode, childrenIds: newChildrenIds };
         } else {
-          // 父节点不存在（可能是竞态条件），降级为根节点
-          console.warn(`[addNode] 父节点 ${resolvedParentId} 不存在，降级为根节点`);
-          resolvedParentId = null;
-          createdNode = { ...newNode, parentId: null };
-          newNodes[newId] = createdNode;
+          // 父节点不存在（可能是竞态条件）
+          // v3.1 修复：不再降级为根节点（会产生孤儿节点），而是抛出错误
+          // 依赖追踪机制会确保父节点先创建
+          console.error(`[addNode] 父节点 ${resolvedParentId} 不存在，检查依赖追踪是否正常工作`);
+          // 仍然创建节点，但保持原有的 parentId，让后端重试机制处理
+          // 如果父节点确实不存在，同步会失败并重试
+          createdNode = newNode;
           newRootIds.push(newId);
         }
       }
@@ -315,23 +342,35 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   addNodes: (newNodes, newRootIds, targetParentId, afterId) => {
+    // v3.1 修复：解析父节点 ID 并收集需要同步的节点
+    const state = get();
+    const resolvedTargetParentId = resolveCalendarParentId(targetParentId, state.nodes);
+    const nodesToSync: Array<{ node: Node; sortOrder: number }> = [];
+    
     set((state) => {
       const mergedNodes = { ...state.nodes, ...newNodes };
       let mergedRootIds = [...state.rootIds];
 
-      if (targetParentId === null) {
+      if (resolvedTargetParentId === null) {
         if (afterId) {
           const afterIndex = mergedRootIds.indexOf(afterId);
           mergedRootIds.splice(afterIndex !== -1 ? afterIndex + 1 : mergedRootIds.length, 0, ...newRootIds);
         } else {
           mergedRootIds = [...mergedRootIds, ...newRootIds];
         }
+        // 收集根节点用于同步
+        newRootIds.forEach((rootId, index) => {
+          const node = mergedNodes[rootId];
+          if (node) {
+            nodesToSync.push({ node, sortOrder: mergedRootIds.indexOf(rootId) });
+          }
+        });
       } else {
-        const parentNode = mergedNodes[targetParentId];
+        const parentNode = mergedNodes[resolvedTargetParentId];
         if (parentNode) {
           for (const rootId of newRootIds) {
             if (mergedNodes[rootId]) {
-              mergedNodes[rootId] = { ...mergedNodes[rootId], parentId: targetParentId };
+              mergedNodes[rootId] = { ...mergedNodes[rootId], parentId: resolvedTargetParentId };
             }
           }
           let newChildrenIds = [...parentNode.childrenIds];
@@ -341,12 +380,41 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           } else {
             newChildrenIds = [...newChildrenIds, ...newRootIds];
           }
-          mergedNodes[targetParentId] = { ...parentNode, childrenIds: newChildrenIds };
+          mergedNodes[resolvedTargetParentId] = { ...parentNode, childrenIds: newChildrenIds };
+          
+          // 收集需要同步的节点
+          newRootIds.forEach((rootId) => {
+            const node = mergedNodes[rootId];
+            if (node) {
+              nodesToSync.push({ 
+                node, 
+                sortOrder: newChildrenIds.indexOf(rootId) 
+              });
+            }
+          });
         }
       }
 
       debouncedSave(mergedNodes, mergedRootIds);
       return { nodes: mergedNodes, rootIds: mergedRootIds };
+    });
+
+    // v3.1 修复：入同步队列（递归同步所有新节点）
+    const syncAllNodes = (nodeId: string, sortOrder: number) => {
+      const updatedState = get();
+      const node = updatedState.nodes[nodeId];
+      if (!node) return;
+      
+      queueCreateNode(node, sortOrder);
+      
+      // 递归同步子节点
+      node.childrenIds.forEach((childId, index) => {
+        syncAllNodes(childId, index);
+      });
+    };
+
+    nodesToSync.forEach(({ node, sortOrder }) => {
+      syncAllNodes(node.id, sortOrder);
     });
   },
 
@@ -367,11 +435,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       lastExecutionStatus: 'pending',
     };
     
+    // v3.1 修复：解析父节点 ID 并校验
+    const state = get();
+    const resolvedParentId = resolveCalendarParentId(parentId, state.nodes);
+    
     const newNode: Node = {
       id: newId,
       content: template ? `🤖 ${template.icon} ${commandName}` : `🤖 ${commandName}`,
       type: 'command',
-      parentId,
+      parentId: resolvedParentId,
       childrenIds: [],
       isCollapsed: false,
       tags: [],
@@ -380,19 +452,21 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       payload: commandConfig,
     };
 
+    let sortOrder = 0;
     set((state) => {
       const newNodes = { ...state.nodes, [newId]: newNode };
       let newRootIds = [...state.rootIds];
 
-      if (parentId === null) {
+      if (resolvedParentId === null) {
         if (afterId) {
           const afterIndex = newRootIds.indexOf(afterId);
           newRootIds.splice(afterIndex !== -1 ? afterIndex + 1 : newRootIds.length, 0, newId);
         } else {
           newRootIds.push(newId);
         }
+        sortOrder = newRootIds.indexOf(newId);
       } else {
-        const parentNode = newNodes[parentId];
+        const parentNode = newNodes[resolvedParentId];
         if (parentNode) {
           const newChildrenIds = [...parentNode.childrenIds];
           if (afterId) {
@@ -401,13 +475,17 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           } else {
             newChildrenIds.push(newId);
           }
-          newNodes[parentId] = { ...parentNode, childrenIds: newChildrenIds };
+          newNodes[resolvedParentId] = { ...parentNode, childrenIds: newChildrenIds };
+          sortOrder = newChildrenIds.indexOf(newId);
         }
       }
 
       debouncedSave(newNodes, newRootIds);
       return { nodes: newNodes, rootIds: newRootIds, focusedNodeId: newId };
     });
+
+    // v3.1 修复：入同步队列
+    queueCreateNode(newNode, sortOrder);
 
     return newId;
   },
@@ -428,6 +506,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       createdAt: Date.now(),
     };
 
+    let sortOrder = 0;
     set((state) => {
       const commandNode = state.nodes[commandNodeId];
       if (!commandNode) return state;
@@ -440,10 +519,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         childrenIds: [...commandNode.childrenIds, newId],
         isCollapsed: false, // 展开以显示新生成的内容
       };
+      
+      sortOrder = newNodes[commandNodeId].childrenIds.indexOf(newId);
 
       debouncedSave(newNodes, state.rootIds);
       return { nodes: newNodes };
     });
+
+    // v3.1 修复：入同步队列
+    queueCreateNode(newNode, sortOrder);
 
     return newId;
   },
@@ -782,6 +866,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   /**
    * 确保节点存在（如果不存在则创建）
    * 对于日历节点，会检查是否已存在带前缀的版本；若已存在但 parentId 错误则执行 reparent
+   * v3.1 增强：支持 awaitSync 参数，等待同步完成
    */
   ensureNode: (id, parentId, tagId, content) => {
     const isCalendarNode = getCalendarNodeType(id) !== null;
@@ -789,6 +874,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     let actualParentIdForSync: string | null = null;
     let wasCreated = false;
     let actualIdForReturn = id;
+    let sortOrder = 0;
 
     set((currentState) => {
       const resolvedParentId = resolveCalendarParentId(parentId, currentState.nodes);
@@ -833,7 +919,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
             newNodes[actualId] = { ...existingNode, parentId: resolvedParentId };
             debouncedSave(newNodes, newRootIds);
 
-            const sortOrder = resolvedParentId
+            sortOrder = resolvedParentId
               ? newNodes[resolvedParentId]?.childrenIds.indexOf(actualId) ?? 0
               : newRootIds.indexOf(actualId);
             queueUpdateNode(actualId, { parentId: resolvedParentId, sortOrder });
@@ -865,10 +951,12 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
       if (actualParentIdForSync === null) {
         if (!newRootIds.includes(id)) newRootIds.push(id);
+        sortOrder = newRootIds.indexOf(id);
       } else {
         const parentNode = newNodes[actualParentIdForSync];
         if (parentNode && !parentNode.childrenIds.includes(id)) {
           newNodes[actualParentIdForSync] = { ...parentNode, childrenIds: [...parentNode.childrenIds, id] };
+          sortOrder = newNodes[actualParentIdForSync].childrenIds.indexOf(id);
         }
       }
 
@@ -878,14 +966,42 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     });
 
     if (wasCreated && nodeToSync) {
-      const updatedState = get();
-      const sortOrder = actualParentIdForSync
-        ? updatedState.nodes[actualParentIdForSync]?.childrenIds.indexOf(id) ?? 0
-        : updatedState.rootIds.indexOf(id);
+      // v3.1 增强：入同步队列
       queueCreateNode(nodeToSync, sortOrder);
     }
 
     return actualIdForReturn;
+  },
+
+  /**
+   * 确保节点存在并等待同步完成（异步版本）
+   * 用于日历节点串行创建场景
+   */
+  ensureNodeAsync: async (id: string, parentId: string | null, tagId: string | null, content: string): Promise<string> => {
+    const { ensureNode } = get();
+    const isCalendarNode = getCalendarNodeType(id) !== null;
+    
+    // 检查节点是否已存在
+    const state = get();
+    const existingId = isCalendarNode 
+      ? findCalendarNodeActualId(id, state.nodes) 
+      : (state.nodes[id] ? id : null);
+    
+    if (existingId) {
+      // 节点已存在，无需等待同步
+      return existingId;
+    }
+    
+    // 创建节点
+    const actualId = ensureNode(id, parentId, tagId, content);
+    
+    // 等待同步完成
+    const syncSuccess = await waitForNodeSync(actualId, 15000); // 15秒超时
+    if (!syncSuccess) {
+      console.warn(`[ensureNodeAsync] 节点 ${actualId} 同步等待超时或失败`);
+    }
+    
+    return actualId;
   },
 
   goToToday: () => {
@@ -910,6 +1026,9 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
    * 确保今天的日历节点存在（daily_root -> 年->周->日）
    * 用于应用启动时自动创建当天日记
    * 返回实际的日期节点 ID（可能带前缀）
+   * 
+   * 注意：此方法是同步的，日历节点可能还未同步到后端
+   * 如需等待同步完成，请使用 ensureTodayNodeAsync
    */
   ensureTodayNode: () => {
     const { ensureNode } = get();
@@ -947,6 +1066,64 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     );
 
     console.log('[ensureTodayNode] 日历节点已确保 (年->周->日):', {
+      dailyRootId,
+      year: actualYearId,
+      week: actualWeekId,
+      day: actualDayId,
+    });
+
+    return findCalendarNodeActualId(calendarPath.dayId, get().nodes) || actualDayId;
+  },
+
+  /**
+   * v3.1: 异步版本的 ensureTodayNode
+   * 串行创建日历节点（年->周->日），并等待每个节点同步完成后再创建下一个
+   * 确保后端按正确顺序创建节点，避免父节点不存在错误
+   */
+  ensureTodayNodeAsync: async () => {
+    const { ensureNodeAsync } = get();
+    const state = get();
+    const calendarPath = getCalendarPath(new Date());
+
+    const dailyRootId =
+      Object.values(state.nodes).find((n) => n.nodeRole === 'daily_root')?.id ?? null;
+
+    if (dailyRootId === null && Object.keys(state.nodes).length > 0) {
+      console.warn('[ensureTodayNodeAsync] daily_root 未找到但已有节点，可能竞态');
+    }
+
+    console.log('[ensureTodayNodeAsync] 开始串行创建日历节点...');
+
+    // 1. 创建年节点并等待同步
+    const actualYearId = await ensureNodeAsync(
+      calendarPath.yearId,
+      dailyRootId,
+      SYSTEM_TAGS.YEAR,
+      calendarPath.yearContent
+    );
+    console.log('[ensureTodayNodeAsync] 年节点已创建:', actualYearId);
+
+    // 2. 创建周节点并等待同步（使用年节点作为父节点）
+    const resolvedYearId = findCalendarNodeActualId(calendarPath.yearId, get().nodes) || actualYearId;
+    const actualWeekId = await ensureNodeAsync(
+      calendarPath.weekId,
+      resolvedYearId,
+      SYSTEM_TAGS.WEEK,
+      calendarPath.weekContent
+    );
+    console.log('[ensureTodayNodeAsync] 周节点已创建:', actualWeekId);
+
+    // 3. 创建日节点并等待同步（使用周节点作为父节点）
+    const resolvedWeekId = findCalendarNodeActualId(calendarPath.weekId, get().nodes) || actualWeekId;
+    const actualDayId = await ensureNodeAsync(
+      calendarPath.dayId,
+      resolvedWeekId,
+      SYSTEM_TAGS.DAY,
+      calendarPath.dayContent
+    );
+    console.log('[ensureTodayNodeAsync] 日节点已创建:', actualDayId);
+
+    console.log('[ensureTodayNodeAsync] 日历节点串行创建完成 (年->周->日):', {
       dailyRootId,
       year: actualYearId,
       week: actualWeekId,
@@ -1012,6 +1189,9 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
             localStorage.setItem(getNodesKey(), JSON.stringify(dbData.nodes));
             localStorage.setItem(getRootIdsKey(), JSON.stringify(dbData.rootIds));
             syncStore.setStatus('synced');
+            if (syncStore.pendingOperations.length > 0) {
+              setTimeout(() => syncStore.processQueue(), 100);
+            }
           } else {
             console.log('[NodeStore] 数据库无数据，清空本地缓存以保持一致');
             clearClientCaches({ clearUserIdentity: false, clearQueryCache: true });
@@ -1020,6 +1200,9 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
             localStorage.setItem(getVersionKey(), CURRENT_DATA_VERSION);
             localStorage.removeItem(sampleDataKey);
             syncStore.setStatus('synced');
+            if (syncStore.pendingOperations.length > 0) {
+              setTimeout(() => syncStore.processQueue(), 100);
+            }
           }
         } catch (error) {
           console.error('[NodeStore] 数据库加载失败:', error);
@@ -1137,6 +1320,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       debouncedSave(newNodes, s.rootIds);
       return { nodes: newNodes };
     });
+
+    // 同步 supertagId 和 tags 到数据库
+    const updatedNode = get().nodes[nodeId];
+    if (updatedNode) {
+      queueUpdateNode(nodeId, {
+        supertagId: updatedNode.supertagId,
+        tags: updatedNode.tags,
+      });
+    }
 
     if (!fillTemplateIfEmpty || !templateContent || node.childrenIds.length > 0) return;
 

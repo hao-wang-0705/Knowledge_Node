@@ -10,6 +10,7 @@ type NodeApiModel = {
   childrenIds: string[];
   isCollapsed: boolean;
   tags: string[];
+  references: unknown[];
   supertagId: string | null;
   fields: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -25,10 +26,13 @@ function toNodeApiModel(
     parentId: string | null;
     isCollapsed: boolean;
     supertagId: string | null;
+    tags: string[];
+    references: unknown;
     fields: unknown;
     payload: unknown;
     createdAt: Date;
     updatedAt: Date;
+    [key: string]: unknown;
   },
   childrenIds: string[] = []
 ): NodeApiModel {
@@ -39,7 +43,8 @@ function toNodeApiModel(
     parentId: node.parentId,
     childrenIds,
     isCollapsed: node.isCollapsed,
-    tags: [],
+    tags: node.tags ?? [],
+    references: (Array.isArray(node.references) ? node.references : []) as unknown[],
     supertagId: node.supertagId,
     fields: (node.fields as Record<string, unknown>) ?? {},
     payload: (node.payload as Record<string, unknown>) ?? {},
@@ -182,6 +187,8 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
           supertagId: updateSupertagId,
           payload: body.payload ?? ((existingNode.payload as Record<string, unknown>) ?? {}),
           fields: body.fields ?? ((existingNode.fields as Record<string, unknown>) ?? {}),
+          tags: body.tags ?? existingNode.tags,
+          references: body.references as any ?? existingNode.references,
           sortOrder,
         },
       });
@@ -214,6 +221,8 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
             supertagId: validSupertagId ?? existingPrefixed.supertagId,
             payload: body.payload ?? ((existingPrefixed.payload as Record<string, unknown>) ?? {}),
             fields: body.fields ?? ((existingPrefixed.fields as Record<string, unknown>) ?? {}),
+            tags: body.tags ?? existingPrefixed.tags,
+            references: body.references as any ?? existingPrefixed.references,
             sortOrder,
           },
         });
@@ -231,6 +240,8 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
           supertagId: validSupertagId,
           payload: body.payload ?? {},
           fields: body.fields ?? {},
+          tags: body.tags ?? [],
+          references: body.references as any ?? undefined,
           sortOrder,
         },
       });
@@ -248,6 +259,8 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
       supertagId: validSupertagId,
       payload: body.payload ?? {},
       fields: body.fields ?? {},
+      tags: body.tags ?? [],
+      references: body.references as any ?? undefined,
       sortOrder,
     },
   });
@@ -278,6 +291,8 @@ export async function updateNode(userId: string, id: string, body: UpdateNodeReq
       ...(body.fields !== undefined && { fields: body.fields }),
       ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
       ...(body.isCollapsed !== undefined && { isCollapsed: body.isCollapsed }),
+      ...(body.tags !== undefined && { tags: body.tags }),
+      ...(body.references !== undefined && { references: body.references as any }),
     },
     include: {
       children: {

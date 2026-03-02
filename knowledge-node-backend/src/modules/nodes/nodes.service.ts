@@ -20,6 +20,7 @@ type NodeApiModel = {
   childrenIds: string[];
   isCollapsed: boolean;
   tags: string[];
+  references: unknown[];
   supertagId: string | null;
   fields: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -119,10 +120,13 @@ export class NodesService {
       sortOrder: number;
       isCollapsed: boolean;
       supertagId: string | null;
+      tags: string[];
+      references: unknown;
       fields: unknown;
       payload: unknown;
       createdAt: Date;
       updatedAt: Date;
+      [key: string]: unknown;
     },
     userId: string,
   ): Promise<NodeApiModel> {
@@ -141,7 +145,8 @@ export class NodesService {
       sortOrder: node.sortOrder,
       childrenIds: children.map((c) => c.id),
       isCollapsed: node.isCollapsed,
-      tags: [],
+      tags: node.tags ?? [],
+      references: (Array.isArray(node.references) ? node.references : []) as unknown[],
       supertagId: node.supertagId,
       fields: (node.fields as Record<string, unknown>) ?? {},
       payload: (node.payload as Record<string, unknown>) ?? {},
@@ -156,20 +161,53 @@ export class NodesService {
     let resolvedParentId = createNodeDto.parentId ?? null;
 
     if (resolvedParentId) {
-      const parentExists = await this.prisma.node.findFirst({
+      let parentExists = await this.prisma.node.findFirst({
         where: { id: resolvedParentId, userId },
         select: { id: true },
       });
+      
+      // 增强重试策略：扩展窗口到 3000ms（5次 x 600ms间隔）
+      // 支持更大的同步批次和网络延迟场景
       if (!parentExists) {
-        console.warn(
-          `[NodesService] create: parentId=${resolvedParentId} not found in DB, deferring parent assignment (node ${id})`,
+        const maxRetries = 5;
+        const retryInterval = 600;
+        
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          console.log(
+            `[NodesService] create: 等待父节点 ${resolvedParentId}，第 ${attempt + 1}/${maxRetries} 次重试...`,
+          );
+          await new Promise((r) => setTimeout(r, retryInterval));
+          parentExists = await this.prisma.node.findFirst({
+            where: { id: resolvedParentId, userId },
+            select: { id: true },
+          });
+          if (parentExists) {
+            console.log(
+              `[NodesService] create: 父节点 ${resolvedParentId} 已就绪，重试 ${attempt + 1} 次后成功`,
+            );
+            break;
+          }
+        }
+      }
+      
+      // 严格校验：若父节点仍不存在，抛出错误而非降级为 null（避免产生孤儿节点）
+      if (!parentExists) {
+        console.error(
+          `[NodesService] create: parentId=${resolvedParentId} not found after ${5} retries for node ${id}`,
         );
-        resolvedParentId = null;
+        throw new BadRequestException(
+          `父节点 ${resolvedParentId} 不存在，无法创建节点 ${id}。请确保父节点已同步到服务器。`,
+        );
       }
     }
 
     const fieldsJson = (createNodeDto.fields as Record<string, unknown>) ?? {};
     const payloadJson = (createNodeDto.payload as Record<string, unknown>) ?? {};
+    const tagsArr = createNodeDto.tags ?? [];
+    const refsJson = createNodeDto.references ?? null;
+    const refsValue = refsJson !== null
+      ? (refsJson as Prisma.InputJsonValue)
+      : Prisma.JsonNull;
 
     const createData: Prisma.NodeUncheckedCreateInput = {
       id,
@@ -181,6 +219,8 @@ export class NodesService {
       fields: fieldsJson as Prisma.InputJsonValue,
       payload: payloadJson as Prisma.InputJsonValue,
       supertagId: createNodeDto.supertagId ?? null,
+      tags: tagsArr,
+      references: refsValue,
       nodeRole: 'normal',
       userId,
     };
@@ -196,6 +236,8 @@ export class NodesService {
         fields: fieldsJson as Prisma.InputJsonValue,
         payload: payloadJson as Prisma.InputJsonValue,
         supertagId: createData.supertagId,
+        tags: tagsArr,
+        references: refsValue,
       },
     });
     return this.mapNodeToApiModel(node, userId);
@@ -213,6 +255,8 @@ export class NodesService {
       isCollapsed: boolean;
       fields: Record<string, unknown>;
       payload: Record<string, unknown>;
+      tags: string[];
+      references: any;
       supertagId: string | null;
       userId: string;
     }> = [];
@@ -229,6 +273,8 @@ export class NodesService {
         isCollapsed: node.isCollapsed || false,
         fields: node.fields || {},
         payload: node.payload || {},
+        tags: node.tags || [],
+        references: node.references ?? null,
         supertagId: node.supertagId ?? null,
         userId,
       });
@@ -526,5 +572,112 @@ export class NodesService {
       data: { isCollapsed: !node.isCollapsed },
     });
     return this.mapNodeToApiModel(updated, userId);
+  }
+
+  /**
+   * 清理孤儿节点：删除所有 parentId=null 且 nodeRole='normal' 的节点及其子树
+   * 孤儿节点定义：parentId 为 null 但不是结构根节点（user_root/daily_root）
+   */
+  async cleanupOrphanNodes(userId: string): Promise<{
+    deletedCount: number;
+    deletedIds: string[];
+  }> {
+    // 查找所有孤儿节点：parentId 为 null 且 nodeRole 为 'normal'
+    const orphanNodes = await this.prisma.node.findMany({
+      where: {
+        userId,
+        parentId: null,
+        nodeRole: 'normal',
+      },
+      select: { id: true, content: true },
+    });
+
+    if (orphanNodes.length === 0) {
+      console.log(`[NodesService] cleanupOrphanNodes: 用户 ${userId} 无孤儿节点需要清理`);
+      return { deletedCount: 0, deletedIds: [] };
+    }
+
+    console.log(
+      `[NodesService] cleanupOrphanNodes: 找到 ${orphanNodes.length} 个孤儿节点待清理`,
+      orphanNodes.map((n) => ({ id: n.id, content: n.content?.substring(0, 30) })),
+    );
+
+    const deletedIds: string[] = [];
+
+    // 递归收集要删除的节点 ID（包括子节点）
+    const collectNodeIdsToDelete = async (nodeId: string): Promise<string[]> => {
+      const ids: string[] = [nodeId];
+      const children = await this.prisma.node.findMany({
+        where: { userId, parentId: nodeId },
+        select: { id: true },
+      });
+      for (const child of children) {
+        const childIds = await collectNodeIdsToDelete(child.id);
+        ids.push(...childIds);
+      }
+      return ids;
+    };
+
+    // 收集所有要删除的节点 ID
+    for (const orphan of orphanNodes) {
+      const idsToDelete = await collectNodeIdsToDelete(orphan.id);
+      deletedIds.push(...idsToDelete);
+    }
+
+    // 批量删除（从子节点开始删除，避免外键约束问题，使用反向顺序）
+    const uniqueIds = [...new Set(deletedIds)];
+    
+    // 按层级深度排序（先删除深层子节点）
+    const nodeDepths = new Map<string, number>();
+    const calculateDepth = async (nodeId: string, visited = new Set<string>()): Promise<number> => {
+      if (visited.has(nodeId)) return 0;
+      visited.add(nodeId);
+      
+      if (nodeDepths.has(nodeId)) return nodeDepths.get(nodeId)!;
+      
+      const node = await this.prisma.node.findFirst({
+        where: { id: nodeId, userId },
+        select: { parentId: true },
+      });
+      
+      if (!node || !node.parentId) {
+        nodeDepths.set(nodeId, 0);
+        return 0;
+      }
+      
+      const parentDepth = await calculateDepth(node.parentId, visited);
+      const depth = parentDepth + 1;
+      nodeDepths.set(nodeId, depth);
+      return depth;
+    };
+
+    for (const nodeId of uniqueIds) {
+      await calculateDepth(nodeId);
+    }
+
+    // 按深度降序排序（深层先删）
+    const sortedIds = uniqueIds.sort((a, b) => {
+      const depthA = nodeDepths.get(a) ?? 0;
+      const depthB = nodeDepths.get(b) ?? 0;
+      return depthB - depthA;
+    });
+
+    // 逐个删除（确保顺序正确）
+    for (const nodeId of sortedIds) {
+      try {
+        await this.prisma.node.delete({ where: { id: nodeId } });
+      } catch (error) {
+        console.warn(`[NodesService] cleanupOrphanNodes: 删除节点 ${nodeId} 失败:`, error);
+      }
+    }
+
+    console.log(
+      `[NodesService] cleanupOrphanNodes: 成功清理 ${sortedIds.length} 个节点`,
+    );
+
+    return {
+      deletedCount: sortedIds.length,
+      deletedIds: sortedIds,
+    };
   }
 }

@@ -192,6 +192,24 @@ export class NodesController {
     return this.nodesService.batchRemove(userId, body.ids);
   }
 
+  @Delete('orphans')
+  @ApiOperation({ summary: '清理孤儿节点（parentId=null 且 nodeRole=normal 的节点及其子树）' })
+  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
+  @ApiResponse({ 
+    status: 200, 
+    description: '孤儿节点清理成功',
+    schema: {
+      type: 'object',
+      properties: {
+        deletedCount: { type: 'number', description: '删除的节点数量' },
+        deletedIds: { type: 'array', items: { type: 'string' }, description: '删除的节点ID列表' },
+      },
+    },
+  })
+  cleanupOrphanNodes(@Headers('x-user-id') userId: string) {
+    return this.nodesService.cleanupOrphanNodes(userId);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: '删除节点' })
   @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })

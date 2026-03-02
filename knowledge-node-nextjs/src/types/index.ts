@@ -332,6 +332,8 @@ export interface CreateNodeRequest {
   payload?: Record<string, any>;
   fields?: Record<string, any>;
   sortOrder?: number;
+  tags?: string[];
+  references?: NodeReference[];
 }
 
 /**
@@ -346,6 +348,8 @@ export interface UpdateNodeRequest {
   fields?: Record<string, any>;
   sortOrder?: number;
   isCollapsed?: boolean;
+  tags?: string[];
+  references?: NodeReference[];
 }
 
 /**
@@ -401,6 +405,8 @@ export interface DbNode {
   supertagId: string | null;
   payload: Record<string, any>;
   fields: Record<string, any>;
+  tags: string[];
+  references: NodeReference[] | null;
   sortOrder: number;
   isCollapsed: boolean;
   createdAt: Date;

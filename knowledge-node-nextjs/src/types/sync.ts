@@ -33,6 +33,13 @@ export type EntityType = 'node' | 'supertag' | 'category';
  */
 export type OperationStatus = 'pending' | 'processing' | 'failed' | 'completed';
 
+/**
+ * 依赖就绪状态（用于依赖感知的队列处理）
+ * - blocked: 等待依赖的父节点操作完成
+ * - ready: 依赖已满足，可以执行
+ */
+export type DependencyReadyState = 'blocked' | 'ready';
+
 // =============================================================================
 // 同步操作类型 (Sync Operation Types)
 // =============================================================================
@@ -62,6 +69,21 @@ export interface SyncOperation {
   error?: string;
   /** 最后尝试时间 */
   lastAttemptAt?: number;
+  
+  // ============ 依赖追踪扩展字段 ============
+  /**
+   * 依赖的操作 entityId 列表（父节点 create 操作）
+   * 当本操作为 create 类型且 parentId 不为空时，如果父节点也在队列中待创建，
+   * 则将父节点的 entityId 添加到此列表，确保父节点先于子节点创建
+   */
+  dependsOn?: string[];
+  /**
+   * 依赖就绪状态
+   * - blocked: 等待依赖的父节点操作完成
+   * - ready: 依赖已满足或无依赖，可以执行
+   * 仅当 status 为 pending 时有意义
+   */
+  readyState?: DependencyReadyState;
 }
 
 /**
@@ -69,8 +91,23 @@ export interface SyncOperation {
  */
 export type CreateSyncOperationParams = Omit<
   SyncOperation,
-  'id' | 'timestamp' | 'retryCount' | 'status' | 'error' | 'lastAttemptAt'
+  'id' | 'timestamp' | 'retryCount' | 'status' | 'error' | 'lastAttemptAt' | 'readyState'
 >;
+
+/**
+ * 同步完成回调函数类型
+ * 用于通知依赖方操作已完成
+ */
+export type SyncCompletionCallback = (entityId: string, success: boolean) => void;
+
+/**
+ * 节点同步等待 Promise 映射
+ * 用于 ensureTodayNode 等场景等待特定节点同步完成
+ */
+export interface NodeSyncPromise {
+  promise: Promise<boolean>;
+  resolve: (success: boolean) => void;
+}
 
 // =============================================================================
 // 同步统计类型 (Sync Statistics Types)

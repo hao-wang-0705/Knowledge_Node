@@ -3,11 +3,14 @@
  * 
  * 负责执行同步操作、重试策略和错误处理。
  * 是 syncStore 和 API 层之间的桥梁。
+ * 
+ * v3.1 增强：
+ * - 改进父节点不存在错误的检测和重试策略
+ * - 增加操作完成通知机制
  */
 
 import {
   SyncOperation,
-  EntityType,
   OperationType,
   DEFAULT_SYNC_CONFIG,
   RetryConfig,
@@ -50,6 +53,31 @@ export function getRetryDelay(
 }
 
 /**
+ * 判断是否为父节点不存在的错误（可重试）
+ * 后端在父节点未同步完成时会返回 400 + "父节点不存在" 错误
+ * v3.1 增强：更全面的错误模式匹配
+ */
+function isParentNotFoundError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  // 匹配各种父节点不存在的错误消息模式
+  const patterns = [
+    /父节点.*不存在/i,
+    /parent.*not found/i,
+    /parent.*does not exist/i,
+    /parentId.*not found/i,
+    /无法创建节点.*父节点/i,
+  ];
+  return patterns.some(pattern => pattern.test(msg));
+}
+
+/**
+ * 判断是否为依赖未满足的错误（应该延迟重试）
+ */
+function isDependencyError(error: unknown): boolean {
+  return isParentNotFoundError(error);
+}
+
+/**
  * 判断错误是否可重试
  */
 export function isRetryableError(error: unknown): boolean {
@@ -63,6 +91,12 @@ export function isRetryableError(error: unknown): boolean {
     return true;
   }
   
+  // 父节点不存在的错误可重试（父节点可能还在同步队列中）
+  if (isParentNotFoundError(error)) {
+    console.log('[SyncEngine] 检测到父节点不存在错误，标记为可重试');
+    return true;
+  }
+  
   // HTTP 错误码判断
   if (error instanceof Error && 'status' in error) {
     const status = (error as Error & { status: number }).status;
@@ -72,6 +106,8 @@ export function isRetryableError(error: unknown): boolean {
     if (status === 429) return true;
     // 408 Request Timeout 可重试
     if (status === 408) return true;
+    // 400 父节点不存在错误可重试（特殊情况）
+    if (status === 400 && isParentNotFoundError(error)) return true;
     // 4xx 客户端错误通常不可重试
     if (status >= 400 && status < 500) return false;
   }
@@ -158,6 +194,10 @@ async function executeNodeOperation(
             isCollapsed: p.isCollapsed as boolean | undefined,
             fields: p.fields as Record<string, unknown> | undefined,
             supertagId: p.supertagId as string | undefined,
+            payload: p.payload as Record<string, unknown> | undefined,
+            sortOrder: p.sortOrder as number | undefined,
+            tags: p.tags as string[] | undefined,
+            references: p.references as unknown[] | undefined,
           });
         } else {
           throw error;

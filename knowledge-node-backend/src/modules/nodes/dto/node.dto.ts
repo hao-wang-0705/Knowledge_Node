@@ -6,6 +6,7 @@ import {
   IsObject,
   IsNumber,
   IsInt,
+  IsArray,
   Min,
 } from 'class-validator';
 
@@ -55,6 +56,16 @@ export class CreateNodeDto {
   @IsString()
   @IsOptional()
   supertagId?: string;
+
+  @ApiPropertyOptional({ description: '标签ID列表', default: [] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  tags?: string[];
+
+  @ApiPropertyOptional({ description: '引用列表' })
+  @IsOptional()
+  references?: any;
 }
 
 export class UpdateNodeDto {
@@ -98,6 +109,16 @@ export class UpdateNodeDto {
   @IsString()
   @IsOptional()
   supertagId?: string;
+
+  @ApiPropertyOptional({ description: '标签ID列表' })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  tags?: string[];
+
+  @ApiPropertyOptional({ description: '引用列表' })
+  @IsOptional()
+  references?: any;
 }
 
 export class BatchUpdateNodesDto {
