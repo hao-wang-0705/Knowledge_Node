@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useNodeStore } from '@/stores/nodeStore';
 
+const queueOperationMock = vi.fn();
+
 vi.mock('@/stores/syncStore', () => ({
   useSyncStore: {
     getState: () => ({
-      queueOperation: vi.fn(),
+      queueOperation: queueOperationMock,
       initialize: vi.fn(),
       isInitialized: true,
       isOnline: false,
@@ -17,6 +19,7 @@ vi.mock('@/stores/syncStore', () => ({
 describe('nodeStore', () => {
   beforeEach(() => {
     localStorage.clear();
+    queueOperationMock.mockClear();
     useNodeStore.setState({
       nodes: {},
       rootIds: [],
@@ -129,5 +132,39 @@ describe('nodeStore', () => {
 
     expect(after.rootIds).toEqual(before.rootIds);
     expect(after.nodes[rootId]).toBeDefined();
+  });
+
+  it('在 notebook 树下新增节点时，入队 payload 会携带 scope/notebookId', () => {
+    useNodeStore.setState({
+      nodes: {
+        'nb-root': {
+          id: 'nb-root',
+          content: 'Notebook Root',
+          parentId: null,
+          childrenIds: [],
+          isCollapsed: false,
+          tags: [],
+          fields: {},
+          createdAt: Date.now(),
+          scope: 'notebook',
+          notebookId: 'nb-13',
+        },
+      },
+      rootIds: ['nb-root'],
+      focusedNodeId: null,
+      hoistedNodeId: 'nb-root',
+    });
+
+    const store = useNodeStore.getState();
+    store.addNode('nb-root');
+
+    const createOps = queueOperationMock.mock.calls
+      .map((c) => c[0])
+      .filter((op) => op?.type === 'create' && op?.entityType === 'node');
+    expect(createOps.length).toBeGreaterThan(0);
+    const latestCreate = createOps[createOps.length - 1];
+    expect(latestCreate.payload.scope).toBe('notebook');
+    expect(latestCreate.payload.notebookId).toBe('nb-13');
+    expect(latestCreate.payload.parentId).toBe('nb-root');
   });
 });

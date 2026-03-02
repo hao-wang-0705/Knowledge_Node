@@ -85,6 +85,8 @@ const queueCreateNode = (node: Node, sortOrder: number = 0) => {
       parentId: node.parentId,
       nodeType: node.type || 'text',
       supertagId: node.supertagId,
+      scope: node.scope,
+      notebookId: node.notebookId,
       fields: node.fields,
       payload: node.payload,
       sortOrder,
@@ -107,6 +109,8 @@ const queueUpdateNode = (nodeId: string, updates: Partial<Node> & { sortOrder?: 
       parentId: updates.parentId,
       nodeType: updates.type,
       supertagId: updates.supertagId,
+      scope: updates.scope,
+      notebookId: updates.notebookId,
       fields: updates.fields,
       payload: updates.payload,
       isCollapsed: updates.isCollapsed,
@@ -126,6 +130,21 @@ const queueDeleteNode = (nodeId: string) => {
     entityId: nodeId,
     payload: {},
   });
+};
+
+const resolveNodeScope = (
+  parentId: string | null,
+  nodes: Record<string, Node>,
+  options?: { forceDaily?: boolean }
+): { scope: Node['scope']; notebookId: Node['notebookId'] } => {
+  if (options?.forceDaily) return { scope: 'daily', notebookId: null };
+  if (!parentId) return { scope: 'general', notebookId: null };
+  const parent = nodes[parentId];
+  if (!parent) return { scope: 'general', notebookId: null };
+  return {
+    scope: parent.scope ?? 'general',
+    notebookId: parent.scope === 'notebook' ? (parent.notebookId ?? null) : null,
+  };
 };
 
 /**
@@ -260,6 +279,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         parentId: resolvedParentId,
         childrenIds: [],
         isCollapsed: false,
+        ...resolveNodeScope(resolvedParentId, state.nodes),
         tags: [],
         fields: {},
         createdAt: Date.now(),
@@ -853,6 +873,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         parentId: actualParentIdForSync,
         childrenIds: [],
         isCollapsed: false,
+        ...resolveNodeScope(actualParentIdForSync, currentState.nodes, { forceDaily: isCalendarNode }),
         tags: tagId ? [tagId] : [],
         fields: {},
         createdAt: Date.now(),
