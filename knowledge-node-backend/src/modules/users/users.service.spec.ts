@@ -10,12 +10,18 @@ describe('UsersService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    node: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+    },
   };
 
   let service: UsersService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.node.findFirst.mockResolvedValue(null);
+    prisma.node.create.mockResolvedValue({ id: 'root-id' });
     service = new UsersService(prisma as any);
   });
 

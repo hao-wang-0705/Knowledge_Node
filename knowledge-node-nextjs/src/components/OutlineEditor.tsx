@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useSession } from 'next-auth/react';
 import { FileText, Calendar, ChevronRight, Book, X, Hash, Plus } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { Button } from '@/components/ui/button';
@@ -8,7 +9,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { useSyncStore } from '@/stores/syncStore';
 import { useAuthErrorHandler } from '@/hooks/useAuthErrorHandler';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
@@ -55,11 +55,22 @@ const OutlineEditor: React.FC = () => {
   const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
   const isSupertagsInitialized = useSupertagStore((state) => state.isInitialized);
   
-  const navigationMode = useNotebookStore((state) => state.navigationMode);
-  const activeNotebookId = useNotebookStore((state) => state.activeNotebookId);
-  const notebooks = useNotebookStore((state) => state.notebooks);
-  const loadNotebooksFromAPI = useNotebookStore((state) => state.loadFromAPI);
-  const updateNotebook = useNotebookStore((state) => state.updateNotebook);
+  const getSidebarEntries = useNodeStore((state) => state.getSidebarEntries);
+  const isInDailyTree = useNodeStore((state) => state.isInDailyTree);
+
+  const { data: session } = useSession();
+  const userRootId = useMemo(
+    () => Object.values(nodes).find((n) => n.nodeRole === 'user_root')?.id ?? null,
+    [nodes]
+  );
+  const userRootDisplayName = useMemo(() => {
+    const user = session?.user;
+    if (!user) return '全部笔记';
+    return (user as { name?: string | null; email?: string | null }).name
+      || (typeof (user as { email?: string }).email === 'string'
+        ? (user as { email: string }).email.split('@')[0]
+        : '我的笔记');
+  }, [session?.user]);
   
   // 认证错误处理
   const { withAuthErrorHandler } = useAuthErrorHandler();
@@ -72,8 +83,7 @@ const OutlineEditor: React.FC = () => {
           // 并行加载所有数据（从数据库 API）
           await Promise.all([
             loadSupertagsFromAPI(),
-            loadFromStorage(), // nodeStore 内部已实现数据库同步
-            loadNotebooksFromAPI(), // 笔记本从 API 加载
+            loadFromStorage(), // nodeStore 内部已实现数据库同步（统一树，一次加载全部节点）
           ]);
         });
       } catch (error) {
@@ -85,7 +95,7 @@ const OutlineEditor: React.FC = () => {
     };
     
     initializeData();
-  }, [loadFromStorage, loadSupertagsFromAPI, loadNotebooksFromAPI, withAuthErrorHandler]);
+  }, [loadFromStorage, loadSupertagsFromAPI, withAuthErrorHandler]);
 
   // 数据加载后，仅在首次加载时自动跳转到今日节点
   useEffect(() => {
@@ -95,38 +105,79 @@ const OutlineEditor: React.FC = () => {
     }
   }, [isInitialized, nodes, hasInitialNavigated, goToToday]);
 
-  // 获取当前显示的节点 ID 列表
+  // 获取当前显示的节点 ID 列表（统一树：直接使用 hoisted 的子节点）
   const displayedNodeIds = useMemo(() => {
     if (hoistedNodeId) {
       const hoistedNode = nodes[hoistedNodeId];
-      return hoistedNode ? hoistedNode.childrenIds : [];
+      return hoistedNode?.childrenIds ?? [];
     }
     return rootIds;
   }, [hoistedNodeId, nodes, rootIds]);
 
-  // 获取当前 hoisted 节点
   const hoistedNode = useMemo(() => {
     return hoistedNodeId ? nodes[hoistedNodeId] : null;
   }, [hoistedNodeId, nodes]);
 
-  // 面包屑导航路径
+  const isCalendarView = useMemo(
+    () => (hoistedNodeId ? isInDailyTree(hoistedNodeId) : false),
+    [hoistedNodeId, isInDailyTree]
+  );
+  const activeNotebookNodeId = useMemo(() => {
+    if (!hoistedNodeId || !userRootId) return null;
+    let cur: string | undefined = hoistedNodeId;
+    while (cur && nodes[cur]?.parentId && nodes[cur].parentId !== userRootId) {
+      cur = nodes[cur].parentId ?? undefined;
+    }
+    if (cur && nodes[cur]?.parentId === userRootId && nodes[cur]?.nodeRole !== 'daily_root')
+      return cur;
+    return null;
+  }, [hoistedNodeId, userRootId, nodes]);
+
+  // 面包屑导航路径（日历模式：过滤月层，对齐 用户根 -> Daily notes -> 年 -> 周 -> 日）
   const breadcrumbPath = useMemo(() => {
     if (!hoistedNodeId) return [];
-    return getNodePath(hoistedNodeId);
+    const path = getNodePath(hoistedNodeId);
+    return path.filter((node) => !node.id.startsWith('month-'));
   }, [hoistedNodeId, getNodePath]);
 
-  // 计算统计信息
+  // 日历/笔记本面包屑展示文案（统一起点：用户昵称(全部笔记)）
+  const breadcrumbLabel = useCallback(
+    (node: { id: string; content: string; nodeRole?: string }) => {
+      if (node.nodeRole === 'daily_root') return 'Daily notes';
+      if (node.nodeRole === 'user_root') return `${userRootDisplayName}(全部笔记)`;
+      return node.content;
+    },
+    [userRootDisplayName]
+  );
+
+  // 计算统计信息：仅统计用户内容节点（排除结构根与日历层级节点）
   const stats = useMemo(() => {
-    const allNodes = Object.entries(nodes);
-    const nodeCount = allNodes.length;
-    const lastModified = allNodes.length > 0 
-      ? Math.max(...allNodes.map(([, n]) => n.createdAt), 0)
-      : 0;
+    const allEntries = Object.entries(nodes);
+    const contentEntries = allEntries.filter(([id, n]) => {
+      if (n.nodeRole === 'user_root' || n.nodeRole === 'daily_root')
+        return false;
+      if (getCalendarNodeType(id) !== null) return false;
+      return true;
+    });
+    const nodeCount = contentEntries.length;
+    const lastModified =
+      contentEntries.length > 0
+        ? Math.max(...contentEntries.map(([, n]) => n.createdAt), 0)
+        : 0;
     return {
       nodeCount,
       lastModified: lastModified > 0 ? formatDate(lastModified) : '无',
     };
   }, [nodes]);
+
+  // 待同步：按节点去重，显示“X 个节点待同步”
+  const pendingNodeCount = useMemo(() => {
+    const pending = pendingOperations.filter(
+      (op) => (op.status === 'pending' || op.status === 'failed') && op.entityType === 'node'
+    );
+    const uniqueIds = new Set(pending.map((op) => op.entityId));
+    return uniqueIds.size;
+  }, [pendingOperations]);
 
   const handleAddNode = useCallback(() => {
     addNode(hoistedNodeId);
@@ -135,11 +186,6 @@ const OutlineEditor: React.FC = () => {
   const handleGoToToday = useCallback(() => {
     goToToday();
   }, [goToToday]);
-
-  // 判断当前是否在日历视图
-  const isCalendarView = useMemo(() => {
-    return navigationMode === 'calendar';
-  }, [navigationMode]);
 
   // 判断当前聚焦节点的日历类型
   const calendarNodeType = useMemo(() => {
@@ -199,48 +245,68 @@ const OutlineEditor: React.FC = () => {
     return '全部笔记';
   }, [hoistedNode]);
 
-  // 获取当前笔记本名称（用于笔记本模式的面包屑）
   const notebookName = useMemo(() => {
-    if (navigationMode !== 'notebook' || !activeNotebookId) return null;
-    const notebook = notebooks[activeNotebookId];
-    return notebook?.name || '无标题笔记本';
-  }, [navigationMode, activeNotebookId, notebooks]);
+    if (!activeNotebookNodeId) return null;
+    const node = nodes[activeNotebookNodeId];
+    return node?.content?.trim() || '无标题笔记本';
+  }, [activeNotebookNodeId, nodes]);
 
-  // 获取当前笔记本的面包屑路径（笔记本模式）
   const notebookBreadcrumb = useMemo(() => {
-    if (navigationMode !== 'notebook' || !activeNotebookId) return [];
-    const notebook = notebooks[activeNotebookId];
-    if (!notebook) return [];
-    
-    // 获取完整路径
-    const fullPath = getNodePath(hoistedNodeId || '');
-    
-    // 找到笔记本根节点的位置
-    const rootIndex = fullPath.findIndex(n => n.id === notebook.rootNodeId);
-    
-    if (rootIndex >= 0) {
-      // 返回根节点之后的路径（包括根节点）
-      return fullPath.slice(rootIndex);
-    }
-    
+    if (!activeNotebookNodeId || !hoistedNodeId) return [];
+    const fullPath = getNodePath(hoistedNodeId);
+    const rootIndex = fullPath.findIndex((n) => n.id === activeNotebookNodeId);
+    if (rootIndex >= 0) return fullPath.slice(rootIndex);
     return fullPath;
-  }, [navigationMode, activeNotebookId, notebooks, hoistedNodeId, getNodePath]);
+  }, [activeNotebookNodeId, hoistedNodeId, getNodePath]);
 
-  // 处理标题点击（进入编辑模式）
+  const unifiedBreadcrumbItems = useMemo(() => {
+    const firstItem = userRootId
+      ? { id: userRootId, label: `${userRootDisplayName}(全部笔记)`, isUserRoot: true as const }
+      : null;
+
+    if (isCalendarView) {
+      const pathWithoutUserRoot = breadcrumbPath.filter((n) => n.nodeRole !== 'user_root');
+      const rest = pathWithoutUserRoot.map((n) => ({
+        id: n.id,
+        label: breadcrumbLabel(n),
+        isUserRoot: false as const,
+      }));
+      return firstItem ? [firstItem, ...rest] : rest;
+    }
+
+    if (activeNotebookNodeId && notebookBreadcrumb.length > 0) {
+      const rest = notebookBreadcrumb.map((n) => ({
+        id: n.id,
+        label: n.content || '无标题',
+        isUserRoot: false as const,
+      }));
+      return firstItem ? [firstItem, ...rest] : rest;
+    }
+
+    return firstItem ? [firstItem] : [];
+  }, [
+    userRootId,
+    userRootDisplayName,
+    isCalendarView,
+    activeNotebookNodeId,
+    breadcrumbPath,
+    notebookBreadcrumb,
+    breadcrumbLabel,
+  ]);
+
   const handleTitleClick = useCallback(() => {
-    if (navigationMode === 'notebook' && activeNotebookId) {
+    if (activeNotebookNodeId && hoistedNodeId === activeNotebookNodeId) {
       setIsEditingTitle(true);
       setEditingTitleValue(pageTitle);
     }
-  }, [navigationMode, activeNotebookId, pageTitle]);
+  }, [activeNotebookNodeId, hoistedNodeId, pageTitle]);
 
-  // 保存标题
   const handleSaveTitle = useCallback(() => {
-    if (activeNotebookId && editingTitleValue.trim()) {
-      updateNotebook(activeNotebookId, { name: editingTitleValue.trim() });
+    if (hoistedNodeId && activeNotebookNodeId === hoistedNodeId && editingTitleValue.trim()) {
+      updateNode(hoistedNodeId, { content: editingTitleValue.trim() });
     }
     setIsEditingTitle(false);
-  }, [activeNotebookId, editingTitleValue, updateNotebook]);
+  }, [hoistedNodeId, activeNotebookNodeId, editingTitleValue, updateNode]);
 
   // 聚焦标题输入框
   useEffect(() => {
@@ -309,67 +375,35 @@ const OutlineEditor: React.FC = () => {
           {/* 主内容区 */}
           <main className="flex-1 overflow-y-auto pb-32">
             <div className="max-w-3xl mx-auto px-6 py-8">
-              {/* 面包屑导航 */}
+              {/* 统一面包屑：用户昵称(全部笔记) > Daily notes / 笔记本 > 年/周/日 或 笔记n */}
               <div className="flex items-center gap-1 text-sm text-gray-500 mb-4 flex-wrap">
-                {navigationMode === 'calendar' ? (
-                  <>
-                    {/* 日历模式面包屑：全部笔记 > 年 > 月 > 周 > 日 > 用户节点... */}
-                    {hoistedNodeId ? (
-                      <button
-                        onClick={() => setHoistedNode(null)}
-                        className="hover:text-[var(--brand-primary)] hover:underline"
-                      >
-                        全部笔记
-                      </button>
-                    ) : (
-                      <span className="text-gray-800 font-medium">全部笔记</span>
-                    )}
-                    {breadcrumbPath.map((node, index) => (
-                      <React.Fragment key={node.id}>
-                        <ChevronRight size={14} className="text-gray-400" />
-                        {index === breadcrumbPath.length - 1 ? (
-                          <span className="text-gray-800 font-medium">{node.content}</span>
-                        ) : (
-                          <button
-                            onClick={() => setHoistedNode(node.id)}
-                            className="hover:text-[var(--brand-primary)] hover:underline"
-                          >
-                            {node.content}
-                          </button>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </>
-                ) : (
-                  <>
-                    {/* 笔记本模式面包屑：笔记本名称 > 子页面... */}
-                    {notebookBreadcrumb.length > 0 ? (
-                      notebookBreadcrumb.map((node, index) => (
-                        <React.Fragment key={node.id}>
-                          {index > 0 && <ChevronRight size={14} className="text-gray-400" />}
-                          {index === notebookBreadcrumb.length - 1 ? (
-                            <span className="text-gray-800 font-medium flex items-center gap-1">
-                              {index === 0 && <Book size={14} />}
-                              {node.content}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => setHoistedNode(node.id)}
-                              className="hover:text-blue-600 hover:underline flex items-center gap-1"
-                            >
-                              {index === 0 && <Book size={14} />}
-                              {node.content}
-                            </button>
-                          )}
-                        </React.Fragment>
-                      ))
-                    ) : (
+                {unifiedBreadcrumbItems.map((item, index) => (
+                  <React.Fragment key={item.id}>
+                    {index > 0 && <ChevronRight size={14} className="text-gray-400" />}
+                    {index === unifiedBreadcrumbItems.length - 1 ? (
                       <span className="text-gray-800 font-medium flex items-center gap-1">
-                        <Book size={14} />
-                        {notebookName || '笔记本'}
+                        {activeNotebookNodeId && index > 0 && <Book size={14} />}
+                        {item.label}
                       </span>
+                    ) : (
+                      <button
+                        onClick={() => setHoistedNode(item.id)}
+                        className={cn(
+                          "hover:underline flex items-center gap-1",
+                          item.isUserRoot ? "hover:text-[var(--brand-primary)]" : "hover:text-blue-600"
+                        )}
+                      >
+                        {activeNotebookNodeId && index === 1 && <Book size={14} />}
+                        {item.label}
+                      </button>
                     )}
-                  </>
+                  </React.Fragment>
+                ))}
+                {unifiedBreadcrumbItems.length === 0 && activeNotebookNodeId && (
+                  <span className="text-gray-800 font-medium flex items-center gap-1">
+                    <Book size={14} />
+                    {notebookName || '笔记本'}
+                  </span>
                 )}
               </div>
 
@@ -392,7 +426,7 @@ const OutlineEditor: React.FC = () => {
                   <h2 
                     className={cn(
                       "text-2xl font-bold text-gray-800 dark:text-gray-100 mb-1",
-                      navigationMode === 'notebook' && "cursor-text hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 -mx-1"
+                      activeNotebookNodeId && "cursor-text hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 -mx-1"
                     )}
                     onClick={handleTitleClick}
                   >
@@ -519,9 +553,9 @@ const OutlineEditor: React.FC = () => {
             <div className="h-full px-6 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
               <div className="flex items-center gap-4">
                 <span>共 {stats.nodeCount} 个节点</span>
-                {pendingOperations.length > 0 && (
+                {pendingNodeCount > 0 && (
                   <span className="text-amber-600 dark:text-amber-400">
-                    {pendingOperations.length} 个待同步
+                    {pendingNodeCount} 个节点待同步
                   </span>
                 )}
               </div>

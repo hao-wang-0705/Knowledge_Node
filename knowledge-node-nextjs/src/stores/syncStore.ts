@@ -48,6 +48,44 @@ const initialState: SyncStoreState = {
 };
 
 // =============================================================================
+// 依赖排序：确保 create 操作中父节点先于子节点
+// =============================================================================
+
+function sortByParentDependency(ops: SyncOperation[]): SyncOperation[] {
+  const creates = ops.filter((o) => o.type === 'create' && o.entityType === 'node');
+  const rest = ops.filter((o) => !(o.type === 'create' && o.entityType === 'node'));
+
+  if (creates.length <= 1) return [...creates, ...rest];
+
+  const idSet = new Set(creates.map((o) => o.entityId));
+
+  const parentOf = new Map<string, string | null>();
+  for (const op of creates) {
+    const p = op.payload as Record<string, unknown> | undefined;
+    const pid = (p?.parentId as string) ?? null;
+    parentOf.set(op.entityId, pid);
+  }
+
+  const sorted: SyncOperation[] = [];
+  const visited = new Set<string>();
+
+  function visit(op: SyncOperation) {
+    if (visited.has(op.entityId)) return;
+    visited.add(op.entityId);
+    const pid = parentOf.get(op.entityId) ?? null;
+    if (pid && idSet.has(pid)) {
+      const parentOp = creates.find((c) => c.entityId === pid);
+      if (parentOp) visit(parentOp);
+    }
+    sorted.push(op);
+  }
+
+  for (const op of creates) visit(op);
+
+  return [...sorted, ...rest];
+}
+
+// =============================================================================
 // Store 实现
 // =============================================================================
 
@@ -118,12 +156,12 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         }));
       }
 
-      // 检查是否有相同实体的待处理操作，可以合并
+      // 检查是否有相同实体的待处理操作，可以合并（含 failed，避免队列膨胀）
       const existingIndex = pendingOperations.findIndex(
         (p) =>
           p.entityType === op.entityType &&
           p.entityId === op.entityId &&
-          p.status === 'pending'
+          (p.status === 'pending' || p.status === 'failed')
       );
 
       const newOperation: SyncOperation = {
@@ -135,7 +173,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
       };
 
       if (existingIndex !== -1 && op.type === 'update') {
-        // 合并更新操作：用新的 payload 替换旧的
+        // 合并更新操作：用新的 payload 替换旧的，并重置状态以便重试
         set((state) => {
           const updated = [...state.pendingOperations];
           updated[existingIndex] = {
@@ -145,10 +183,21 @@ export const useSyncStore = create<SyncStore>((set, get) => {
               ...(op.payload as object),
             },
             timestamp: Date.now(),
+            status: 'pending',
+            retryCount: 0,
+            error: undefined,
           };
           return { pendingOperations: updated };
         });
         console.log(`[SyncStore] 合并更新操作: ${op.entityType}/${op.entityId}`);
+      } else if (existingIndex !== -1 && (op.type === 'create' || op.type === 'delete')) {
+        // 同实体的 create/delete 覆盖旧操作，重置状态
+        set((state) => {
+          const updated = [...state.pendingOperations];
+          updated[existingIndex] = { ...newOperation };
+          return { pendingOperations: updated };
+        });
+        console.log(`[SyncStore] 覆盖操作: ${op.type} ${op.entityType}/${op.entityId}`);
       } else {
         // 添加新操作
         set((state) => ({
@@ -187,14 +236,17 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         return;
       }
 
-      const pendingOps = state.pendingOperations.filter(
+      const rawPendingOps = state.pendingOperations.filter(
         (op) => op.status === 'pending' || op.status === 'failed'
       );
 
-      if (pendingOps.length === 0) {
+      if (rawPendingOps.length === 0) {
         set({ status: 'idle' });
         return;
       }
+
+      // 按依赖关系排序：父节点 create 必须先于子节点 create
+      const pendingOps = sortByParentDependency(rawPendingOps);
 
       console.log(`[SyncStore] 开始处理队列，共 ${pendingOps.length} 个操作`);
       set({ status: 'syncing', error: null });
@@ -369,7 +421,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         if (stored) {
           const queue = JSON.parse(stored) as SyncOperation[];
           // 验证数据格式
-          const validQueue = queue.filter(
+          let validQueue = queue.filter(
             (op) =>
               op.id &&
               op.type &&
@@ -381,6 +433,18 @@ export const useSyncStore = create<SyncStore>((set, get) => {
           if (validQueue.length !== queue.length) {
             console.warn(
               `[SyncStore] 过滤了 ${queue.length - validQueue.length} 个无效操作`
+            );
+          }
+
+          // 清除已达最大重试次数的失败操作，避免堆积
+          const maxRetries = DEFAULT_SYNC_CONFIG.retry.maxRetries;
+          const beforeExpired = validQueue.length;
+          validQueue = validQueue.filter(
+            (op) => !(op.status === 'failed' && (op.retryCount ?? 0) >= maxRetries)
+          );
+          if (validQueue.length !== beforeExpired) {
+            console.log(
+              `[SyncStore] 清理 ${beforeExpired - validQueue.length} 个已达最大重试的失败操作`
             );
           }
 

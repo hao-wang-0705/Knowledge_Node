@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import type { UpdateNodeRequest } from '@/types';
-import { deleteNode, getNodeById, updateNode } from '@/services/server/nodesService';
+import { proxyToBackend, toProxyResponse } from '@/lib/backend-proxy';
 
 // GET /api/nodes/[id] - 获取单个节点
 export async function GET(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -21,19 +21,12 @@ export async function GET(
 
     const { id } = await params;
 
-    const node = await getNodeById(session.user.id, id);
-
-    if (!node) {
-      return NextResponse.json(
-        { success: false, error: '节点不存在' },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: node,
-    });
+    const result = await proxyToBackend(
+      session.user.id,
+      `/api/nodes/${id}`,
+      { method: 'GET' }
+    );
+    return toProxyResponse(result);
   } catch (error) {
     console.error('Error fetching node:', error);
     return NextResponse.json(
@@ -60,19 +53,12 @@ export async function PUT(
 
     const { id } = await params;
     const body: UpdateNodeRequest = await req.json();
-
-    const node = await updateNode(session.user.id, id, body);
-    if (!node) {
-      return NextResponse.json(
-        { success: false, error: '节点不存在' },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: node,
-    });
+    const result = await proxyToBackend(
+      session.user.id,
+      `/api/nodes/${id}`,
+      { method: 'PATCH', body: JSON.stringify(body) }
+    );
+    return toProxyResponse(result);
   } catch (error) {
     console.error('Error updating node:', error);
     return NextResponse.json(
@@ -93,7 +79,7 @@ export async function PATCH(
 
 // DELETE /api/nodes/[id] - 删除节点
 export async function DELETE(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -108,24 +94,25 @@ export async function DELETE(
 
     const { id } = await params;
 
-    const result = await deleteNode(session.user.id, id);
-    if (!result.ok) {
-      if (result.conflict === 'notebook_root') {
+    const result = await proxyToBackend(
+      session.user.id,
+      `/api/nodes/${id}`,
+      { method: 'DELETE' }
+    );
+    if (!result.ok && result.status === 409) {
+      const text = JSON.stringify(result.body || '');
+      if (text.includes('不能直接删除笔记本根节点')) {
         return NextResponse.json(
-          { success: false, error: '不能直接删除笔记本根节点，请通过删除笔记本操作', code: 'NOTEBOOK_ROOT' },
+          {
+            success: false,
+            error: '不能直接删除笔记本根节点，请通过删除笔记本操作',
+            code: 'NOTEBOOK_ROOT',
+          },
           { status: 409 }
         );
       }
-      return NextResponse.json(
-        { success: false, error: '节点不存在' },
-        { status: 404 }
-      );
     }
-
-    return NextResponse.json({
-      success: true,
-      message: '节点已删除',
-    });
+    return toProxyResponse(result);
   } catch (error) {
     console.error('Error deleting node:', error);
     return NextResponse.json(

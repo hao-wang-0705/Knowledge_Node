@@ -11,8 +11,6 @@ type NodeApiModel = {
   isCollapsed: boolean;
   tags: string[];
   supertagId: string | null;
-  scope?: string;
-  notebookId?: string | null;
   fields: Record<string, unknown>;
   payload: Record<string, unknown>;
   createdAt: number;
@@ -27,8 +25,6 @@ function toNodeApiModel(
     parentId: string | null;
     isCollapsed: boolean;
     supertagId: string | null;
-    scope?: string | null;
-    notebookId?: string | null;
     fields: unknown;
     payload: unknown;
     createdAt: Date;
@@ -45,8 +41,6 @@ function toNodeApiModel(
     isCollapsed: node.isCollapsed,
     tags: [],
     supertagId: node.supertagId,
-    scope: node.scope ?? undefined,
-    notebookId: node.notebookId ?? undefined,
     fields: (node.fields as Record<string, unknown>) ?? {},
     payload: (node.payload as Record<string, unknown>) ?? {},
     createdAt: node.createdAt.getTime(),
@@ -109,58 +103,27 @@ async function getNextSortOrder(userId: string, parentId: string | null): Promis
   return (maxSortOrder._max.sortOrder ?? 0) + 1;
 }
 
-/** ADR-005: 解析节点 scope/notebookId，继承自父节点或使用 body 或默认 general */
-async function resolveScopeAndNotebookId(
-  userId: string,
-  parentId: string | null,
-  body: CreateNodeRequest
-): Promise<{ scope: string; notebookId: string | null }> {
-  if (body.scope != null) {
-    const scope = body.scope as string;
-    const notebookId = scope === 'notebook' ? (body.notebookId ?? null) : null;
-    return { scope, notebookId };
-  }
-  if (parentId) {
-    const parent = await prisma.node.findFirst({
-      where: { id: parentId, userId },
-      select: { scope: true, notebookId: true },
-    });
-    if (parent) {
-      return {
-        scope: parent.scope ?? 'general',
-        notebookId: parent.notebookId ?? null,
-      };
-    }
-  }
-  return { scope: 'general', notebookId: null };
-}
-
 export type ListNodesOptions = {
-  scope?: 'general' | 'daily' | 'notebook';
-  notebookId?: string | null;
+  rootNodeId?: string;
 };
 
-/** ADR-005: 按树域查询；默认返回日历/通用树（不含 notebook），兼容历史无 scope 数据 */
+/** 统一树：按 userId 查询全部节点，或按 rootNodeId 查子树 */
 export async function listNodes(userId: string, options?: ListNodesOptions): Promise<NodeApiModel[]> {
-  const scope = options?.scope;
-  const notebookId = options?.notebookId;
-
   const where: Prisma.NodeWhereInput = { userId };
 
-  if (scope === 'notebook' && notebookId) {
-    where.scope = 'notebook';
-    where.notebookId = notebookId;
-  } else {
-    // 日历/全部笔记：仅 general + daily；排除 notebook 树；兼容历史（scope 为空时用 notebook 根排除）
-    const notebookRootIds = await prisma.notebook.findMany({
-      where: { userId },
-      select: { rootNodeId: true },
-    }).then((rows) => rows.map((r) => r.rootNodeId).filter((id): id is string => id != null));
-
-    where.AND = [
-      { OR: [{ scope: 'general' }, { scope: 'daily' }] },
-      ...(notebookRootIds.length > 0 ? [{ id: { notIn: notebookRootIds } }] : []),
-    ];
+  if (options?.rootNodeId) {
+    const subtreeIds = new Set<string>([options.rootNodeId]);
+    let queue: string[] = [options.rootNodeId];
+    while (queue.length > 0) {
+      const children = await prisma.node.findMany({
+        where: { userId, parentId: { in: queue } },
+        select: { id: true },
+      });
+      const newIds = children.map((c) => c.id).filter((id) => !subtreeIds.has(id));
+      newIds.forEach((id) => subtreeIds.add(id));
+      queue = newIds;
+    }
+    where.id = { in: Array.from(subtreeIds) };
   }
 
   const nodes = await prisma.node.findMany({
@@ -194,7 +157,6 @@ export async function getNodeById(userId: string, id: string): Promise<NodeApiMo
 export async function createOrUpsertNode(userId: string, body: CreateNodeRequest): Promise<NodeApiModel> {
   const userPrefix = userId.substring(0, 8);
   const validParentId = await resolveParentId(userId, body.parentId ?? null, userPrefix);
-  const { scope, notebookId } = await resolveScopeAndNotebookId(userId, validParentId, body);
   const validSupertagId = await resolveSupertagId(userId, body.supertagId);
   const sortOrder = body.sortOrder ?? (await getNextSortOrder(userId, validParentId));
 
@@ -218,8 +180,6 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
           parentId: updateParentId,
           nodeType: body.nodeType ?? existingNode.nodeType,
           supertagId: updateSupertagId,
-          scope,
-          notebookId,
           payload: body.payload ?? ((existingNode.payload as Record<string, unknown>) ?? {}),
           fields: body.fields ?? ((existingNode.fields as Record<string, unknown>) ?? {}),
           sortOrder,
@@ -252,8 +212,6 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
             parentId: updateParentId,
             nodeType: body.nodeType ?? existingPrefixed.nodeType,
             supertagId: validSupertagId ?? existingPrefixed.supertagId,
-            scope,
-            notebookId,
             payload: body.payload ?? ((existingPrefixed.payload as Record<string, unknown>) ?? {}),
             fields: body.fields ?? ((existingPrefixed.fields as Record<string, unknown>) ?? {}),
             sortOrder,
@@ -271,8 +229,6 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
           content: body.content ?? '',
           nodeType: body.nodeType ?? 'text',
           supertagId: validSupertagId,
-          scope,
-          notebookId,
           payload: body.payload ?? {},
           fields: body.fields ?? {},
           sortOrder,
@@ -290,8 +246,6 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
       content: body.content ?? '',
       nodeType: body.nodeType ?? 'text',
       supertagId: validSupertagId,
-      scope,
-      notebookId,
       payload: body.payload ?? {},
       fields: body.fields ?? {},
       sortOrder,
@@ -320,8 +274,6 @@ export async function updateNode(userId: string, id: string, body: UpdateNodeReq
       ...(body.parentId !== undefined && { parentId }),
       ...(body.nodeType !== undefined && { nodeType: body.nodeType }),
       ...(body.supertagId !== undefined && { supertagId }),
-      ...(body.scope !== undefined && { scope: body.scope }),
-      ...(body.notebookId !== undefined && { notebookId: body.notebookId }),
       ...(body.payload !== undefined && { payload: body.payload }),
       ...(body.fields !== undefined && { fields: body.fields }),
       ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
@@ -340,7 +292,7 @@ export async function updateNode(userId: string, id: string, body: UpdateNodeReq
   );
 }
 
-export type DeleteNodeResult = { ok: true } | { ok: false; conflict?: 'notebook_root' };
+export type DeleteNodeResult = { ok: true } | { ok: false };
 
 export async function deleteNode(userId: string, id: string): Promise<DeleteNodeResult> {
   const existingNode = await prisma.node.findFirst({
@@ -348,14 +300,6 @@ export async function deleteNode(userId: string, id: string): Promise<DeleteNode
     select: { id: true },
   });
   if (!existingNode) return { ok: false };
-
-  const notebookUsingAsRoot = await prisma.notebook.findFirst({
-    where: { userId, rootNodeId: id },
-    select: { id: true },
-  });
-  if (notebookUsingAsRoot) {
-    return { ok: false, conflict: 'notebook_root' };
-  }
 
   await prisma.node.delete({ where: { id } });
   return { ok: true };

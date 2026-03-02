@@ -9,17 +9,11 @@ import {
 
 const {
   mockedNodesApi,
-  mockedNotebooksApi,
   mockedSupertagsApi,
   mockedCategoriesApi,
   AuthenticationError,
 } = vi.hoisted(() => ({
   mockedNodesApi: {
-    create: vi.fn(async () => ({})),
-    update: vi.fn(async () => ({})),
-    delete: vi.fn(async () => ({})),
-  },
-  mockedNotebooksApi: {
     create: vi.fn(async () => ({})),
     update: vi.fn(async () => ({})),
     delete: vi.fn(async () => ({})),
@@ -39,7 +33,6 @@ const {
 
 vi.mock('@/services/api', () => ({
   nodesApi: mockedNodesApi,
-  notebooksApi: mockedNotebooksApi,
   supertagsApi: mockedSupertagsApi,
   categoriesApi: mockedCategoriesApi,
   AuthenticationError,

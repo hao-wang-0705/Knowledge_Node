@@ -9,7 +9,6 @@ import {
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { Node } from '@/types';
 import { FIXED_TAG_IDS } from '@/utils/mockData';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
@@ -93,9 +92,9 @@ const MentionPopover: React.FC<MentionPopoverProps> = ({
   
   const nodes = useNodeStore((state) => state.nodes);
   const getNodePath = useNodeStore((state) => state.getNodePath);
+  const getSidebarEntries = useNodeStore((state) => state.getSidebarEntries);
   const supertags = useSupertagStore((state) => state.supertags);
-  const notebooks = useNotebookStore((state) => state.notebooks);
-  
+
   // 重置状态
   useEffect(() => {
     if (open) {
@@ -145,17 +144,16 @@ const MentionPopover: React.FC<MentionPopoverProps> = ({
   }, [getNodePath]);
   
   // 检查是否是容器节点
+  const sidebarEntryIds = useMemo(() => new Set(getSidebarEntries()), [getSidebarEntries, nodes]);
   const isContainerNode = useCallback((node: Node): boolean => {
-    if (node.tags.some(tagId => 
-      [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as any)
+    if (node.tags?.some((tagId) =>
+      [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as never)
     )) {
       return true;
     }
-    if (Object.values(notebooks).some(nb => nb.rootNodeId === node.id)) {
-      return true;
-    }
+    if (sidebarEntryIds.has(node.id)) return true;
     return false;
-  }, [notebooks]);
+  }, [sidebarEntryIds]);
   
   // 计算搜索分数
   const calculateScore = useCallback((node: Node, searchQuery: string): number => {

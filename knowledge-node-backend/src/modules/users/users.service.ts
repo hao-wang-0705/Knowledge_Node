@@ -7,10 +7,46 @@ import { randomUUID } from 'crypto';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
+  private async ensureRootTree(userId: string) {
+    let userRoot = await this.prisma.node.findFirst({
+      where: { userId, nodeRole: 'user_root' },
+      select: { id: true },
+    });
+    if (!userRoot) {
+      userRoot = await this.prisma.node.create({
+        data: {
+          id: `user-root-${userId}`,
+          userId,
+          content: '用户根节点',
+          nodeType: 'root',
+          nodeRole: 'user_root',
+        },
+        select: { id: true },
+      });
+    }
+
+    const dailyRoot = await this.prisma.node.findFirst({
+      where: { userId, nodeRole: 'daily_root' },
+      select: { id: true },
+    });
+    if (!dailyRoot) {
+      await this.prisma.node.create({
+        data: {
+          id: `daily-root-${userId}`,
+          userId,
+          parentId: userRoot.id,
+          content: '每日笔记(Daily Note)',
+          nodeType: 'daily',
+          nodeRole: 'daily_root',
+        },
+      });
+    }
+  }
+
   async create(createUserDto: CreateUserDto) {
     const email = createUserDto.email ?? `user-${randomUUID()}@knowledge-node.local`;
 
-    return this.prisma.user.create({
+    const user = await this.prisma.user.create({
       data: {
         email,
         name: createUserDto.name,
@@ -18,6 +54,8 @@ export class UsersService {
         passwordHash: '',
       },
     });
+    await this.ensureRootTree(user.id);
+    return user;
   }
 
   async findAll() {
@@ -73,6 +111,7 @@ export class UsersService {
       });
     }
 
+    await this.ensureRootTree(user.id);
     return user;
   }
 }

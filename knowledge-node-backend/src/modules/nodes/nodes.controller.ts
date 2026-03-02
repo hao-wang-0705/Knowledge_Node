@@ -48,33 +48,24 @@ export class NodesController {
   }
 
   @Get()
-  @ApiOperation({ summary: '获取所有节点（支持 scope/notebookId 树隔离）' })
+  @ApiOperation({ summary: '获取所有节点（可选 rootNodeId 子树）' })
   @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiQuery({ name: 'scope', required: false, enum: ['general', 'daily', 'notebook'] })
-  @ApiQuery({ name: 'notebookId', required: false })
+  @ApiQuery({ name: 'rootNodeId', required: false, description: '按根节点查询整棵子树' })
   @ApiResponse({ status: 200, description: '返回节点列表', type: [NodeResponseDto] })
   findAll(
     @Headers('x-user-id') userId: string,
-    @Query('scope') scope?: string,
-    @Query('notebookId') notebookId?: string,
+    @Query('rootNodeId') rootNodeId?: string,
   ) {
-    const options = scope && scope === 'notebook' && notebookId ? { scope, notebookId } : undefined;
+    const options = rootNodeId ? { rootNodeId } : undefined;
     return this.nodesService.findAll(userId, options);
   }
 
   @Get('root')
   @ApiOperation({ summary: '获取根级别节点' })
   @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiQuery({ name: 'scope', required: false, enum: ['general', 'daily', 'notebook'] })
-  @ApiQuery({ name: 'notebookId', required: false })
   @ApiResponse({ status: 200, description: '返回根节点列表', type: [NodeResponseDto] })
-  findRootNodes(
-    @Headers('x-user-id') userId: string,
-    @Query('scope') scope?: string,
-    @Query('notebookId') notebookId?: string,
-  ) {
-    const options = scope && scope === 'notebook' && notebookId ? { scope, notebookId } : undefined;
-    return this.nodesService.findRootNodes(userId, options);
+  findRootNodes(@Headers('x-user-id') userId: string) {
+    return this.nodesService.findRootNodes(userId);
   }
 
   @Get('search')

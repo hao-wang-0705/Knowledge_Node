@@ -9,13 +9,8 @@ export * from './sync';
 // - daily: 每日笔记节点
 export type NodeType = 'text' | 'heading' | 'todo' | 'command' | 'daily';
 
-/**
- * 节点所属树域（树隔离契约，ADR-005）
- * - general: 通用根级笔记，不归属每日/笔记本
- * - daily: 每日笔记树（年/月/周/日及下属）
- * - notebook: 用户笔记本树，此时 notebookId 必填
- */
-export type NodeScope = 'general' | 'daily' | 'notebook';
+/** 节点结构角色（统一树：仅 user_root / daily_root 为结构节点，其余为 normal） */
+export type NodeRole = 'normal' | 'user_root' | 'daily_root';
 
 // =============================================================================
 // 指令节点系统 (Command Node System)
@@ -161,19 +156,6 @@ export interface TemplateNode {
   children?: TemplateNode[];
 }
 
-// 笔记本类型
-export interface Notebook {
-  id: string;
-  name: string;           // 笔记本名称
-  icon?: string;          // 可选的图标 emoji
-  rootNodeId: string;     // 笔记本的根节点 ID
-  createdAt: number;
-  updatedAt: number;
-}
-
-// 导航模式
-export type NavigationMode = 'calendar' | 'notebook';
-
 // 字段定义
 export interface FieldDefinition {
   id: string;
@@ -233,10 +215,8 @@ export interface Node {
   parentId: string | null;
   childrenIds: string[]; // 子节点 ID 排序列表
   isCollapsed: boolean;
-  // ========== 树隔离 (ADR-005) ==========
-  scope?: NodeScope;     // 所属树域，默认 general
-  notebookId?: string | null;  // scope=notebook 时必填
-  // ===================================
+  /** 结构角色（user_root / daily_root / normal） */
+  nodeRole?: NodeRole;
   // ========== 超级标签体系 ==========
   tags: string[];        // 应用于此节点的 Supertag ID 列表
   supertagId?: string | null;  // 功能标签 ID（排他性，建议只有一个）
@@ -352,10 +332,6 @@ export interface CreateNodeRequest {
   payload?: Record<string, any>;
   fields?: Record<string, any>;
   sortOrder?: number;
-  /** 树隔离：所属域，默认 general */
-  scope?: NodeScope;
-  /** 树隔离：scope=notebook 时必填 */
-  notebookId?: string | null;
 }
 
 /**
@@ -370,8 +346,6 @@ export interface UpdateNodeRequest {
   fields?: Record<string, any>;
   sortOrder?: number;
   isCollapsed?: boolean;
-  scope?: NodeScope;
-  notebookId?: string | null;
 }
 
 /**

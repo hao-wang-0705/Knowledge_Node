@@ -4,9 +4,8 @@ import React, { useMemo, useCallback, useState } from 'react';
 import { Link2, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { Node } from '@/types';
-import { SYSTEM_TAGS } from '@/utils/date-helpers';
+import { analyzeNavigationTarget } from '@/utils/navigation';
 import { findBacklinks, findBacklinksFromFields, getPlainTextWithoutReferences } from '@/utils/reference-helpers';
 import CompactBreadcrumb from './CompactBreadcrumb';
 
@@ -50,9 +49,6 @@ const Backlinks: React.FC<BacklinksProps> = ({
   const getNodePath = useNodeStore((state) => state.getNodePath);
   const setFocusedNode = useNodeStore((state) => state.setFocusedNode);
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
-  const notebooks = useNotebookStore((state) => state.notebooks);
-  const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
-  const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
   const currentNode = nodes[nodeId];
   const targetTitle = currentNode?.content?.trim().slice(0, 50);
 
@@ -128,57 +124,13 @@ const Backlinks: React.FC<BacklinksProps> = ({
 
   const totalCount = unifiedBacklinks.length;
 
-  // 默认跳转逻辑
   const handleDefaultJump = useCallback((targetNodeId: string) => {
     const targetNode = nodes[targetNodeId];
     if (!targetNode) return;
-    
-    
-    // 判断节点类型
-    const isCalendarNode = targetNode.tags.some(tagId => 
-      [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as typeof SYSTEM_TAGS.YEAR)
-    );
-    
-    // 查找节点所属的笔记本
-    const belongsToNotebook = Object.values(notebooks).find(nb => {
-      let currentNode: Node | null = targetNode;
-      while (currentNode) {
-        if (currentNode.id === nb.rootNodeId) return true;
-        currentNode = currentNode.parentId ? nodes[currentNode.parentId] : null;
-      }
-      return false;
-    });
-    
-    // 查找节点所属的日历父节点
-    const findCalendarParent = (): string | null => {
-      let currentNode: Node | null = targetNode;
-      while (currentNode) {
-        if (currentNode.tags.includes(SYSTEM_TAGS.DAY)) {
-          return currentNode.id;
-        }
-        currentNode = currentNode.parentId ? nodes[currentNode.parentId] : null;
-      }
-      return null;
-    };
-    
-    if (isCalendarNode) {
-      setNavigationMode('calendar');
-      setHoistedNode(targetNodeId);
-      setFocusedNode(targetNodeId);
-    } else if (belongsToNotebook) {
-      setActiveNotebook(belongsToNotebook.id);
-      setNavigationMode('notebook');
-      setHoistedNode(belongsToNotebook.rootNodeId);
-      setFocusedNode(targetNodeId);
-    } else {
-      const calendarParent = findCalendarParent();
-      setNavigationMode('calendar');
-      if (calendarParent) {
-        setHoistedNode(calendarParent);
-      }
-      setFocusedNode(targetNodeId);
-    }
-  }, [nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
+    const target = analyzeNavigationTarget(targetNode, nodes);
+    if (target.hoistNodeId) setHoistedNode(target.hoistNodeId);
+    setFocusedNode(target.nodeId);
+  }, [nodes, setHoistedNode, setFocusedNode]);
 
   // 点击处理
   const handleItemClick = useCallback((targetNodeId: string, e: React.MouseEvent) => {

@@ -83,7 +83,6 @@ export async function initializeDailyNotes(userId: string) {
         parentId: null,
         content: getYearContent(currentYear),
         nodeType: 'daily',
-        scope: 'daily',
         sortOrder: 0,
         payload: {
           level: 'year',
@@ -99,7 +98,6 @@ export async function initializeDailyNotes(userId: string) {
         parentId: yearNode.id,
         content: getMonthContent(currentMonth),
         nodeType: 'daily',
-        scope: 'daily',
         sortOrder: 0,
         payload: {
           level: 'month',
@@ -116,7 +114,6 @@ export async function initializeDailyNotes(userId: string) {
         parentId: monthNode.id,
         content: getWeekContent(currentWeek, weekStart, weekEnd),
         nodeType: 'daily',
-        scope: 'daily',
         sortOrder: 0,
         payload: {
           level: 'week',
@@ -137,7 +134,6 @@ export async function initializeDailyNotes(userId: string) {
           parentId: weekNode.id,
           content: getDayContent(date),
           nodeType: 'daily',
-          scope: 'daily',
           sortOrder: i,
           payload: {
             level: 'day',

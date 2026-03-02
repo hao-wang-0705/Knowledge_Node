@@ -18,7 +18,6 @@ model User {
   updatedAt     DateTime      @updatedAt
   categories    Category[]
   nodes         Node[]
-  notebooks     Notebook[]
   supertags     Supertag[]
   settings      UserSetting[]
 
@@ -31,44 +30,27 @@ model Node {
   parentId    String?
   content     String    @default("")
   nodeType    String    @default("text")
+  nodeRole    String    @default("normal")
   supertagId  String?
   payload     Json      @default("{}")
   fields      Json      @default("{}")
   sortOrder   Int       @default(0)
   isCollapsed Boolean   @default(false)
-  scope       String    @default("general")
-  notebookId  String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   parent      Node?     @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
   children    Node[]    @relation("NodeHierarchy")
   supertag    Supertag? @relation(fields: [supertagId], references: [id])
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  notebook    Notebook? @relation(fields: [notebookId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([parentId])
   @@index([supertagId])
   @@index([nodeType])
   @@index([createdAt])
-  @@index([userId, scope, parentId, sortOrder])
-  @@index([userId, notebookId, parentId, sortOrder])
+  @@index([userId, nodeRole, parentId])
+  @@index([userId, parentId, sortOrder])
   @@map("nodes")
-}
-
-model Notebook {
-  id         String   @id @default(cuid())
-  userId     String
-  name       String
-  icon       String?
-  rootNodeId String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  nodes      Node[]
-
-  @@index([userId])
-  @@map("notebooks")
 }
 
 model Supertag {

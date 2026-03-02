@@ -1,5 +1,5 @@
 # Knowledge Node Frontend Dockerfile
-# 版本: 2.1
+# 版本: 3.0
 FROM node:20-alpine AS base
 
 # 构建时间戳参数（用于破坏缓存）

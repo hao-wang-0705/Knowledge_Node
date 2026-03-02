@@ -5,7 +5,6 @@ import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import ContextMenu from './ContextMenu';
 import MentionPopover from './MentionPopover';
 import UnifiedTagSelector from './UnifiedTagSelector';

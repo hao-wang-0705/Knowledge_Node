@@ -10,13 +10,13 @@ export interface NodeResponse {
   content: string;
   type: string;
   parentId?: string;
+  nodeRole?: string;
   childrenIds: string[];
   isCollapsed: boolean;
   fields: Record<string, any>;
   supertagId?: string;
   tags: string[];
   references?: Record<string, any>;
-  notebookId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,7 +33,6 @@ export interface CreateNodeParams {
   supertagId?: string;
   tags?: string[];
   references?: Record<string, any>;
-  notebookId?: string;
 }
 
 // 更新节点参数
@@ -47,7 +46,6 @@ export interface UpdateNodeParams {
   supertagId?: string;
   tags?: string[];
   references?: Record<string, any>;
-  notebookId?: string;
 }
 
 // 移动节点参数
@@ -63,6 +61,7 @@ function toNode(response: NodeResponse): Node {
     content: response.content,
     type: response.type as Node['type'],
     parentId: response.parentId ?? null,
+    nodeRole: response.nodeRole as Node['nodeRole'],
     childrenIds: response.childrenIds,
     isCollapsed: response.isCollapsed,
     fields: response.fields,
@@ -74,21 +73,16 @@ function toNode(response: NodeResponse): Node {
 }
 
 export const nodesApi = {
-  // 获取所有节点
-  async getAll(): Promise<Node[]> {
-    const response = await apiClient.get<NodeResponse[]>('/api/nodes');
-    return response.map(toNode);
-  },
-
-  // 获取笔记本的所有节点
-  async getByNotebook(notebookId: string): Promise<Node[]> {
-    const response = await apiClient.get<NodeResponse[]>(`/api/nodes/notebook/${notebookId}`);
+  // 获取所有节点（可选 rootNodeId 子树）
+  async getAll(rootNodeId?: string): Promise<Node[]> {
+    const params = rootNodeId ? { rootNodeId } : undefined;
+    const response = await apiClient.get<NodeResponse[]>('/api/nodes', params);
     return response.map(toNode);
   },
 
   // 获取根级别节点
-  async getRootNodes(notebookId?: string): Promise<Node[]> {
-    const response = await apiClient.get<NodeResponse[]>('/api/nodes/root', { notebookId });
+  async getRootNodes(): Promise<Node[]> {
+    const response = await apiClient.get<NodeResponse[]>('/api/nodes/root');
     return response.map(toNode);
   },
 

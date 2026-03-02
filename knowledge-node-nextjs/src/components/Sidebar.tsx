@@ -2,11 +2,11 @@
 
 import React, { useCallback, useMemo, useRef, useEffect, useState, useLayoutEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { Calendar, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { getGreeting } from '@/utils/helpers';
 import { getTodayId } from '@/utils/date-helpers';
@@ -17,14 +17,12 @@ interface SidebarProps {
   onOpenCommandCenter?: () => void;
 }
 
-// 右键菜单位置
 interface ContextMenuPosition {
   x: number;
   y: number;
-  notebookId: string;
+  nodeId: string;
 }
 
-// 调整后的菜单位置
 interface AdjustedPosition {
   x: number;
   y: number;
@@ -32,7 +30,7 @@ interface AdjustedPosition {
 
 const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => {
   const router = useRouter();
-  const [editingNotebookId, setEditingNotebookId] = useState<string | null>(null);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
   const [menuPosition, setMenuPosition] = useState<AdjustedPosition | null>(null);
@@ -41,85 +39,130 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   const [expandedTagIds, setExpandedTagIds] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  
-  const notebooks = useNotebookStore((state) => state.notebooks);
-  const notebookIds = useNotebookStore((state) => state.notebookIds);
-  const activeNotebookId = useNotebookStore((state) => state.activeNotebookId);
-  const navigationMode = useNotebookStore((state) => state.navigationMode);
-  const createNotebook = useNotebookStore((state) => state.createNotebook);
-  const updateNotebook = useNotebookStore((state) => state.updateNotebook);
-  const deleteNotebook = useNotebookStore((state) => state.deleteNotebook);
-  const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
-  const goToCalendar = useNotebookStore((state) => state.goToCalendar);
-  const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  
+
+  const nodes = useNodeStore((state) => state.nodes);
   const hoistedNodeId = useNodeStore((state) => state.hoistedNodeId);
-  
-  // 获取问候语
+  const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
+  const addNode = useNodeStore((state) => state.addNode);
+  const updateNode = useNodeStore((state) => state.updateNode);
+  const deleteNode = useNodeStore((state) => state.deleteNode);
+  const goToToday = useNodeStore((state) => state.goToToday);
+  const getSidebarEntries = useNodeStore((state) => state.getSidebarEntries);
+  const isInDailyTree = useNodeStore((state) => state.isInDailyTree);
+  const { data: session } = useSession();
+
+  const userRootId = useMemo(
+    () => Object.values(nodes).find((n) => n.nodeRole === 'user_root')?.id ?? null,
+    [nodes]
+  );
+
+  const sidebarEntries = useMemo(() => getSidebarEntries(), [getSidebarEntries, nodes]);
+  const dailyRootId = useMemo(
+    () => sidebarEntries.find((id) => nodes[id]?.nodeRole === 'daily_root') ?? null,
+    [sidebarEntries, nodes]
+  );
+  const notebookEntryIds = useMemo(
+    () => sidebarEntries.filter((id) => id !== dailyRootId),
+    [sidebarEntries, dailyRootId]
+  );
+
+  const isCalendarView = useMemo(
+    () => (hoistedNodeId ? isInDailyTree(hoistedNodeId) : false),
+    [hoistedNodeId, isInDailyTree]
+  );
+  const activeNotebookNodeId = useMemo(() => {
+    if (!hoistedNodeId || !userRootId) return null;
+    if (nodes[userRootId]?.childrenIds.includes(hoistedNodeId) && hoistedNodeId !== dailyRootId)
+      return hoistedNodeId;
+    let cur = nodes[hoistedNodeId]?.parentId ?? null;
+    while (cur && cur !== userRootId) {
+      const parent = nodes[cur];
+      if (!parent) break;
+      if (parent.nodeRole === 'user_root' && cur !== dailyRootId) return null;
+      cur = parent.parentId;
+    }
+    if (cur === userRootId && hoistedNodeId !== dailyRootId) {
+      let n = nodes[hoistedNodeId];
+      while (n?.parentId && n.parentId !== userRootId) n = nodes[n.parentId];
+      return n?.parentId === userRootId ? n.id : null;
+    }
+    return null;
+  }, [hoistedNodeId, userRootId, dailyRootId, nodes]);
+
+  const userRootDisplayName = useMemo(() => {
+    const user = session?.user;
+    if (!user) return '我的笔记';
+    return (user as { name?: string | null; email?: string | null }).name
+      || (typeof (user as { email?: string }).email === 'string'
+        ? (user as { email: string }).email.split('@')[0]
+        : '我的笔记');
+  }, [session?.user]);
+
   const greeting = useMemo(() => getGreeting(), []);
-  
-  // 判断是否在今日日记页面
+
   const isTodayActive = useMemo(() => {
-    if (navigationMode !== 'calendar') return false;
+    if (!isCalendarView) return false;
     const todayId = getTodayId();
     return hoistedNodeId === todayId;
-  }, [navigationMode, hoistedNodeId]);
-  
-  // 处理点击今日笔记
+  }, [isCalendarView, hoistedNodeId]);
+
+  const handleGoToAllNotes = useCallback(() => {
+    if (!userRootId) return;
+    setHoistedNode(userRootId);
+  }, [userRootId, setHoistedNode]);
+
   const handleGoToToday = useCallback(() => {
-    goToCalendar();
-  }, [goToCalendar]);
-  
-  // 处理创建新笔记本
-  const handleCreateNotebook = useCallback(async () => {
-    const newNotebookId = await createNotebook();
-    if (newNotebookId) {
-      // 创建后立即进入编辑状态
-      setEditingNotebookId(newNotebookId);
-      setEditingName('无标题笔记本');
-    }
-  }, [createNotebook]);
-  
-  // 处理选择笔记本
-  const handleSelectNotebook = useCallback((notebookId: string) => {
-    if (editingNotebookId === notebookId) return; // 编辑中不响应点击
-    setActiveNotebook(notebookId);
-  }, [setActiveNotebook, editingNotebookId]);
-  
-  // 处理双击编辑笔记本名称
-  const handleDoubleClick = useCallback((notebookId: string, currentName: string) => {
-    setEditingNotebookId(notebookId);
+    goToToday();
+  }, [goToToday]);
+
+  const handleCreateNotebook = useCallback(() => {
+    if (!userRootId) return;
+    const newId = addNode(userRootId);
+    updateNode(newId, { content: '无标题笔记本' });
+    setHoistedNode(newId);
+    setEditingNodeId(newId);
+    setEditingName('无标题笔记本');
+  }, [userRootId, addNode, updateNode, setHoistedNode]);
+
+  const handleSelectNotebook = useCallback(
+    (nodeId: string) => {
+      if (editingNodeId === nodeId) return;
+      setHoistedNode(nodeId);
+    },
+    [setHoistedNode, editingNodeId]
+  );
+
+  const handleDoubleClick = useCallback((nodeId: string, currentName: string) => {
+    setEditingNodeId(nodeId);
     setEditingName(currentName);
   }, []);
-  
-  // 处理保存笔记本名称
+
   const handleSaveName = useCallback(() => {
-    if (editingNotebookId && editingName.trim()) {
-      updateNotebook(editingNotebookId, { name: editingName.trim() });
+    if (editingNodeId && editingName.trim()) {
+      updateNode(editingNodeId, { content: editingName.trim() });
     }
-    setEditingNotebookId(null);
+    setEditingNodeId(null);
     setEditingName('');
-  }, [editingNotebookId, editingName, updateNotebook]);
-  
-  // 处理按键
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSaveName();
-    } else if (e.key === 'Escape') {
-      setEditingNotebookId(null);
-      setEditingName('');
-    }
-  }, [handleSaveName]);
-  
-  // 自动聚焦输入框
+  }, [editingNodeId, editingName, updateNode]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') handleSaveName();
+      else if (e.key === 'Escape') {
+        setEditingNodeId(null);
+        setEditingName('');
+      }
+    },
+    [handleSaveName]
+  );
+
   useEffect(() => {
-    if (editingNotebookId && inputRef.current) {
+    if (editingNodeId && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
-  }, [editingNotebookId]);
+  }, [editingNodeId]);
 
-  // 点击外部关闭右键菜单
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
@@ -127,14 +170,12 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         setIsMenuVisible(false);
       }
     };
-    
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setContextMenu(null);
         setIsMenuVisible(false);
       }
     };
-    
     if (contextMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       document.addEventListener('keydown', handleEscape);
@@ -145,27 +186,18 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
     }
   }, [contextMenu]);
 
-  // 边界检测：调整菜单位置
   useLayoutEffect(() => {
     if (contextMenu && contextMenuRef.current) {
       const menuRect = contextMenuRef.current.getBoundingClientRect();
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
       const padding = 8;
-
       let adjustedX = contextMenu.x;
       let adjustedY = contextMenu.y;
-
-      // 检查右侧边界
-      if (contextMenu.x + menuRect.width + padding > viewportWidth) {
+      if (contextMenu.x + menuRect.width + padding > viewportWidth)
         adjustedX = Math.max(padding, viewportWidth - menuRect.width - padding);
-      }
-
-      // 检查底部边界
-      if (contextMenu.y + menuRect.height + padding > viewportHeight) {
+      if (contextMenu.y + menuRect.height + padding > viewportHeight)
         adjustedY = Math.max(padding, viewportHeight - menuRect.height - padding);
-      }
-
       setMenuPosition({ x: adjustedX, y: adjustedY });
       requestAnimationFrame(() => setIsMenuVisible(true));
     } else {
@@ -174,53 +206,52 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
     }
   }, [contextMenu]);
 
-  // 处理右键菜单
-  const handleContextMenu = useCallback((e: React.MouseEvent, notebookId: string) => {
+  const handleContextMenu = useCallback((e: React.MouseEvent, nodeId: string) => {
     e.preventDefault();
     e.stopPropagation();
     setIsMenuVisible(false);
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      notebookId,
-    });
+    setContextMenu({ x: e.clientX, y: e.clientY, nodeId });
   }, []);
 
-  // 处理重命名
   const handleRename = useCallback(() => {
     if (contextMenu) {
-      const notebook = notebooks[contextMenu.notebookId];
-      if (notebook) {
-        setEditingNotebookId(contextMenu.notebookId);
-        setEditingName(notebook.name);
+      const node = nodes[contextMenu.nodeId];
+      if (node) {
+        setEditingNodeId(contextMenu.nodeId);
+        setEditingName(node.content || '');
       }
       setContextMenu(null);
     }
-  }, [contextMenu, notebooks]);
+  }, [contextMenu, nodes]);
 
-  // 处理删除笔记本
   const handleDeleteNotebook = useCallback(async () => {
-    if (contextMenu) {
-      const notebook = notebooks[contextMenu.notebookId];
-      if (notebook && confirm(`确定要删除笔记本"${notebook.name}"吗？此操作不可撤销。`)) {
-        try {
-          await deleteNotebook(contextMenu.notebookId);
-        } catch (error) {
-          console.error('[Sidebar] 删除笔记本失败:', error);
+    if (!contextMenu) return;
+    const node = nodes[contextMenu.nodeId];
+    if (node && confirm(`确定要删除「${node.content || '未命名'}」吗？此操作不可撤销。`)) {
+      try {
+        deleteNode(contextMenu.nodeId);
+        if (hoistedNodeId === contextMenu.nodeId || (nodes[hoistedNodeId!]?.parentId && (() => {
+          let cur: string | null = nodes[hoistedNodeId!]?.parentId ?? null;
+          while (cur) { if (cur === contextMenu.nodeId) return true; cur = nodes[cur]?.parentId ?? null; }
+          return false;
+        })())) {
+          goToToday();
         }
+      } catch (error) {
+        console.error('[Sidebar] 删除失败:', error);
       }
-      setContextMenu(null);
     }
-  }, [contextMenu, notebooks, deleteNotebook]);
+    setContextMenu(null);
+  }, [contextMenu, nodes, deleteNode, hoistedNodeId, goToToday]);
 
   return (
-    <aside className={cn(
-      "flex flex-col h-full bg-slate-50 dark:bg-slate-900 border-r border-gray-200 dark:border-gray-800",
-      className
-    )}>
-      {/* 区域 A：用户状态 */}
+    <aside
+      className={cn(
+        'flex flex-col h-full bg-slate-50 dark:bg-slate-900 border-r border-gray-200 dark:border-gray-800',
+        className
+      )}
+    >
       <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-        {/* 用户状态 */}
         <div className="flex items-center gap-3">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center shadow-md"
@@ -231,29 +262,41 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             <User size={20} className="text-white" />
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-              {greeting}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              欢迎回来
-            </p>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{greeting}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">欢迎回来</p>
           </div>
         </div>
       </div>
-      
-      {/* 区域 B：笔记本系统（包含每日笔记） */}
+
       <div className="flex-1 flex flex-col min-h-0">
-        {/* 标题栏 */}
-        <div className="flex items-center justify-between px-4 py-3">
-          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            我的笔记本
-          </h3>
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200 dark:border-gray-800">
+          <button
+            type="button"
+            onClick={handleGoToAllNotes}
+            disabled={!userRootId}
+            className={cn(
+              'flex flex-1 items-center gap-2 min-w-0 rounded-lg transition-all',
+              hoistedNodeId === userRootId
+                ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200'
+            )}
+          >
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{
+                background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
+              }}
+            >
+              <User size={16} className="text-white" />
+            </div>
+            <span className="flex-1 text-sm font-medium truncate text-left">{userRootDisplayName}</span>
+          </button>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="h-7 w-7 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
                 onClick={handleCreateNotebook}
               >
                 <Plus size={14} />
@@ -262,62 +305,61 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             <TooltipContent side="right">新建笔记本</TooltipContent>
           </Tooltip>
         </div>
-        
-        {/* 笔记本列表 */}
-        <div className="overflow-y-auto px-2 pb-2">
-          <div className="space-y-1">
-            {/* 每日笔记 - 固定在列表第一位 */}
+
+        <div className="overflow-y-auto px-2 py-2">
+          <div className="space-y-0.5 pl-1">
             <div
               onClick={handleGoToToday}
               className={cn(
-                "group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all",
-                navigationMode === 'calendar'
-                  ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
-                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                'group flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg cursor-pointer transition-all',
+                isCalendarView
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               )}
             >
-              <Calendar size={16} className={cn(
-                navigationMode === 'calendar' ? "text-green-600 dark:text-green-400" : "text-gray-400"
-              )} />
-              <span className="flex-1 text-sm">📅 每日笔记</span>
+              <Calendar
+                size={16}
+                className={cn(
+                  'flex-shrink-0',
+                  isCalendarView ? 'text-green-600 dark:text-green-400' : 'text-gray-400'
+                )}
+              />
+              <span className="flex-1 text-sm">Daily notes</span>
               {isTodayActive && (
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
               )}
-              {navigationMode === 'calendar' && !isTodayActive && (
-                <ChevronRight size={14} className="text-green-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {isCalendarView && !isTodayActive && (
+                <ChevronRight size={14} className="text-green-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
               )}
             </div>
-            
-            {/* 分隔线 */}
-            {notebookIds.length > 0 && (
-              <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-            )}
-            
-            {/* 其他笔记本 */}
-            {notebookIds.map((notebookId) => {
-              const notebook = notebooks[notebookId];
-              if (!notebook) return null;
-              
-              const isActive = activeNotebookId === notebookId && navigationMode === 'notebook';
-              const isEditing = editingNotebookId === notebookId;
-              
+
+            {notebookEntryIds.map((nodeId) => {
+              const node = nodes[nodeId];
+              if (!node) return null;
+              const isActive = activeNotebookNodeId === nodeId;
+              const isEditing = editingNodeId === nodeId;
+              const displayName = node.content?.trim() || '无标题笔记本';
+
               return (
                 <div
-                  key={notebookId}
-                  onClick={() => handleSelectNotebook(notebookId)}
-                  onDoubleClick={() => handleDoubleClick(notebookId, notebook.name)}
-                  onContextMenu={(e) => handleContextMenu(e, notebookId)}
+                  key={nodeId}
+                  onClick={() => handleSelectNotebook(nodeId)}
+                  onDoubleClick={() => handleDoubleClick(nodeId, displayName)}
+                  onContextMenu={(e) => handleContextMenu(e, nodeId)}
                   className={cn(
-                    "group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all",
+                    'group flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg cursor-pointer transition-all',
                     isActive
-                      ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-                      : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                   )}
                 >
-                  <Book size={16} className={cn(
-                    isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-400"
-                  )} />
-                  
+                  <Book
+                    size={16}
+                    className={cn(
+                      'flex-shrink-0',
+                      isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'
+                    )}
+                  />
                   {isEditing ? (
                     <input
                       ref={inputRef}
@@ -326,17 +368,14 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
                       onChange={(e) => setEditingName(e.target.value)}
                       onBlur={handleSaveName}
                       onKeyDown={handleKeyDown}
-                      className="flex-1 bg-white dark:bg-gray-800 px-2 py-0.5 text-sm rounded border border-blue-300 dark:border-blue-600 outline-none"
+                      className="flex-1 bg-white dark:bg-gray-800 px-2 py-0.5 text-sm rounded border border-blue-300 dark:border-blue-600 outline-none min-w-0"
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <span className="flex-1 text-sm truncate">
-                      {notebook.name}
-                    </span>
+                    <span className="flex-1 text-sm truncate min-w-0">{displayName}</span>
                   )}
-                  
                   {isActive && !isEditing && (
-                    <ChevronRight size={14} className="text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ChevronRight size={14} className="text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                   )}
                 </div>
               );
@@ -344,10 +383,8 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
           </div>
         </div>
       </div>
-      
-      {/* 区域 C：底部工具 */}
+
       <div className="p-3 border-t border-gray-200 dark:border-gray-800">
-        {/* 全局搜索入口 */}
         <button
           onClick={onOpenCommandCenter}
           className="w-full flex items-center gap-2 px-3 py-2.5 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-[var(--brand-primary)] bg-gray-100 dark:bg-gray-800 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 rounded-lg transition-colors"
@@ -359,8 +396,6 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             <span>K</span>
           </kbd>
         </button>
-        
-        {/* 标签库入口 */}
         <button
           onClick={() => router.push('/library/tags')}
           className="w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-[var(--brand-primary)] hover:bg-gray-200/80 dark:hover:bg-gray-700/80 rounded-lg transition-colors"
@@ -368,8 +403,6 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
           <Hash size={16} />
           <span>🏷️ 标签库</span>
         </button>
-        
-        {/* AI 指令模板入口 */}
         <button
           onClick={() => setShowCommandManager(true)}
           className="w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
@@ -380,14 +413,13 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             /ai
           </kbd>
         </button>
-        
         <div className="flex items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
-                className="flex-1 justify-start text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                className="flex-1 justify-start text-gray-500 hover:text-gray-700 dark:hover:text-gray-400 dark:hover:text-gray-300"
               >
                 <Settings size={16} className="mr-2" />
                 <span className="text-xs">设置</span>
@@ -395,14 +427,9 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             </TooltipTrigger>
             <TooltipContent side="top">应用设置</TooltipContent>
           </Tooltip>
-          
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
+              <Button variant="ghost" size="icon" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                 <Trash2 size={16} />
               </Button>
             </TooltipTrigger>
@@ -410,28 +437,20 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
           </Tooltip>
         </div>
       </div>
-      
-      {/* 右键菜单 */}
+
       {contextMenu && menuPosition && (
         <div
           ref={contextMenuRef}
           className={cn(
-            "fixed z-[9999] min-w-[160px]",
-            "bg-white dark:bg-gray-800",
-            "border border-gray-200 dark:border-gray-700",
-            "rounded-xl shadow-xl",
-            "py-1.5 px-1",
-            "backdrop-blur-sm bg-white/95 dark:bg-gray-800/95",
-            "transition-all duration-150 ease-out",
-            isMenuVisible 
-              ? "opacity-100 scale-100 translate-y-0" 
-              : "opacity-0 scale-95 -translate-y-1"
+            'fixed z-[9999] min-w-[160px]',
+            'bg-white dark:bg-gray-800',
+            'border border-gray-200 dark:border-gray-700',
+            'rounded-xl shadow-xl py-1.5 px-1',
+            'backdrop-blur-sm bg-white/95 dark:bg-gray-800/95',
+            'transition-all duration-150 ease-out',
+            isMenuVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-1'
           )}
-          style={{
-            left: menuPosition.x,
-            top: menuPosition.y,
-            boxShadow: 'var(--shadow-dropdown)',
-          }}
+          style={{ left: menuPosition.x, top: menuPosition.y, boxShadow: 'var(--shadow-dropdown)' }}
         >
           <button
             onClick={handleRename}
@@ -455,11 +474,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         </div>
       )}
 
-      {/* AI 指令模板管理器 */}
-      <CommandTemplateManager
-        open={showCommandManager}
-        onClose={() => setShowCommandManager(false)}
-      />
+      <CommandTemplateManager open={showCommandManager} onClose={() => setShowCommandManager(false)} />
     </aside>
   );
 };

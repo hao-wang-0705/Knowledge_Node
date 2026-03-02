@@ -1,6 +1,6 @@
 {
   "name": "knowledge-node-backend",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "Knowledge Node 后端服务 - NestJS + Prisma + PostgreSQL",
   "main": "dist/main.js",
   "scripts": {

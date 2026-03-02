@@ -4,10 +4,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { AtSign, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { useSplitPaneStore } from '@/stores/splitPaneStore';
 import { Node } from '@/types';
-import { SYSTEM_TAGS } from '@/utils/date-helpers';
+import { analyzeNavigationTarget } from '@/utils/navigation';
 import { splitTextWithReferences, TextSegment } from '@/utils/reference-helpers';
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import ReferencePreview from './ReferencePreview';
@@ -31,9 +30,6 @@ export const ReferenceChip: React.FC<ReferenceChipProps> = ({
   const nodes = useNodeStore((state) => state.nodes);
   const setFocusedNode = useNodeStore((state) => state.setFocusedNode);
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
-  const notebooks = useNotebookStore((state) => state.notebooks);
-  const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
-  const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
   // 右侧面板状态
   const splitPaneIsOpen = useSplitPaneStore((state) => state.isOpen);
   const openPanel = useSplitPaneStore((state) => state.openPanel);
@@ -72,54 +68,11 @@ export const ReferenceChip: React.FC<ReferenceChipProps> = ({
       return;
     }
     
-    // 普通点击：跳转到节点
-    // 判断节点类型
-    const isCalendarNode = targetNode.tags.some(tagId => 
-      [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as any)
-    );
-    
-    // 查找节点所属的笔记本
-    const belongsToNotebook = Object.values(notebooks).find(nb => {
-      let currentNode: Node | null = targetNode;
-      while (currentNode) {
-        if (currentNode.id === nb.rootNodeId) return true;
-        currentNode = currentNode.parentId ? nodes[currentNode.parentId] : null;
-      }
-      return false;
-    });
-    
-    // 查找节点所属的日历父节点（日节点）
-    const findCalendarParent = (): string | null => {
-      let currentNode: Node | null = targetNode;
-      while (currentNode) {
-        if (currentNode.tags.includes(SYSTEM_TAGS.DAY)) {
-          return currentNode.id;
-        }
-        currentNode = currentNode.parentId ? nodes[currentNode.parentId] : null;
-      }
-      return null;
-    };
-    
-    if (isCalendarNode) {
-      setNavigationMode('calendar');
-      setHoistedNode(nodeId);
-      setFocusedNode(nodeId);
-    } else if (belongsToNotebook) {
-      setActiveNotebook(belongsToNotebook.id);
-      setNavigationMode('notebook');
-      setHoistedNode(belongsToNotebook.rootNodeId);
-      setFocusedNode(nodeId);
-    } else {
-      const calendarParent = findCalendarParent();
-      setNavigationMode('calendar');
-      if (calendarParent) {
-        setHoistedNode(calendarParent);
-      }
-      setFocusedNode(nodeId);
-    }
-    
+    const target = analyzeNavigationTarget(targetNode, nodes);
+    if (target.hoistNodeId) setHoistedNode(target.hoistNodeId);
+    setFocusedNode(target.nodeId);
     onClick?.();
-  }, [nodeId, targetNode, nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode, onClick, splitPaneIsOpen, openPanel, navigateInPanel]);
+  }, [nodeId, targetNode, nodes, setHoistedNode, setFocusedNode, onClick, splitPaneIsOpen, openPanel, navigateInPanel]);
   
   // 截断过长的标题（提取引用中实际的标题部分，去除引用标记）
   const getCleanTitle = (text: string) => {

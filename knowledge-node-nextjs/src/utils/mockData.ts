@@ -214,37 +214,25 @@ export const createCalendarOnlyNodes = (): { nodes: Record<string, Node>; rootId
     createdAt: now,
   });
 
-  // 辅助函数：为指定日期创建日历层级（年→月→周→日）
-  const ensureCalendarHierarchy = (date: Date): { yearId: string; monthId: string; weekId: string; dayId: string } => {
+  // 辅助函数：为指定日期创建日历层级（年→周→日）
+  const ensureCalendarHierarchy = (date: Date): { yearId: string; weekId: string; dayId: string } => {
     const path = getCalendarPath(date);
-    
-    // 确保年节点存在
+
     if (!nodes[path.yearId]) {
       nodes[path.yearId] = createCalendarNode(path.yearId, path.yearContent, null, SYSTEM_TAGS.YEAR, []);
       if (!rootIds.includes(path.yearId)) {
         rootIds.push(path.yearId);
       }
     }
-    
-    // 确保月节点存在
-    if (!nodes[path.monthId]) {
-      nodes[path.monthId] = createCalendarNode(path.monthId, path.monthContent, path.yearId, SYSTEM_TAGS.MONTH, []);
-      const yearNode = nodes[path.yearId];
-      if (!yearNode.childrenIds.includes(path.monthId)) {
-        yearNode.childrenIds = [...yearNode.childrenIds, path.monthId];
-      }
-    }
-    
-    // 确保周节点存在
+
     if (!nodes[path.weekId]) {
-      nodes[path.weekId] = createCalendarNode(path.weekId, path.weekContent, path.monthId, SYSTEM_TAGS.WEEK, []);
-      const monthNode = nodes[path.monthId];
-      if (!monthNode.childrenIds.includes(path.weekId)) {
-        monthNode.childrenIds = [...monthNode.childrenIds, path.weekId];
+      nodes[path.weekId] = createCalendarNode(path.weekId, path.weekContent, path.yearId, SYSTEM_TAGS.WEEK, []);
+      const yearNode = nodes[path.yearId];
+      if (!yearNode.childrenIds.includes(path.weekId)) {
+        yearNode.childrenIds = [...yearNode.childrenIds, path.weekId];
       }
     }
-    
-    // 确保日节点存在
+
     if (!nodes[path.dayId]) {
       nodes[path.dayId] = createCalendarNode(path.dayId, path.dayContent, path.weekId, SYSTEM_TAGS.DAY, []);
       const weekNode = nodes[path.weekId];
@@ -252,7 +240,7 @@ export const createCalendarOnlyNodes = (): { nodes: Record<string, Node>; rootId
         weekNode.childrenIds = [...weekNode.childrenIds, path.dayId];
       }
     }
-    
+
     return path;
   };
 
@@ -297,9 +285,8 @@ export const createCalendarOnlyNodes = (): { nodes: Record<string, Node>; rootId
     }
   });
 
-  // 展开当前年、月、周节点，方便查看
+  // 展开当前年、周节点，方便查看
   if (nodes[todayPath.yearId]) nodes[todayPath.yearId].isCollapsed = false;
-  if (nodes[todayPath.monthId]) nodes[todayPath.monthId].isCollapsed = false;
   if (nodes[todayPath.weekId]) nodes[todayPath.weekId].isCollapsed = false;
 
   return { nodes, rootIds };

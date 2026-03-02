@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import type { CreateNodeRequest } from '@/types';
-import { prisma } from '@/lib/prisma';
-import { createOrUpsertNode, listNodes } from '@/services/server/nodesService';
+import { proxyToBackend, toProxyResponse } from '@/lib/backend-proxy';
 
 // GET /api/nodes - 获取用户节点（ADR-005：支持 scope 树隔离）
 export async function GET(req: Request) {
@@ -17,21 +16,13 @@ export async function GET(req: Request) {
       );
     }
 
-    const { searchParams } = new URL(req.url);
-    const scope = searchParams.get('scope') as 'general' | 'daily' | 'notebook' | null;
-    const notebookId = searchParams.get('notebookId') ?? undefined;
-
-    const options =
-      scope === 'notebook' && notebookId
-        ? { scope: 'notebook' as const, notebookId }
-        : undefined;
-
-    const formattedNodes = await listNodes(session.user.id, options);
-
-    return NextResponse.json({
-      success: true,
-      data: formattedNodes,
-    });
+    const { search } = new URL(req.url);
+    const result = await proxyToBackend(
+      session.user.id,
+      `/api/nodes${search}`,
+      { method: 'GET' }
+    );
+    return toProxyResponse(result);
   } catch (error) {
     console.error('Error fetching nodes:', error);
     return NextResponse.json(
@@ -53,27 +44,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // 验证用户是否存在于数据库中（防止 session 与数据库不同步）
-    const userExists = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { id: true },
-    });
-
-    if (!userExists) {
-      console.error(`[API] User ${session.user.id} not found in database - session may be stale`);
-      return NextResponse.json(
-        { success: false, error: '用户会话已过期，请重新登录', code: 'SESSION_EXPIRED' },
-        { status: 401 }
-      );
-    }
-
     const body: CreateNodeRequest = await req.json();
-    const node = await createOrUpsertNode(session.user.id, body);
-
-    return NextResponse.json({
-      success: true,
-      data: node,
-    });
+    const result = await proxyToBackend(
+      session.user.id,
+      '/api/nodes',
+      { method: 'POST', body: JSON.stringify(body) }
+    );
+    return toProxyResponse(result);
   } catch (error) {
     console.error('Error creating node:', error);
     return NextResponse.json(

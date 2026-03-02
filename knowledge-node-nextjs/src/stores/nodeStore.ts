@@ -46,8 +46,11 @@ interface NodeStoreActions {
   getNodePath: (nodeId: string) => Node[];
   loadFromStorage: () => void | Promise<void>;
   loadFromAPI: () => Promise<void>;
-  mergeNotebookTree: (notebookId: string) => Promise<void>;
   saveToStorage: () => void;
+  /** 侧边栏入口：user_root 的一级子节点 ID 列表 */
+  getSidebarEntries: () => string[];
+  /** 是否在 Daily Notes 子树内（从 nodeId 向上遍历经 daily_root） */
+  isInDailyTree: (nodeId: string) => boolean;
   initWithMockData: () => void;
   initWithGuideData: () => void;
   /** v2.1: 应用 Supertag 到节点，可选自动填充默认内容模版 */
@@ -85,8 +88,6 @@ const queueCreateNode = (node: Node, sortOrder: number = 0) => {
       parentId: node.parentId,
       nodeType: node.type || 'text',
       supertagId: node.supertagId,
-      scope: node.scope,
-      notebookId: node.notebookId,
       fields: node.fields,
       payload: node.payload,
       sortOrder,
@@ -109,8 +110,6 @@ const queueUpdateNode = (nodeId: string, updates: Partial<Node> & { sortOrder?: 
       parentId: updates.parentId,
       nodeType: updates.type,
       supertagId: updates.supertagId,
-      scope: updates.scope,
-      notebookId: updates.notebookId,
       fields: updates.fields,
       payload: updates.payload,
       isCollapsed: updates.isCollapsed,
@@ -132,21 +131,6 @@ const queueDeleteNode = (nodeId: string) => {
   });
 };
 
-const resolveNodeScope = (
-  parentId: string | null,
-  nodes: Record<string, Node>,
-  options?: { forceDaily?: boolean }
-): { scope: Node['scope']; notebookId: Node['notebookId'] } => {
-  if (options?.forceDaily) return { scope: 'daily', notebookId: null };
-  if (!parentId) return { scope: 'general', notebookId: null };
-  const parent = nodes[parentId];
-  if (!parent) return { scope: 'general', notebookId: null };
-  return {
-    scope: parent.scope ?? 'general',
-    notebookId: parent.scope === 'notebook' ? (parent.notebookId ?? null) : null,
-  };
-};
-
 /**
  * 将指定父节点下的兄弟节点顺序同步到数据库。
  * 约束：数据库层采用 parentId + sortOrder 表示层级与顺序，需确保其与前端 childrenIds 一致。
@@ -166,7 +150,7 @@ const queueSortOrderSyncForParent = (
   });
 };
 
-/** 从数据库加载节点（ADR-005：默认仅拉取日历/通用树，后端已按 scope 排除 notebook） */
+/** 从数据库加载节点（统一树：一次拉取全部） */
 const loadNodesFromDB = async (): Promise<{ nodes: Record<string, Node>; rootIds: string[] } | null> => {
   try {
     const nodesRes = await fetch('/api/nodes');
@@ -183,6 +167,7 @@ const loadNodesFromDB = async (): Promise<{ nodes: Record<string, Node>; rootIds
 
     const nodes: Record<string, Node> = {};
     const rootIds: string[] = [];
+    let userRootId: string | null = null;
 
     for (const node of data.data) {
       nodes[node.id] = {
@@ -194,62 +179,24 @@ const loadNodesFromDB = async (): Promise<{ nodes: Record<string, Node>; rootIds
         isCollapsed: node.isCollapsed,
         tags: node.tags || [],
         supertagId: node.supertagId,
-        scope: node.scope,
-        notebookId: node.notebookId,
+        nodeRole: node.nodeRole,
         fields: node.fields || {},
         payload: node.payload,
         createdAt: node.createdAt,
         updatedAt: node.updatedAt,
       };
 
+      if (node.nodeRole === 'user_root') {
+        userRootId = node.id;
+      }
       if (!node.parentId) {
         rootIds.push(node.id);
       }
     }
 
-    return { nodes, rootIds };
+    return { nodes, rootIds: userRootId ? [userRootId] : rootIds };
   } catch (error) {
     console.error('[loadNodesFromDB] Error:', error);
-    return null;
-  }
-};
-
-/** 加载指定笔记本树并合并到 store（ADR-005） */
-const loadNotebookTreeFromDB = async (
-  notebookId: string
-): Promise<{ nodes: Record<string, Node>; rootId: string | null } | null> => {
-  try {
-    const res = await fetch(`/api/nodes?scope=notebook&notebookId=${encodeURIComponent(notebookId)}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.success || !Array.isArray(data.data)) return null;
-
-    const nodes: Record<string, Node> = {};
-    let rootId: string | null = null;
-
-    for (const node of data.data) {
-      nodes[node.id] = {
-        id: node.id,
-        content: node.content,
-        type: node.type,
-        parentId: node.parentId,
-        childrenIds: node.childrenIds || [],
-        isCollapsed: node.isCollapsed,
-        tags: node.tags || [],
-        supertagId: node.supertagId,
-        scope: node.scope,
-        notebookId: node.notebookId,
-        fields: node.fields || {},
-        payload: node.payload,
-        createdAt: node.createdAt,
-        updatedAt: node.updatedAt,
-      };
-      if (!node.parentId) rootId = node.id;
-    }
-
-    return { nodes, rootId };
-  } catch (error) {
-    console.error('[loadNotebookTreeFromDB] Error:', error);
     return null;
   }
 };
@@ -279,7 +226,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         parentId: resolvedParentId,
         childrenIds: [],
         isCollapsed: false,
-        ...resolveNodeScope(resolvedParentId, state.nodes),
+        nodeRole: 'normal',
         tags: [],
         fields: {},
         createdAt: Date.now(),
@@ -834,54 +781,85 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   /**
    * 确保节点存在（如果不存在则创建）
-   * 对于日历节点，会检查是否已存在带前缀的版本
+   * 对于日历节点，会检查是否已存在带前缀的版本；若已存在但 parentId 错误则执行 reparent
    */
   ensureNode: (id, parentId, tagId, content) => {
-    // 检查是否是日历节点
     const isCalendarNode = getCalendarNodeType(id) !== null;
-    
-    // 用于存储创建的节点（如果需要同步到数据库）
     let nodeToSync: Node | null = null;
     let actualParentIdForSync: string | null = null;
     let wasCreated = false;
-    
-    // 使用原子操作检查并创建节点
+    let actualIdForReturn = id;
+
     set((currentState) => {
-      // 在 set 回调内部检查节点是否存在，确保使用最新状态
+      const resolvedParentId = resolveCalendarParentId(parentId, currentState.nodes);
+
       if (isCalendarNode) {
-        // 对于日历节点，先检查是否已存在（包括带前缀的版本）
         const actualId = findCalendarNodeActualId(id, currentState.nodes);
         if (actualId) {
-          console.log(`[ensureNode] 日历节点 ${id} 已存在，实际 ID: ${actualId}`);
           setCalendarNodeIdMapping(id, actualId);
-          return currentState; // 不需要创建
-        }
-      } else {
-        // 非日历节点，直接检查是否存在
-        if (currentState.nodes[id]) {
-          return currentState; // 不需要创建
-        }
-      }
-      
-      // 节点不存在，需要创建
-      // 解析父节点的实际 ID（在当前状态下）
-      actualParentIdForSync = resolveCalendarParentId(parentId, currentState.nodes);
+          actualIdForReturn = actualId;
+          const existingNode = currentState.nodes[actualId];
+          if (!existingNode) return currentState;
 
+          // 已存在：检查 parentId 是否正确，错误则 reparent
+          if (existingNode.parentId !== resolvedParentId) {
+            const newNodes = { ...currentState.nodes };
+            const oldParentId = existingNode.parentId;
+
+            if (oldParentId && newNodes[oldParentId]) {
+              const oldParent = newNodes[oldParentId];
+              newNodes[oldParentId] = {
+                ...oldParent,
+                childrenIds: oldParent.childrenIds.filter((cid) => cid !== actualId),
+              };
+            }
+
+            let newRootIds = [...currentState.rootIds];
+            if (oldParentId === null) {
+              newRootIds = newRootIds.filter((rid) => rid !== actualId);
+            }
+            if (resolvedParentId === null) {
+              if (!newRootIds.includes(actualId)) newRootIds.push(actualId);
+            } else if (newNodes[resolvedParentId]) {
+              const newParent = newNodes[resolvedParentId];
+              if (!newParent.childrenIds.includes(actualId)) {
+                newNodes[resolvedParentId] = {
+                  ...newParent,
+                  childrenIds: [...newParent.childrenIds, actualId],
+                };
+              }
+            }
+
+            newNodes[actualId] = { ...existingNode, parentId: resolvedParentId };
+            debouncedSave(newNodes, newRootIds);
+
+            const sortOrder = resolvedParentId
+              ? newNodes[resolvedParentId]?.childrenIds.indexOf(actualId) ?? 0
+              : newRootIds.indexOf(actualId);
+            queueUpdateNode(actualId, { parentId: resolvedParentId, sortOrder });
+            return { nodes: newNodes, rootIds: newRootIds };
+          }
+          return currentState;
+        }
+      } else if (currentState.nodes[id]) {
+        return currentState;
+      }
+
+      actualParentIdForSync = resolvedParentId;
       const newNode: Node = {
         id,
         content,
         parentId: actualParentIdForSync,
         childrenIds: [],
         isCollapsed: false,
-        ...resolveNodeScope(actualParentIdForSync, currentState.nodes, { forceDaily: isCalendarNode }),
+        nodeRole: 'normal',
         tags: tagId ? [tagId] : [],
         fields: {},
         createdAt: Date.now(),
       };
-      
       nodeToSync = newNode;
       wasCreated = true;
-      
+
       const newNodes = { ...currentState.nodes, [id]: newNode };
       let newRootIds = [...currentState.rootIds];
 
@@ -893,25 +871,21 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           newNodes[actualParentIdForSync] = { ...parentNode, childrenIds: [...parentNode.childrenIds, id] };
         }
       }
-      
-      if (isCalendarNode) {
-        setCalendarNodeIdMapping(id, id);
-      }
 
+      if (isCalendarNode) setCalendarNodeIdMapping(id, id);
       debouncedSave(newNodes, newRootIds);
       return { nodes: newNodes, rootIds: newRootIds };
     });
-    
-    // 如果创建了新节点，同步到数据库
+
     if (wasCreated && nodeToSync) {
       const updatedState = get();
-      const sortOrder = actualParentIdForSync 
+      const sortOrder = actualParentIdForSync
         ? updatedState.nodes[actualParentIdForSync]?.childrenIds.indexOf(id) ?? 0
         : updatedState.rootIds.indexOf(id);
       queueCreateNode(nodeToSync, sortOrder);
     }
 
-    return id;
+    return actualIdForReturn;
   },
 
   goToToday: () => {
@@ -933,38 +907,52 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   /**
-   * 确保今天的日历节点存在（年→月→周→日）
+   * 确保今天的日历节点存在（daily_root -> 年->周->日）
    * 用于应用启动时自动创建当天日记
    * 返回实际的日期节点 ID（可能带前缀）
    */
   ensureTodayNode: () => {
     const { ensureNode } = get();
+    const state = get();
     const calendarPath = getCalendarPath(new Date());
 
-    // 依次确保年、月、周、日节点存在
-    // 每一步都需要获取实际的 ID（可能带前缀），并用实际 ID 作为下一层的 parentId
-    const actualYearId = ensureNode(calendarPath.yearId, null, SYSTEM_TAGS.YEAR, calendarPath.yearContent);
-    // 获取年节点的实际 ID（可能被修改为带前缀）
-    const resolvedYearId = findCalendarNodeActualId(calendarPath.yearId, get().nodes) || actualYearId;
-    
-    const actualMonthId = ensureNode(calendarPath.monthId, resolvedYearId, SYSTEM_TAGS.MONTH, calendarPath.monthContent);
-    // 获取月节点的实际 ID
-    const resolvedMonthId = findCalendarNodeActualId(calendarPath.monthId, get().nodes) || actualMonthId;
-    
-    const actualWeekId = ensureNode(calendarPath.weekId, resolvedMonthId, SYSTEM_TAGS.WEEK, calendarPath.weekContent);
-    // 获取周节点的实际 ID
-    const resolvedWeekId = findCalendarNodeActualId(calendarPath.weekId, get().nodes) || actualWeekId;
-    
-    const actualDayId = ensureNode(calendarPath.dayId, resolvedWeekId, SYSTEM_TAGS.DAY, calendarPath.dayContent);
+    const dailyRootId =
+      Object.values(state.nodes).find((n) => n.nodeRole === 'daily_root')?.id ?? null;
 
-    console.log('[ensureTodayNode] 日历节点已确保:', {
+    if (dailyRootId === null && Object.keys(state.nodes).length > 0) {
+      console.warn('[ensureTodayNode] daily_root 未找到但已有节点，可能竞态：等待 loadNodesFromDB 完成后再确保日历节点');
+    }
+
+    const actualYearId = ensureNode(
+      calendarPath.yearId,
+      dailyRootId,
+      SYSTEM_TAGS.YEAR,
+      calendarPath.yearContent
+    );
+    const resolvedYearId = findCalendarNodeActualId(calendarPath.yearId, get().nodes) || actualYearId;
+
+    const actualWeekId = ensureNode(
+      calendarPath.weekId,
+      resolvedYearId,
+      SYSTEM_TAGS.WEEK,
+      calendarPath.weekContent
+    );
+    const resolvedWeekId = findCalendarNodeActualId(calendarPath.weekId, get().nodes) || actualWeekId;
+
+    const actualDayId = ensureNode(
+      calendarPath.dayId,
+      resolvedWeekId,
+      SYSTEM_TAGS.DAY,
+      calendarPath.dayContent
+    );
+
+    console.log('[ensureTodayNode] 日历节点已确保 (年->周->日):', {
+      dailyRootId,
       year: actualYearId,
-      month: actualMonthId,
       week: actualWeekId,
       day: actualDayId,
     });
 
-    // 返回实际的日期节点 ID
     return findCalendarNodeActualId(calendarPath.dayId, get().nodes) || actualDayId;
   },
 
@@ -1106,13 +1094,21 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }
   },
 
-  /** ADR-005: 加载并合并指定笔记本树到当前 nodes，便于笔记本视图展示 */
-  mergeNotebookTree: async (notebookId: string) => {
-    const data = await loadNotebookTreeFromDB(notebookId);
-    if (!data || !data.rootId) return;
-    set((state) => ({
-      nodes: { ...state.nodes, ...data.nodes },
-    }));
+  getSidebarEntries: () => {
+    const { nodes } = get();
+    const userRootId = Object.values(nodes).find((n) => n.nodeRole === 'user_root')?.id;
+    if (!userRootId) return [];
+    return nodes[userRootId]?.childrenIds ?? [];
+  },
+
+  isInDailyTree: (nodeId: string) => {
+    const { nodes } = get();
+    let current: Node | undefined = nodes[nodeId];
+    while (current) {
+      if (current.nodeRole === 'daily_root') return true;
+      current = current.parentId ? nodes[current.parentId] : undefined;
+    }
+    return false;
   },
 
   initWithMockData: () => {

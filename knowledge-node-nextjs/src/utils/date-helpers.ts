@@ -42,55 +42,39 @@ export function getISOWeekYear(date: Date): number {
 }
 
 /**
- * 日历路径信息
+ * 日历路径信息（年->周->日，无月层）
  */
 export interface CalendarPath {
-  // 年
   yearId: string;
   yearContent: string;
-  // 月
-  monthId: string;
-  monthContent: string;
-  // 周
   weekId: string;
   weekContent: string;
-  // 日
   dayId: string;
   dayContent: string;
 }
 
 /**
- * 根据日期生成日历路径（确定性 ID）
+ * 根据日期生成日历路径（确定性 ID），层级为 年->周->日
  * @param date 日期对象
  * @returns 日历路径信息
  */
 export function getCalendarPath(date: Date): CalendarPath {
   const year = date.getFullYear();
-  const month = date.getMonth() + 1; // 0-indexed
+  const month = date.getMonth() + 1; // 0-indexed，仅用于 dayId 格式兼容
   const day = date.getDate();
   const weekday = date.getDay();
   const isoWeek = getISOWeekNumber(date);
   const isoWeekYear = getISOWeekYear(date);
 
-  // 格式化为两位数
   const monthStr = month.toString().padStart(2, '0');
   const dayStr = day.toString().padStart(2, '0');
   const weekStr = isoWeek.toString().padStart(2, '0');
 
   return {
-    // 年节点
     yearId: `year-${year}`,
     yearContent: `📅 ${year}年`,
-
-    // 月节点
-    monthId: `month-${year}-${monthStr}`,
-    monthContent: `${month}月`,
-
-    // 周节点 (使用 ISO 周年以确保一致性)
     weekId: `week-${isoWeekYear}-${weekStr}`,
     weekContent: `${isoWeekYear}年第${weekStr}周`,
-
-    // 日节点
     dayId: `day-${year}-${monthStr}-${dayStr}`,
     dayContent: `${month}月${day}日 ${WEEKDAY_NAMES[weekday]}`,
   };
@@ -110,13 +94,12 @@ export function parseDayId(dayId: string): Date | null {
 }
 
 /**
- * 检查节点 ID 是否为日历节点
+ * 检查节点 ID 是否为日历节点（年/周/日；旧 month- 仅作兼容识别，返回 null 不参与新导航）
  * @param nodeId 节点 ID
  * @returns 日历节点类型或 null
  */
-export function getCalendarNodeType(nodeId: string): 'year' | 'month' | 'week' | 'day' | null {
+export function getCalendarNodeType(nodeId: string): 'year' | 'week' | 'day' | null {
   if (nodeId.startsWith('year-')) return 'year';
-  if (nodeId.startsWith('month-')) return 'month';
   if (nodeId.startsWith('week-')) return 'week';
   if (nodeId.startsWith('day-')) return 'day';
   return null;

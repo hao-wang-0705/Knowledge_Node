@@ -14,6 +14,7 @@ const stubNode = (overrides: Record<string, unknown> = {}) => ({
   supertagId: null,
   scope: 'general',
   notebookId: null,
+  nodeRole: 'normal',
   createdAt: new Date(),
   updatedAt: new Date(),
   ...overrides,

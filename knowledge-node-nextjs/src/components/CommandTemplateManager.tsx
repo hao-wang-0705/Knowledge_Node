@@ -5,7 +5,6 @@ import { X, Search, Sparkles, Play, Plus, ChevronRight, Zap } from 'lucide-react
 import { cn } from '@/lib/utils';
 import { COMMAND_TEMPLATES, getTemplateCategories } from '@/utils/command-templates';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import type { CommandTemplate } from '@/types';
 
 interface CommandTemplateManagerProps {
@@ -25,7 +24,6 @@ const CommandTemplateManager: React.FC<CommandTemplateManagerProps> = ({ open, o
   const addCommandNode = useNodeStore((state) => state.addCommandNode);
   const hoistedNodeId = useNodeStore((state) => state.hoistedNodeId);
   const focusedNodeId = useNodeStore((state) => state.focusedNodeId);
-  const navigationMode = useNotebookStore((state) => state.navigationMode);
 
   const categories = getTemplateCategories();
 

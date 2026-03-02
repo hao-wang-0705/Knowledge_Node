@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -14,48 +14,99 @@ type NodeApiModel = {
   id: string;
   content: string;
   type: string;
+  nodeRole?: string;
   parentId: string | null;
   sortOrder: number;
   childrenIds: string[];
   isCollapsed: boolean;
   tags: string[];
   supertagId: string | null;
-  scope?: string;
-  notebookId?: string | null;
   fields: Record<string, unknown>;
   payload: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
 };
 
+type NodeRole = string;
+
 @Injectable()
 export class NodesService {
   constructor(private prisma: PrismaService) {}
 
-  private async resolveScopeAndNotebookId(
-    userId: string,
-    parentId: string | null,
-    dto: CreateNodeDto,
-  ): Promise<{ scope: string; notebookId: string | null }> {
-    if (dto.scope != null) {
-      return {
-        scope: dto.scope,
-        notebookId: dto.scope === 'notebook' ? (dto.notebookId ?? null) : null,
-      };
-    }
-    if (parentId) {
-      const parent = await this.prisma.node.findFirst({
-        where: { id: parentId, userId },
-        select: { scope: true, notebookId: true },
+  private async ensureStructuralRoots(userId: string) {
+    let userRoot = await this.prisma.node.findFirst({
+      where: { userId, nodeRole: 'user_root' },
+      select: { id: true },
+    });
+    if (!userRoot) {
+      userRoot = await this.prisma.node.create({
+        data: {
+          id: `user-root-${userId}`,
+          userId,
+          content: '用户根节点',
+          nodeType: 'root',
+          nodeRole: 'user_root',
+        },
+        select: { id: true },
       });
-      if (parent) {
-        return {
-          scope: parent.scope ?? 'general',
-          notebookId: parent.notebookId ?? null,
-        };
-      }
     }
-    return { scope: 'general', notebookId: null };
+
+    const dailyRoot = await this.prisma.node.findFirst({
+      where: { userId, nodeRole: 'daily_root' },
+      select: { id: true },
+    });
+    if (!dailyRoot) {
+      await this.prisma.node.create({
+        data: {
+          id: `daily-root-${userId}`,
+          userId,
+          parentId: userRoot.id,
+          content: '每日笔记(Daily Note)',
+          nodeType: 'daily',
+          nodeRole: 'daily_root',
+        },
+      });
+    }
+  }
+
+  private async getRawNodeOrThrow(userId: string, id: string) {
+    const node = await this.prisma.node.findFirst({
+      where: { id, userId },
+      select: {
+        id: true,
+        userId: true,
+        parentId: true,
+        nodeRole: true,
+        sortOrder: true,
+      },
+    });
+    if (!node) throw new NotFoundException(`Node with ID ${id} not found`);
+    return node as {
+      id: string;
+      userId: string;
+      parentId: string | null;
+      nodeRole: NodeRole;
+      sortOrder: number;
+    };
+  }
+
+  private async assertNoCycle(userId: string, nodeId: string, newParentId: string | null) {
+    if (!newParentId) return;
+    if (nodeId === newParentId) {
+      throw new BadRequestException('节点不能将自己作为父节点');
+    }
+
+    let cursor: string | null = newParentId;
+    while (cursor) {
+      if (cursor === nodeId) {
+        throw new BadRequestException('检测到循环引用，禁止形成环');
+      }
+      const parent: { parentId: string | null } | null = await this.prisma.node.findFirst({
+        where: { id: cursor, userId },
+        select: { parentId: true },
+      });
+      cursor = parent?.parentId ?? null;
+    }
   }
 
   private async mapNodeToApiModel(
@@ -63,12 +114,11 @@ export class NodesService {
       id: string;
       content: string;
       nodeType: string;
+      nodeRole?: string | null;
       parentId: string | null;
       sortOrder: number;
       isCollapsed: boolean;
       supertagId: string | null;
-      scope?: string | null;
-      notebookId?: string | null;
       fields: unknown;
       payload: unknown;
       createdAt: Date;
@@ -86,14 +136,13 @@ export class NodesService {
       id: node.id,
       content: node.content,
       type: node.nodeType,
+      nodeRole: node.nodeRole ?? undefined,
       parentId: node.parentId,
       sortOrder: node.sortOrder,
       childrenIds: children.map((c) => c.id),
       isCollapsed: node.isCollapsed,
       tags: [],
       supertagId: node.supertagId,
-      scope: node.scope ?? undefined,
-      notebookId: node.notebookId ?? undefined,
       fields: (node.fields as Record<string, unknown>) ?? {},
       payload: (node.payload as Record<string, unknown>) ?? {},
       createdAt: node.createdAt.getTime(),
@@ -101,26 +150,52 @@ export class NodesService {
     };
   }
 
-  // 创建单个节点
+  // 创建单个节点（upsert 语义：已存在则更新，避免 P2002 唯一约束冲突）
   async create(userId: string, createNodeDto: CreateNodeDto) {
     const id = createNodeDto.id || uuidv4();
-    const parentId = createNodeDto.parentId ?? null;
-    const { scope, notebookId } = await this.resolveScopeAndNotebookId(userId, parentId, createNodeDto);
+    let resolvedParentId = createNodeDto.parentId ?? null;
 
-    const node = await this.prisma.node.create({
-      data: {
-        id,
-        content: createNodeDto.content || '',
-        nodeType: createNodeDto.nodeType || 'text',
-        parentId,
-        sortOrder: createNodeDto.sortOrder || 0,
-        isCollapsed: createNodeDto.isCollapsed || false,
-        fields: createNodeDto.fields || {},
-        payload: createNodeDto.payload || {},
-        supertagId: createNodeDto.supertagId,
-        scope,
-        notebookId,
-        userId,
+    if (resolvedParentId) {
+      const parentExists = await this.prisma.node.findFirst({
+        where: { id: resolvedParentId, userId },
+        select: { id: true },
+      });
+      if (!parentExists) {
+        console.warn(
+          `[NodesService] create: parentId=${resolvedParentId} not found in DB, deferring parent assignment (node ${id})`,
+        );
+        resolvedParentId = null;
+      }
+    }
+
+    const fieldsJson = (createNodeDto.fields as Record<string, unknown>) ?? {};
+    const payloadJson = (createNodeDto.payload as Record<string, unknown>) ?? {};
+
+    const createData: Prisma.NodeUncheckedCreateInput = {
+      id,
+      content: createNodeDto.content || '',
+      nodeType: createNodeDto.nodeType || 'text',
+      parentId: resolvedParentId,
+      sortOrder: createNodeDto.sortOrder ?? 0,
+      isCollapsed: createNodeDto.isCollapsed ?? false,
+      fields: fieldsJson as Prisma.InputJsonValue,
+      payload: payloadJson as Prisma.InputJsonValue,
+      supertagId: createNodeDto.supertagId ?? null,
+      nodeRole: 'normal',
+      userId,
+    };
+
+    const node = await this.prisma.node.upsert({
+      where: { id },
+      create: createData,
+      update: {
+        content: createData.content,
+        parentId: createData.parentId,
+        sortOrder: createData.sortOrder,
+        isCollapsed: createData.isCollapsed,
+        fields: fieldsJson as Prisma.InputJsonValue,
+        payload: payloadJson as Prisma.InputJsonValue,
+        supertagId: createData.supertagId,
       },
     });
     return this.mapNodeToApiModel(node, userId);
@@ -128,109 +203,94 @@ export class NodesService {
 
   // 批量创建节点
   async batchCreate(userId: string, batchCreateDto: BatchCreateNodesDto) {
-    const nodesWithScope: Array<{
+    const nodesData: Array<{
       id: string;
       content: string;
       nodeType: string;
+      nodeRole: string;
       parentId: string | null;
       sortOrder: number;
       isCollapsed: boolean;
       fields: Record<string, unknown>;
       payload: Record<string, unknown>;
       supertagId: string | null;
-      scope: string;
-      notebookId: string | null;
       userId: string;
     }> = [];
     for (const node of batchCreateDto.nodes) {
       const parentId = node.parentId ?? null;
-      const { scope, notebookId } = await this.resolveScopeAndNotebookId(userId, parentId, node);
-      nodesWithScope.push({
+      if (parentId) await this.getRawNodeOrThrow(userId, parentId);
+      nodesData.push({
         id: node.id || uuidv4(),
         content: node.content || '',
         nodeType: node.nodeType || 'text',
+        nodeRole: 'normal',
         parentId,
         sortOrder: node.sortOrder || 0,
         isCollapsed: node.isCollapsed || false,
         fields: node.fields || {},
         payload: node.payload || {},
         supertagId: node.supertagId ?? null,
-        scope,
-        notebookId,
         userId,
       });
     }
 
     await this.prisma.node.createMany({
-      data: nodesWithScope as Prisma.NodeCreateManyInput[],
+      data: nodesData as Prisma.NodeCreateManyInput[],
     });
     const created = await this.prisma.node.findMany({
-      where: { userId, id: { in: nodesWithScope.map((n) => n.id) } },
+      where: { userId, id: { in: nodesData.map((n) => n.id) } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
     return Promise.all(created.map((node) => this.mapNodeToApiModel(node, userId)));
   }
 
-  // 获取用户的所有节点（ADR-005：支持 scope/notebookId 树隔离）
-  async findAll(
-    userId: string,
-    options?: { scope?: string; notebookId?: string },
-  ) {
-    const where = await this.buildScopeWhere(userId, options);
+  // 获取用户的所有节点（统一树：可选 rootNodeId 子树）
+  async findAll(userId: string, options?: { rootNodeId?: string }) {
+    await this.ensureStructuralRoots(userId);
+    if (options?.rootNodeId) {
+      const nodes = await this.getSubtreeNodes(userId, options.rootNodeId);
+      return Promise.all(nodes.map((node) => this.mapNodeToApiModel(node, userId)));
+    }
     const nodes = await this.prisma.node.findMany({
-      where,
+      where: { userId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
     return Promise.all(nodes.map((node) => this.mapNodeToApiModel(node, userId)));
   }
 
-  private async buildScopeWhere(
-    userId: string,
-    options?: { scope?: string; notebookId?: string },
-  ): Promise<Record<string, unknown>> {
-    const scope = options?.scope;
-    const notebookId = options?.notebookId;
-    if (scope === 'notebook' && notebookId) {
-      return { userId, scope: 'notebook', notebookId };
-    }
-    const where: Record<string, unknown> = {
-      userId,
-      AND: [{ OR: [{ scope: 'general' }, { scope: 'daily' }] }],
-    };
-    const rows = await this.prisma.notebook.findMany({
-      where: { userId },
-      select: { rootNodeId: true },
+  private async getSubtreeNodes(userId: string, rootNodeId: string) {
+    const root = await this.prisma.node.findFirst({
+      where: { id: rootNodeId, userId },
     });
-    const ids = rows.map((r) => r.rootNodeId).filter((id): id is string => id != null);
-    if (ids.length > 0) (where.AND as any[]).push({ id: { notIn: ids } });
-    return where;
+    if (!root) throw new NotFoundException(`Node with ID ${rootNodeId} not found`);
+
+    const ids: string[] = [rootNodeId];
+    const queue: string[] = [rootNodeId];
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      const children = await this.prisma.node.findMany({
+        where: { userId, parentId: currentId },
+        select: { id: true },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      });
+      if (children.length > 0) {
+        const childIds = children.map((c) => c.id);
+        ids.push(...childIds);
+        queue.push(...childIds);
+      }
+    }
+
+    return this.prisma.node.findMany({
+      where: { userId, id: { in: ids } },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
   }
 
-  // 获取根级别节点（没有父节点的节点）
-  async findRootNodes(
-    userId: string,
-    options?: { scope?: string; notebookId?: string },
-  ) {
-    const baseWhere = await (async () => {
-      const scope = options?.scope;
-      const notebookId = options?.notebookId;
-      if (scope === 'notebook' && notebookId) {
-        return { userId, parentId: null, scope: 'notebook', notebookId };
-      }
-      const notebookRootIds = await this.prisma.notebook
-        .findMany({ where: { userId }, select: { rootNodeId: true } })
-        .then((rows) => rows.map((r) => r.rootNodeId).filter((id): id is string => id != null));
-      return {
-        userId,
-        parentId: null,
-        AND: [
-          { OR: [{ scope: 'general' }, { scope: 'daily' }] },
-          ...(notebookRootIds.length > 0 ? [{ id: { notIn: notebookRootIds } }] : []),
-        ],
-      };
-    })();
+  // 获取根级别节点（parentId 为 null）
+  async findRootNodes(userId: string) {
+    await this.ensureStructuralRoots(userId);
     const nodes = await this.prisma.node.findMany({
-      where: baseWhere,
+      where: { userId, parentId: null },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
     return Promise.all(nodes.map((node) => this.mapNodeToApiModel(node, userId)));
@@ -286,11 +346,32 @@ export class NodesService {
 
   // 更新单个节点
   async update(userId: string, id: string, updateNodeDto: UpdateNodeDto) {
-    await this.findOne(userId, id); // 确保节点存在且属于该用户
+    const existing = await this.getRawNodeOrThrow(userId, id);
+    let nextParentId =
+      updateNodeDto.parentId !== undefined ? (updateNodeDto.parentId ?? null) : existing.parentId;
+
+    if (updateNodeDto.parentId !== undefined) {
+      await this.assertNoCycle(userId, id, nextParentId);
+      if (nextParentId) {
+        const parentExists = await this.prisma.node.findFirst({
+          where: { id: nextParentId, userId },
+          select: { id: true },
+        });
+        if (!parentExists) {
+          console.warn(
+            `[NodesService] update: parentId=${nextParentId} not found, keeping existing parentId for node ${id}`,
+          );
+          nextParentId = existing.parentId;
+        }
+      }
+    }
 
     const node = await this.prisma.node.update({
       where: { id },
-      data: updateNodeDto,
+      data: {
+        ...updateNodeDto,
+        parentId: nextParentId,
+      },
     });
     return this.mapNodeToApiModel(node, userId);
   }
@@ -309,13 +390,20 @@ export class NodesService {
 
   // 移动节点（改变父节点和位置）
   async move(userId: string, id: string, moveDto: MoveNodeDto) {
-    await this.findOne(userId, id); // 确保节点存在
+    const existing = await this.getRawNodeOrThrow(userId, id);
+    if (existing.nodeRole !== 'normal') {
+      throw new ConflictException('结构根节点不能通过通用移动接口调整');
+    }
+    const nextParentId =
+      moveDto.newParentId !== undefined ? (moveDto.newParentId ?? null) : existing.parentId;
+    await this.assertNoCycle(userId, id, nextParentId);
+    if (nextParentId) await this.getRawNodeOrThrow(userId, nextParentId);
 
     const node = await this.prisma.node.update({
       where: { id },
       data: {
-        parentId: moveDto.newParentId || null,
-        sortOrder: moveDto.newSortOrder ?? 0,
+        parentId: nextParentId,
+        sortOrder: moveDto.newSortOrder ?? existing.sortOrder,
       },
     });
     return this.mapNodeToApiModel(node, userId);
@@ -324,6 +412,10 @@ export class NodesService {
   // 缩进节点（成为上一个兄弟节点的子节点）
   async indent(userId: string, id: string) {
     const node = await this.findOne(userId, id);
+    const rawNode = await this.getRawNodeOrThrow(userId, id);
+    if (rawNode.nodeRole !== 'normal') {
+      throw new ConflictException('结构根节点不能缩进');
+    }
     
     if (!node.parentId) {
       // 获取同级的前一个节点
@@ -356,6 +448,10 @@ export class NodesService {
   // 反缩进节点（成为父节点的下一个兄弟节点）
   async outdent(userId: string, id: string) {
     const node = await this.findOne(userId, id);
+    const rawNode = await this.getRawNodeOrThrow(userId, id);
+    if (rawNode.nodeRole !== 'normal') {
+      throw new ConflictException('结构根节点不能反缩进');
+    }
 
     if (!node.parentId) {
       throw new Error('Root nodes cannot be outdented');
@@ -365,31 +461,22 @@ export class NodesService {
     const grandParentId = parent.parentId;
 
     return this.move(userId, id, {
-      newParentId: grandParentId || undefined,
+      newParentId: grandParentId ?? undefined,
       newSortOrder: parent.sortOrder + 1,
     });
   }
 
-  // 删除单个节点（包括其所有子节点）；ADR-005：禁止直接删笔记本根节点
+  // 删除单个节点（包括其所有子节点）；禁止删除 user_root / daily_root
   async remove(userId: string, id: string) {
-    await this.findOne(userId, id);
-
-    const notebook = await this.prisma.notebook.findFirst({
-      where: { userId, rootNodeId: id },
-      select: { id: true },
-    });
-    if (notebook) {
-      throw new ConflictException('不能直接删除笔记本根节点，请通过删除笔记本操作');
+    const node = await this.getRawNodeOrThrow(userId, id);
+    if (node.nodeRole !== 'normal') {
+      throw new ConflictException('结构根节点不能通过通用删除接口删除');
     }
 
     // 递归删除所有子节点
     const children = await this.findChildren(userId, id);
     if (children.length > 0) {
-      await Promise.all(
-        children.map((child) =>
-          this.remove(userId, child.id).catch(() => {})
-        )
-      );
+      await Promise.all(children.map((child) => this.remove(userId, child.id)));
     }
 
     await this.prisma.node.delete({
@@ -400,11 +487,8 @@ export class NodesService {
 
   // 批量删除节点
   async batchRemove(userId: string, ids: string[]) {
-    const results = await Promise.all(
-      ids.map((id) => this.remove(userId, id).catch(() => null))
-    );
-
-    return results.filter(Boolean);
+    const results = await Promise.all(ids.map((id) => this.remove(userId, id)));
+    return results;
   }
 
   // 按标签查找节点

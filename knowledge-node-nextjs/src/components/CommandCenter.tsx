@@ -17,10 +17,10 @@ import {
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { Node } from '@/types';
 import { FIXED_TAG_IDS } from '@/utils/mockData';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
+import { analyzeNavigationTarget } from '@/utils/navigation';
 
 interface CommandCenterProps {
   open: boolean;
@@ -90,12 +90,10 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
   const setFocusedNode = useNodeStore((state) => state.setFocusedNode);
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
   const getNodePath = useNodeStore((state) => state.getNodePath);
-  
+  const getSidebarEntries = useNodeStore((state) => state.getSidebarEntries);
+
   const supertags = useSupertagStore((state) => state.supertags);
-  const notebooks = useNotebookStore((state) => state.notebooks);
-  const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
-  const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
-  
+
   // 清空搜索
   useEffect(() => {
     if (!open) {
@@ -134,20 +132,16 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
     });
   }, [getNodePath]);
   
-  // 检查是否是容器节点
+  const sidebarEntryIds = useMemo(() => new Set(getSidebarEntries()), [getSidebarEntries, nodes]);
   const isContainerNode = useCallback((node: Node): boolean => {
-    // 日历节点
-    if (node.tags.some(tagId => 
-      [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as any)
+    if (node.tags?.some((tagId) =>
+      [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as never)
     )) {
       return true;
     }
-    // 笔记本根节点
-    if (Object.values(notebooks).some(nb => nb.rootNodeId === node.id)) {
-      return true;
-    }
+    if (sidebarEntryIds.has(node.id)) return true;
     return false;
-  }, [notebooks]);
+  }, [sidebarEntryIds]);
   
   // 计算搜索分数
   const calculateScore = useCallback((node: Node, searchQuery: string): number => {
@@ -228,61 +222,11 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
   const handleSelect = useCallback((nodeId: string) => {
     const node = nodes[nodeId];
     if (!node) return;
-    
-    
-    // 判断节点类型
-    const isCalendarNode = node.tags.some(tagId => 
-      [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as any)
-    );
-    
-    // 查找节点所属的笔记本
-    const belongsToNotebook = Object.values(notebooks).find(nb => {
-      let currentNode: Node | null = node;
-      while (currentNode) {
-        if (currentNode.id === nb.rootNodeId) return true;
-        currentNode = currentNode.parentId ? nodes[currentNode.parentId] : null;
-      }
-      return false;
-    });
-    
-    // 查找节点所属的日历父节点（日节点）
-    const findCalendarParent = (): string | null => {
-      let currentNode: Node | null = node;
-      while (currentNode) {
-        if (currentNode.tags.includes(SYSTEM_TAGS.DAY)) {
-          return currentNode.id;
-        }
-        currentNode = currentNode.parentId ? nodes[currentNode.parentId] : null;
-      }
-      return null;
-    };
-    
-    if (isCalendarNode) {
-      // 日历节点：直接跳转到该节点
-      setNavigationMode('calendar');
-      setHoistedNode(nodeId);
-      setFocusedNode(nodeId);
-    } else if (belongsToNotebook) {
-      // 笔记本内的节点
-      setActiveNotebook(belongsToNotebook.id);
-      setNavigationMode('notebook');
-      // 设置 hoisted 为笔记本根节点
-      setHoistedNode(belongsToNotebook.rootNodeId);
-      // 聚焦到目标节点
-      setFocusedNode(nodeId);
-    } else {
-      // 其他节点：尝试找到日历父节点
-      const calendarParent = findCalendarParent();
-      setNavigationMode('calendar');
-      if (calendarParent) {
-        setHoistedNode(calendarParent);
-      }
-      setFocusedNode(nodeId);
-    }
-    
-    // 关闭弹窗
+    const target = analyzeNavigationTarget(node, nodes);
+    if (target.hoistNodeId) setHoistedNode(target.hoistNodeId);
+    setFocusedNode(target.nodeId);
     onOpenChange(false);
-  }, [nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode, onOpenChange]);
+  }, [nodes, setHoistedNode, setFocusedNode, onOpenChange]);
   
   // 获取节点显示图标
   const getNodeIcon = useCallback((item: SearchResultItem) => {

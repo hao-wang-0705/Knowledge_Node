@@ -1,6 +1,6 @@
 # Knowledge Node - Docker Compose Configuration
 # 三容器架构：frontend、backend、postgres
-# 版本: 2.1
+# 版本: 3.0
 
 services:
   # PostgreSQL 数据库
@@ -59,11 +59,13 @@ services:
       dockerfile: Dockerfile
       args:
         - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-default}
+        - BACKEND_API_URL=${BACKEND_API_URL:-http://backend:4000}
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
     container_name: knowledge-node-frontend
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:4000}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-in-production}

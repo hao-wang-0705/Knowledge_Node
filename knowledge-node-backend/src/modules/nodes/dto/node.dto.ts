@@ -5,6 +5,8 @@ import {
   IsBoolean,
   IsObject,
   IsNumber,
+  IsInt,
+  Min,
 } from 'class-validator';
 
 export class CreateNodeDto {
@@ -29,7 +31,8 @@ export class CreateNodeDto {
   parentId?: string;
 
   @ApiPropertyOptional({ description: '排序顺序', default: 0 })
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   sortOrder?: number;
 
@@ -52,16 +55,6 @@ export class CreateNodeDto {
   @IsString()
   @IsOptional()
   supertagId?: string;
-
-  @ApiPropertyOptional({ description: '树域 scope (ADR-005)', enum: ['general', 'daily', 'notebook'] })
-  @IsString()
-  @IsOptional()
-  scope?: string;
-
-  @ApiPropertyOptional({ description: '笔记本ID，scope=notebook 时必填' })
-  @IsString()
-  @IsOptional()
-  notebookId?: string;
 }
 
 export class UpdateNodeDto {
@@ -81,7 +74,8 @@ export class UpdateNodeDto {
   parentId?: string;
 
   @ApiPropertyOptional({ description: '排序顺序' })
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   sortOrder?: number;
 
@@ -104,16 +98,6 @@ export class UpdateNodeDto {
   @IsString()
   @IsOptional()
   supertagId?: string;
-
-  @ApiPropertyOptional({ description: '树域 scope (ADR-005)' })
-  @IsString()
-  @IsOptional()
-  scope?: string;
-
-  @ApiPropertyOptional({ description: '笔记本ID' })
-  @IsString()
-  @IsOptional()
-  notebookId?: string;
 }
 
 export class BatchUpdateNodesDto {
@@ -133,7 +117,8 @@ export class MoveNodeDto {
   newParentId?: string;
 
   @ApiProperty({ description: '新的排序顺序' })
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   newSortOrder?: number;
 }

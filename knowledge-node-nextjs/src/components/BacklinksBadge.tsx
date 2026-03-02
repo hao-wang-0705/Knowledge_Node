@@ -4,10 +4,9 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { Link2, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { useSplitPaneStore } from '@/stores/splitPaneStore';
 import { Node } from '@/types';
-import { SYSTEM_TAGS } from '@/utils/date-helpers';
+import { analyzeNavigationTarget } from '@/utils/navigation';
 import { findBacklinks, findBacklinksFromFields, getPlainTextWithoutReferences } from '@/utils/reference-helpers';
 import CompactBreadcrumb from './CompactBreadcrumb';
 
@@ -43,9 +42,6 @@ const BacklinksBadge: React.FC<BacklinksBadgeProps> = ({
   const getNodePath = useNodeStore((state) => state.getNodePath);
   const setFocusedNode = useNodeStore((state) => state.setFocusedNode);
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
-  const notebooks = useNotebookStore((state) => state.notebooks);
-  const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
-  const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
   // 右侧面板状态
   const splitPaneIsOpen = useSplitPaneStore((state) => state.isOpen);
   const openPanel = useSplitPaneStore((state) => state.openPanel);
@@ -135,49 +131,10 @@ const BacklinksBadge: React.FC<BacklinksBadgeProps> = ({
   const handleDefaultJump = useCallback((targetNodeId: string) => {
     const targetNode = nodes[targetNodeId];
     if (!targetNode) return;
-    
-    const isCalendarNode = targetNode.tags.some(tagId => 
-      [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY].includes(tagId as typeof SYSTEM_TAGS.YEAR)
-    );
-    
-    const belongsToNotebook = Object.values(notebooks).find(nb => {
-      let currentNode: Node | null = targetNode;
-      while (currentNode) {
-        if (currentNode.id === nb.rootNodeId) return true;
-        currentNode = currentNode.parentId ? nodes[currentNode.parentId] : null;
-      }
-      return false;
-    });
-    
-    const findCalendarParent = (): string | null => {
-      let currentNode: Node | null = targetNode;
-      while (currentNode) {
-        if (currentNode.tags.includes(SYSTEM_TAGS.DAY)) {
-          return currentNode.id;
-        }
-        currentNode = currentNode.parentId ? nodes[currentNode.parentId] : null;
-      }
-      return null;
-    };
-    
-    if (isCalendarNode) {
-      setNavigationMode('calendar');
-      setHoistedNode(targetNodeId);
-      setFocusedNode(targetNodeId);
-    } else if (belongsToNotebook) {
-      setActiveNotebook(belongsToNotebook.id);
-      setNavigationMode('notebook');
-      setHoistedNode(belongsToNotebook.rootNodeId);
-      setFocusedNode(targetNodeId);
-    } else {
-      const calendarParent = findCalendarParent();
-      setNavigationMode('calendar');
-      if (calendarParent) {
-        setHoistedNode(calendarParent);
-      }
-      setFocusedNode(targetNodeId);
-    }
-  }, [nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
+    const target = analyzeNavigationTarget(targetNode, nodes);
+    if (target.hoistNodeId) setHoistedNode(target.hoistNodeId);
+    setFocusedNode(target.nodeId);
+  }, [nodes, setHoistedNode, setFocusedNode]);
 
   const handleItemClick = useCallback((targetNodeId: string, e: React.MouseEvent) => {
     e.stopPropagation();

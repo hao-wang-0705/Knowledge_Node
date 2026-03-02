@@ -4,9 +4,7 @@ import React, { useCallback, useState } from 'react';
 import { AtSign, ExternalLink, X, Link2, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import { Node, NodeReference } from '@/types';
-import { SYSTEM_TAGS } from '@/utils/date-helpers';
 import { analyzeNavigationTarget } from '@/utils/navigation';
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import ReferencePreview from './ReferencePreview';
@@ -30,9 +28,6 @@ const ReferenceItem: React.FC<ReferenceItemProps> = ({
   const nodes = useNodeStore((state) => state.nodes);
   const setFocusedNode = useNodeStore((state) => state.setFocusedNode);
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
-  const notebooks = useNotebookStore((state) => state.notebooks);
-  const setActiveNotebook = useNotebookStore((state) => state.setActiveNotebook);
-  const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
   const [isHoverOpen, setIsHoverOpen] = useState(false);
   
   // 检查目标节点是否存在
@@ -51,19 +46,10 @@ const ReferenceItem: React.FC<ReferenceItemProps> = ({
     }
     
     
-    // 分析导航目标
-    const target = analyzeNavigationTarget(targetNode, nodes, notebooks);
-    
-    // 执行导航
-    setNavigationMode(target.navigationMode);
-    if (target.notebookId) {
-      setActiveNotebook(target.notebookId);
-    }
-    if (target.hoistNodeId) {
-      setHoistedNode(target.hoistNodeId);
-    }
+    const target = analyzeNavigationTarget(targetNode, nodes);
+    if (target.hoistNodeId) setHoistedNode(target.hoistNodeId);
     setFocusedNode(target.nodeId);
-  }, [reference.targetNodeId, targetNode, nodes, notebooks, setNavigationMode, setActiveNotebook, setHoistedNode, setFocusedNode]);
+  }, [reference.targetNodeId, targetNode, nodes, setHoistedNode, setFocusedNode]);
   
   // 删除引用
   const handleRemove = useCallback((e: React.MouseEvent) => {

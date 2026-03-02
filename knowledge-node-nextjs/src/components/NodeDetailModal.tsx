@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import { Node } from '@/types';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { useNotebookStore } from '@/stores/notebookStore';
 import FieldEditor from './FieldEditor';
 import {
   Dialog,
@@ -38,7 +37,6 @@ const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
   const supertags = useSupertagStore((state) => state.supertags);
   const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
-  const setNavigationMode = useNotebookStore((state) => state.setNavigationMode);
   const [editingContent, setEditingContent] = useState('');
   
   // 获取当前节点
@@ -103,9 +101,8 @@ const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
   const handleNavigateToNode = useCallback(() => {
     if (!nodeId) return;
     onOpenChange(false);
-    setNavigationMode('calendar');
     setHoistedNode(nodeId);
-  }, [nodeId, onOpenChange, setNavigationMode, setHoistedNode]);
+  }, [nodeId, onOpenChange, setHoistedNode]);
   
   if (!node) return null;
   

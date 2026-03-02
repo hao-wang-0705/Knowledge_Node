@@ -14,7 +14,6 @@ import {
 } from '@/types/sync';
 import {
   nodesApi,
-  notebooksApi,
   supertagsApi,
   categoriesApi,
   AuthenticationError,
@@ -100,9 +99,6 @@ export async function executeOperation(operation: SyncOperation): Promise<void> 
       case 'node':
         await executeNodeOperation(type, entityId, payload);
         break;
-      case 'notebook':
-        await executeNotebookOperation(type, entityId, payload);
-        break;
       case 'supertag':
         await executeSupertagOperation(type, entityId, payload);
         break;
@@ -127,7 +123,20 @@ export async function executeOperation(operation: SyncOperation): Promise<void> 
 }
 
 /**
+ * 判断是否为唯一约束冲突（P2002），可降级为 update
+ */
+function isUniqueConstraintError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    msg.includes('Unique constraint') ||
+    msg.includes('P2002') ||
+    msg.includes('duplicate key')
+  );
+}
+
+/**
  * 执行节点操作
+ * create 失败若为唯一约束冲突，自动降级为 update
  */
 async function executeNodeOperation(
   type: OperationType,
@@ -135,9 +144,27 @@ async function executeNodeOperation(
   payload: unknown
 ): Promise<void> {
   switch (type) {
-    case 'create':
-      await nodesApi.create(payload as Parameters<typeof nodesApi.create>[0]);
+    case 'create': {
+      try {
+        await nodesApi.create(payload as Parameters<typeof nodesApi.create>[0]);
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          const p = payload as Record<string, unknown>;
+          const parentId = p.parentId;
+          await nodesApi.update(entityId, {
+            content: p.content as string | undefined,
+            parentId: parentId === null || parentId === undefined ? undefined : (parentId as string),
+            type: p.nodeType as string | undefined,
+            isCollapsed: p.isCollapsed as boolean | undefined,
+            fields: p.fields as Record<string, unknown> | undefined,
+            supertagId: p.supertagId as string | undefined,
+          });
+        } else {
+          throw error;
+        }
+      }
       break;
+    }
     case 'update':
       await nodesApi.update(entityId, payload as Parameters<typeof nodesApi.update>[1]);
       break;
@@ -152,26 +179,6 @@ async function executeNodeOperation(
 /**
  * 执行笔记本操作
  */
-async function executeNotebookOperation(
-  type: OperationType,
-  entityId: string,
-  payload: unknown
-): Promise<void> {
-  switch (type) {
-    case 'create':
-      await notebooksApi.create(payload as Parameters<typeof notebooksApi.create>[0]);
-      break;
-    case 'update':
-      await notebooksApi.update(entityId, payload as Parameters<typeof notebooksApi.update>[1]);
-      break;
-    case 'delete':
-      await notebooksApi.delete(entityId);
-      break;
-    default:
-      throw new Error(`未知的操作类型: ${type}`);
-  }
-}
-
 /**
  * 执行 Supertag 操作
  */

@@ -4,7 +4,6 @@
 
 export { default as apiClient, ApiError, setUserId, getCurrentUserId } from './client';
 export { nodesApi } from './nodes';
-export { notebooksApi } from './notebooks';
 export { supertagsApi, tagsApi } from './tags';
 export { categoriesApi } from './categories';
 export { settingsApi, SETTING_KEYS, AuthenticationError } from './settings';
@@ -16,13 +15,6 @@ export type {
   UpdateNodeParams,
   MoveNodeParams,
 } from './nodes';
-
-export type {
-  NotebookResponse,
-  NotebookWithNodesResponse,
-  CreateNotebookParams,
-  UpdateNotebookParams,
-} from './notebooks';
 
 export type {
   SupertagResponse,
