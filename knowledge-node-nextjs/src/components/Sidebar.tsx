@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Calendar, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -403,16 +404,29 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
           <Hash size={16} />
           <span>🏷️ 标签库</span>
         </button>
-        <button
-          onClick={() => setShowCommandManager(true)}
-          className="w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
-        >
-          <Sparkles size={16} />
-          <span>🤖 AI 指令</span>
-          <kbd className="ml-auto hidden sm:inline-flex items-center px-1.5 py-0.5 text-xs text-gray-400 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
-            /ai
-          </kbd>
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => FEATURE_FLAGS.AI_COMMAND_NODE && setShowCommandManager(true)}
+              disabled={!FEATURE_FLAGS.AI_COMMAND_NODE}
+              className={cn(
+                "w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm rounded-lg transition-colors",
+                FEATURE_FLAGS.AI_COMMAND_NODE
+                  ? "text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                  : "text-gray-400 dark:text-gray-500 cursor-not-allowed opacity-50"
+              )}
+            >
+              <Sparkles size={16} />
+              <span>🤖 AI 指令</span>
+              <kbd className="ml-auto hidden sm:inline-flex items-center px-1.5 py-0.5 text-xs text-gray-400 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                /ai
+              </kbd>
+            </button>
+          </TooltipTrigger>
+          {!FEATURE_FLAGS.AI_COMMAND_NODE && (
+            <TooltipContent side="right">{getDisabledMessage('AI_COMMAND_NODE')}</TooltipContent>
+          )}
+        </Tooltip>
         <div className="flex items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>

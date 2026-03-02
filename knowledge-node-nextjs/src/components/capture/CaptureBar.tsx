@@ -25,6 +25,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { useCaptureStore, useCaptureHasContent, type CaptureImage } from '@/stores/captureStore';
@@ -566,8 +567,14 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={handleStopRecording}
-                        className="h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/30"
+                        onClick={FEATURE_FLAGS.VOICE_TRANSCRIPTION ? handleStopRecording : undefined}
+                        disabled={!FEATURE_FLAGS.VOICE_TRANSCRIPTION}
+                        className={cn(
+                          'h-6 px-2',
+                          FEATURE_FLAGS.VOICE_TRANSCRIPTION
+                            ? 'text-red-600 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/30'
+                            : 'text-gray-400 opacity-50 cursor-not-allowed'
+                        )}
                       >
                         停止录音
                       </Button>
@@ -633,17 +640,19 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                     <TooltipContent>添加图片</TooltipContent>
                   </Tooltip>
                   
-                  {/* 语音录制 */}
+                  {/* 语音录制 - MVP 版本禁用 */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={isRecording ? handleStopRecording : handleStartRecording}
-                        disabled={isProcessing}
+                        onClick={FEATURE_FLAGS.VOICE_TRANSCRIPTION ? (isRecording ? handleStopRecording : handleStartRecording) : undefined}
+                        disabled={!FEATURE_FLAGS.VOICE_TRANSCRIPTION || isProcessing}
                         className={cn(
                           'h-9 w-9',
-                          isRecording 
+                          !FEATURE_FLAGS.VOICE_TRANSCRIPTION
+                            ? 'text-gray-400 opacity-50 cursor-not-allowed'
+                            : isRecording 
                             ? 'text-red-500 hover:text-red-600' 
                             : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                         )}
@@ -651,7 +660,11 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                         {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{isRecording ? '停止录音' : '开始录音'}</TooltipContent>
+                    <TooltipContent>
+                      {!FEATURE_FLAGS.VOICE_TRANSCRIPTION 
+                        ? getDisabledMessage('VOICE_TRANSCRIPTION') 
+                        : isRecording ? '停止录音' : '开始录音'}
+                    </TooltipContent>
                   </Tooltip>
                   
                   {/* 标签选择 */}

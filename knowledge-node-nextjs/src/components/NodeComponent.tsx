@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, memo, useCallback, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FEATURE_FLAGS } from '@/lib/feature-flags';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import ContextMenu from './ContextMenu';
@@ -360,16 +361,16 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       
-      // 检测 /ai 快捷指令
+      // 检测 /ai 快捷指令 - 仅在功能启用时生效
       const content = contentRef.current?.textContent?.trim() || '';
-      if (content.toLowerCase() === '/ai') {
+      if (FEATURE_FLAGS.AI_COMMAND_NODE && content.toLowerCase() === '/ai') {
         if (contentRef.current) {
           contentRef.current.textContent = '';
         }
         updateNode(nodeId, { content: '' });
         nodeCommand.openCommandConfigAndDeleteCurrentAfterCreate();
         return;
-      } else if (content.toLowerCase().startsWith('/ai ')) {
+      } else if (FEATURE_FLAGS.AI_COMMAND_NODE && content.toLowerCase().startsWith('/ai ')) {
         // 如果有自定义 prompt，直接创建
         const customPrompt = content.slice(4).trim();
         

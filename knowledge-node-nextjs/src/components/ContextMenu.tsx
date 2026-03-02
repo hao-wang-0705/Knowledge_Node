@@ -3,6 +3,8 @@
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { Trash2, Copy, Scissors, Hash, Indent, Outdent, Plus, Link2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface ContextMenuProps {
   x: number;
@@ -135,8 +137,9 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       label: '🤖 新建指令',
       onClick: onAddCommandNode,
       shortcut: '/ai',
-      enabled: true,
+      enabled: FEATURE_FLAGS.AI_COMMAND_NODE,
       highlight: true,
+      disabledTooltip: getDisabledMessage('AI_COMMAND_NODE'),
     },
     { type: 'separator' as const },
     {

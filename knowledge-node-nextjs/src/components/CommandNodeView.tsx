@@ -12,6 +12,8 @@ import {
   BookTemplate,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TokenBudgetIndicator } from './TokenBudgetIndicator';
 import { ContextSelector } from './ContextSelector';
 import { CommandTemplateLibrary } from './CommandTemplateLibrary';
@@ -158,25 +160,48 @@ export function CommandNodeView({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowTemplates(!showTemplates)}
-            className="p-1.5 rounded-lg hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 text-zinc-600 dark:text-zinc-400"
-            title="选择模板"
-          >
-            <BookTemplate className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={cn(
-              'p-1.5 rounded-lg transition-colors',
-              showSettings
-                ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400'
-                : 'hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 text-zinc-600 dark:text-zinc-400'
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => FEATURE_FLAGS.AI_COMMAND_NODE && setShowTemplates(!showTemplates)}
+                disabled={!FEATURE_FLAGS.AI_COMMAND_NODE}
+                className={cn(
+                  'p-1.5 rounded-lg text-zinc-600 dark:text-zinc-400',
+                  FEATURE_FLAGS.AI_COMMAND_NODE
+                    ? 'hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50'
+                    : 'opacity-50 cursor-not-allowed'
+                )}
+                title={FEATURE_FLAGS.AI_COMMAND_NODE ? '选择模板' : getDisabledMessage('AI_COMMAND_NODE')}
+              >
+                <BookTemplate className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            {!FEATURE_FLAGS.AI_COMMAND_NODE && (
+              <TooltipContent>{getDisabledMessage('AI_COMMAND_NODE')}</TooltipContent>
             )}
-            title="设置"
-          >
-            <Settings2 className="w-4 h-4" />
-          </button>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => FEATURE_FLAGS.AI_COMMAND_NODE && setShowSettings(!showSettings)}
+                disabled={!FEATURE_FLAGS.AI_COMMAND_NODE}
+                className={cn(
+                  'p-1.5 rounded-lg transition-colors',
+                  !FEATURE_FLAGS.AI_COMMAND_NODE
+                    ? 'opacity-50 cursor-not-allowed text-zinc-600 dark:text-zinc-400'
+                    : showSettings
+                    ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400'
+                    : 'hover:bg-zinc-200/50 dark:hover:bg-zinc-700/50 text-zinc-600 dark:text-zinc-400'
+                )}
+                title={FEATURE_FLAGS.AI_COMMAND_NODE ? '设置' : getDisabledMessage('AI_COMMAND_NODE')}
+              >
+                <Settings2 className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            {!FEATURE_FLAGS.AI_COMMAND_NODE && (
+              <TooltipContent>{getDisabledMessage('AI_COMMAND_NODE')}</TooltipContent>
+            )}
+          </Tooltip>
         </div>
       </div>
 
@@ -256,30 +281,39 @@ export function CommandNodeView({
 
       {/* 执行按钮 */}
       <div className="px-4 pb-4">
-        <button
-          onClick={handleExecute}
-          disabled={isExecuting || isOverBudget || !localPrompt.trim()}
-          className={cn(
-            'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all',
-            isExecuting
-              ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-500 cursor-wait'
-              : isOverBudget || !localPrompt.trim()
-              ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed'
-              : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/25'
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={handleExecute}
+              disabled={!FEATURE_FLAGS.AI_COMMAND_NODE || isExecuting || isOverBudget || !localPrompt.trim()}
+              className={cn(
+                'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all',
+                !FEATURE_FLAGS.AI_COMMAND_NODE
+                  ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed opacity-50'
+                  : isExecuting
+                  ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-500 cursor-wait'
+                  : isOverBudget || !localPrompt.trim()
+                  ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/25'
+              )}
+            >
+              {isExecuting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  执行中...
+                </>
+              ) : (
+                <>
+                  <Play className="w-5 h-5" />
+                  运行指令
+                </>
+              )}
+            </button>
+          </TooltipTrigger>
+          {!FEATURE_FLAGS.AI_COMMAND_NODE && (
+            <TooltipContent>{getDisabledMessage('AI_COMMAND_NODE')}</TooltipContent>
           )}
-        >
-          {isExecuting ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              执行中...
-            </>
-          ) : (
-            <>
-              <Play className="w-5 h-5" />
-              运行指令
-            </>
-          )}
-        </button>
+        </Tooltip>
       </div>
 
       {/* 执行结果 */}
@@ -338,22 +372,31 @@ export function CommandNodeCompact({
       <span className="text-sm text-indigo-600 dark:text-indigo-400 flex-1 truncate">
         {template ? `${template.icon} ${template.name}` : '自定义指令'}
       </span>
-      <button
-        onClick={onExecute}
-        disabled={isExecuting}
-        className={cn(
-          'p-1.5 rounded-lg transition-colors',
-          isExecuting
-            ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400'
-            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onExecute}
+            disabled={!FEATURE_FLAGS.AI_COMMAND_NODE || isExecuting}
+            className={cn(
+              'p-1.5 rounded-lg transition-colors',
+              !FEATURE_FLAGS.AI_COMMAND_NODE
+                ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400 opacity-50 cursor-not-allowed'
+                : isExecuting
+                ? 'bg-zinc-200 dark:bg-zinc-700 text-zinc-400'
+                : 'bg-indigo-600 text-white hover:bg-indigo-700'
+            )}
+          >
+            {isExecuting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Play className="w-4 h-4" />
+            )}
+          </button>
+        </TooltipTrigger>
+        {!FEATURE_FLAGS.AI_COMMAND_NODE && (
+          <TooltipContent>{getDisabledMessage('AI_COMMAND_NODE')}</TooltipContent>
         )}
-      >
-        {isExecuting ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : (
-          <Play className="w-4 h-4" />
-        )}
-      </button>
+      </Tooltip>
     </div>
   );
 }

@@ -1,7 +1,9 @@
 import { AlertCircle, CheckCircle2, Circle, Loader2, Play, Settings2 } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 
 interface NodeCommandProps {
   icon?: string;
@@ -59,35 +61,55 @@ export default function NodeCommand({
           )}
         </div>
         <div className="flex items-center gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'h-6 px-2',
-              isExecuting
-                ? 'text-gray-400 cursor-not-allowed'
-                : 'text-purple-600 hover:text-purple-700 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/30'
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'h-6 px-2',
+                  !FEATURE_FLAGS.AI_COMMAND_NODE || isExecuting
+                    ? 'text-gray-400 cursor-not-allowed opacity-50'
+                    : 'text-purple-600 hover:text-purple-700 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/30'
+                )}
+                title={!FEATURE_FLAGS.AI_COMMAND_NODE ? getDisabledMessage('AI_COMMAND_NODE') : isExecuting ? '执行中...' : '执行指令'}
+                onClick={onExecute}
+                disabled={!FEATURE_FLAGS.AI_COMMAND_NODE || isExecuting}
+              >
+                {isExecuting ? (
+                  <Loader2 size={12} className="mr-1 animate-spin" />
+                ) : (
+                  <Play size={12} className="mr-1" />
+                )}
+                {isExecuting ? '执行中' : '执行'}
+              </Button>
+            </TooltipTrigger>
+            {!FEATURE_FLAGS.AI_COMMAND_NODE && (
+              <TooltipContent>{getDisabledMessage('AI_COMMAND_NODE')}</TooltipContent>
             )}
-            title={isExecuting ? '执行中...' : '执行指令'}
-            onClick={onExecute}
-            disabled={isExecuting}
-          >
-            {isExecuting ? (
-              <Loader2 size={12} className="mr-1 animate-spin" />
-            ) : (
-              <Play size={12} className="mr-1" />
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'h-6 w-6 p-0',
+                  !FEATURE_FLAGS.AI_COMMAND_NODE
+                    ? 'text-gray-400 cursor-not-allowed opacity-50'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                )}
+                title={!FEATURE_FLAGS.AI_COMMAND_NODE ? getDisabledMessage('AI_COMMAND_NODE') : '设置指令'}
+                onClick={onOpenConfig}
+                disabled={!FEATURE_FLAGS.AI_COMMAND_NODE}
+              >
+                <Settings2 size={14} />
+              </Button>
+            </TooltipTrigger>
+            {!FEATURE_FLAGS.AI_COMMAND_NODE && (
+              <TooltipContent>{getDisabledMessage('AI_COMMAND_NODE')}</TooltipContent>
             )}
-            {isExecuting ? '执行中' : '执行'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-            title="设置指令"
-            onClick={onOpenConfig}
-          >
-            <Settings2 size={14} />
-          </Button>
+          </Tooltip>
         </div>
       </div>
 
