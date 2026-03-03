@@ -4,7 +4,6 @@ import React, { useState, useCallback, useEffect, useRef, KeyboardEvent } from '
 import { FileText, Plus, GripVertical, Check, Square, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Supertag, TemplateNode } from '@/types';
-import { useSupertagStore } from '@/stores/supertagStore';
 
 interface TemplateContentEditorProps {
   tag: Supertag;
@@ -226,8 +225,6 @@ const TemplateContentEditor: React.FC<TemplateContentEditorProps> = ({ tag }) =>
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   
-  const updateSupertag = useSupertagStore((s) => s.updateSupertag);
-  
   // 从 tag 加载模版
   useEffect(() => {
     const templateNodes = tag.templateContent;
@@ -242,12 +239,11 @@ const TemplateContentEditor: React.FC<TemplateContentEditorProps> = ({ tag }) =>
     setEditingId(null);
   }, [tag.id, tag.templateContent]);
   
-  // 保存模版
+  // 保存模版 - 当前为只读模式，此功能已禁用
   const handleSave = useCallback(() => {
-    const nodes = unflattenTemplate(items);
-    updateSupertag(tag.id, { templateContent: nodes.length > 0 ? nodes : undefined });
+    console.warn('[TemplateContentEditor] 当前为只读模式，无法保存模版');
     setIsDirty(false);
-  }, [tag.id, items, updateSupertag]);
+  }, []);
   
   // 自动保存（失去焦点时）
   const handleBlurSave = useCallback(() => {

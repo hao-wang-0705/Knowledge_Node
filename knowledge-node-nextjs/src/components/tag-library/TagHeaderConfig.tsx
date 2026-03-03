@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { GitBranch, Circle, Trash2, Edit2, Check, X, ChevronDown } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Circle, Trash2, Edit2, Check, X, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Supertag } from '@/types';
 import { useSupertagStore } from '@/stores/supertagStore';
@@ -20,6 +20,10 @@ const ICON_PRESETS = [
   '😊', '🤔', '👍', '❤️', '💪', '🙌', '🏆', '💎', '🚀', '🌟', '🎉', '🎊',
 ];
 
+/**
+ * 标签头部配置组件 (v3.4)
+ * 移除继承选择器，简化为基础配置
+ */
 const TagHeaderConfig: React.FC<TagHeaderConfigProps> = ({ tag }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(tag.name);
@@ -27,73 +31,39 @@ const TagHeaderConfig: React.FC<TagHeaderConfigProps> = ({ tag }) => {
   const [editingDesc, setEditingDesc] = useState(tag.description || '');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
-  const updateSupertag = useSupertagStore((state) => state.updateSupertag);
-  const deleteSupertag = useSupertagStore((state) => state.deleteSupertag);
-  const supertags = useSupertagStore((state) => state.supertags);
-  const getDescendantIds = useSupertagStore((state) => state.getDescendantIds);
-  const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
-  
-  // 获取合并后的字段数量
-  const resolvedFields = useMemo(() => {
-    return getResolvedFieldDefinitions(tag.id) || [];
-  }, [tag.id, getResolvedFieldDefinitions]);
-  
   const ownFieldCount = tag.fieldDefinitions.length;
-  const inheritedFieldCount = resolvedFields.filter(f => f.inherited).length;
-  
-  // 获取父标签
-  const parentTag = tag.parentId ? supertags[tag.parentId] : null;
-  
-  // 获取可用的父标签列表（排除自己和后代）
-  const availableParentTags = useMemo(() => {
-    const blockedIds = new Set(getDescendantIds(tag.id));
-    blockedIds.add(tag.id);
-    return Object.values(supertags)
-      .filter((t) => !blockedIds.has(t.id) && !t.isSystem)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [getDescendantIds, supertags, tag.id]);
 
-  // 处理名称保存
+  // 处理名称保存 - 当前为只读模式，此功能已禁用
   const handleSaveName = useCallback(() => {
-    if (editingName.trim() && editingName.trim() !== tag.name) {
-      updateSupertag(tag.id, { name: editingName.trim() });
-    }
+    console.warn('[TagHeaderConfig] 当前为只读模式，无法保存名称');
     setIsEditingName(false);
-  }, [tag.id, tag.name, editingName, updateSupertag]);
+  }, []);
   
-  // 处理描述保存
+  // 处理描述保存 - 当前为只读模式，此功能已禁用
   const handleSaveDesc = useCallback(() => {
-    const desc = editingDesc.trim();
-    if (desc !== (tag.description || '')) {
-      updateSupertag(tag.id, { description: desc || undefined });
-    }
+    console.warn('[TagHeaderConfig] 当前为只读模式，无法保存描述');
     setIsEditingDesc(false);
-  }, [tag.id, tag.description, editingDesc, updateSupertag]);
+  }, []);
 
-  // 处理颜色更改
-  const handleColorChange = useCallback((color: string) => {
-    updateSupertag(tag.id, { color });
-  }, [tag.id, updateSupertag]);
+  // 处理颜色更改 - 当前为只读模式，此功能已禁用
+  const handleColorChange = useCallback((_color: string) => {
+    console.warn('[TagHeaderConfig] 当前为只读模式，无法更改颜色');
+  }, []);
 
-  // 处理图标更改
-  const handleIconChange = useCallback((icon: string | undefined) => {
-    updateSupertag(tag.id, { icon });
-  }, [tag.id, updateSupertag]);
+  // 处理图标更改 - 当前为只读模式，此功能已禁用
+  const handleIconChange = useCallback((_icon: string | undefined) => {
+    console.warn('[TagHeaderConfig] 当前为只读模式，无法更改图标');
+  }, []);
 
-  // 处理父标签更改
-  const handleParentChange = useCallback((parentId: string | null) => {
-    updateSupertag(tag.id, { parentId });
-  }, [tag.id, updateSupertag]);
-
-  // 处理删除
+  // 处理删除 - 当前为只读模式，此功能已禁用
   const handleDelete = useCallback(() => {
-    deleteSupertag(tag.id);
+    console.warn('[TagHeaderConfig] 当前为只读模式，无法删除标签');
     setShowDeleteConfirm(false);
-  }, [tag.id, deleteSupertag]);
+  }, []);
 
   return (
     <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-      {/* 第一行：图标 + 名称 + 继承 + 颜色 + 删除 */}
+      {/* 第一行：图标 + 名称 + 颜色 + 删除 */}
       <div className="flex items-center gap-3">
         {/* 图标选择器 */}
         <Popover>
@@ -169,61 +139,7 @@ const TagHeaderConfig: React.FC<TagHeaderConfigProps> = ({ tag }) => {
           )}
         </div>
 
-        {/* 继承选择器 - 关键功能 */}
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all",
-                parentTag
-                  ? "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/60"
-                  : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
-              )}
-            >
-              <GitBranch size={14} />
-              <span>{parentTag ? `继承 #${parentTag.name}` : '设置继承…'}</span>
-              <ChevronDown size={12} />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-56 p-1" align="end">
-            <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-700 mb-1">
-              选择父标签以继承其字段
-            </div>
-            <button
-              onClick={() => handleParentChange(null)}
-              className={cn(
-                "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors text-left",
-                !parentTag
-                  ? "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200"
-                  : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
-              )}
-            >
-              <Circle size={8} className="text-gray-400" />
-              <span>无继承</span>
-            </button>
-            {availableParentTags.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => handleParentChange(t.id)}
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors text-left",
-                  tag.parentId === t.id
-                    ? "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300"
-                    : "hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
-                )}
-              >
-                <div
-                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: t.color }}
-                />
-                <span className="truncate">#{t.name}</span>
-                <span className="ml-auto text-xs text-gray-400">{t.fieldDefinitions.length}</span>
-              </button>
-            ))}
-          </PopoverContent>
-        </Popover>
-
-        {/* 颜色选择器 - 收纳为小圆点 */}
+        {/* 颜色选择器 */}
         <Popover>
           <PopoverTrigger asChild>
             <button
@@ -333,24 +249,7 @@ const TagHeaderConfig: React.FC<TagHeaderConfigProps> = ({ tag }) => {
 
       {/* 第三行：字段统计信息 */}
       <div className="mt-2 ml-[60px] flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-        <span>{ownFieldCount} 个自有字段</span>
-        {inheritedFieldCount > 0 && (
-          <>
-            <span className="text-gray-300 dark:text-gray-600">•</span>
-            <span className="text-purple-500 dark:text-purple-400">
-              +{inheritedFieldCount} 个继承字段
-            </span>
-          </>
-        )}
-        {parentTag && (
-          <>
-            <span className="text-gray-300 dark:text-gray-600">•</span>
-            <span className="flex items-center gap-1 text-purple-500 dark:text-purple-400">
-              <GitBranch size={10} />
-              继承自 #{parentTag.name}
-            </span>
-          </>
-        )}
+        <span>{ownFieldCount} 个字段</span>
       </div>
     </div>
   );

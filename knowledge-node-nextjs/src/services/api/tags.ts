@@ -1,51 +1,32 @@
 /**
- * 标签 API（Supertag）
+ * 标签 API（Supertag / TagTemplate）
+ * v3.3: 重构为只读 API，移除所有用户写操作
+ * v3.4: 移除分类系统和继承机制
+ * 
+ * 保留的只读 API:
+ * - supertagsApi.getAll: 获取所有标签
+ * - supertagsApi.getOne: 获取单个标签详情
  */
-import apiClient from './client';
-import type { Supertag } from '@/types';
-import { PRESET_CATEGORY_IDS } from '@/types';
 
-// =============== Supertag API 响应类型 ===============
+import apiClient from './client';
+import type { Supertag, TagTemplate } from '@/types';
+
+// =============== API 响应类型 ===============
 
 export interface SupertagResponse {
   id: string;
   name: string;
   color: string;
-  category?: string;
-  categoryId?: string;
   icon?: string;
   description?: string;
   fieldDefinitions: any[];
-  isSystem: boolean;
+  isSystem?: boolean;
+  isGlobalDefault?: boolean;
+  creatorId?: string | null;
+  status?: string;
   createdAt: string;
   updatedAt: string;
   _count?: { nodes: number };
-  /** v2.1 */
-  parentId?: string | null;
-  templateContent?: any;
-  resolvedFieldDefinitions?: any[];
-}
-
-export interface CreateSupertagParams {
-  name: string;
-  color: string;
-  categoryId?: string;
-  icon?: string;
-  description?: string;
-  fieldDefinitions?: any[];
-  isSystem?: boolean;
-  parentId?: string | null;
-  templateContent?: any;
-}
-
-export interface UpdateSupertagParams {
-  name?: string;
-  color?: string;
-  categoryId?: string;
-  icon?: string;
-  description?: string;
-  fieldDefinitions?: any[];
-  parentId?: string | null;
   templateContent?: any;
 }
 
@@ -56,74 +37,96 @@ function toSupertag(response: SupertagResponse): Supertag {
     id: response.id,
     name: response.name,
     color: response.color,
-    categoryId: response.categoryId || response.category || PRESET_CATEGORY_IDS.UNCATEGORIZED,
     icon: response.icon,
     description: response.description,
     fieldDefinitions: response.fieldDefinitions ?? [],
-    isSystem: response.isSystem,
-    parentId: response.parentId ?? undefined,
     templateContent: response.templateContent ?? undefined,
-    resolvedFieldDefinitions: response.resolvedFieldDefinitions,
+    isGlobalDefault: response.isGlobalDefault,
+    status: response.status as 'active' | 'deprecated' | undefined,
+    creatorId: response.creatorId,
   };
 }
 
-// =============== Supertag API ===============
+function toTagTemplate(response: SupertagResponse): TagTemplate {
+  return {
+    id: response.id,
+    name: response.name,
+    color: response.color,
+    icon: response.icon,
+    description: response.description,
+    fieldDefinitions: response.fieldDefinitions ?? [],
+    isGlobalDefault: response.isGlobalDefault ?? true,
+    creatorId: response.creatorId ?? null,
+    status: (response.status as 'active' | 'deprecated') ?? 'active',
+    order: 0,
+    templateContent: response.templateContent ?? null,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+  };
+}
+
+// =============== Supertag API（只读） ===============
 
 export const supertagsApi = {
-  // 获取所有功能标签（含 parentId / templateContent 用于继承树与模版）
   async getAll(): Promise<Array<Supertag & { nodeCount?: number }>> {
     const response = await apiClient.get<SupertagResponse[]>('/api/supertags');
     return response.map((tag) => ({
       ...toSupertag(tag),
-      parentId: tag.parentId ?? undefined,
       templateContent: tag.templateContent ?? undefined,
       nodeCount: tag._count?.nodes,
     }));
   },
 
-  // 按分类获取功能标签
-  async getByCategory(category: string): Promise<Supertag[]> {
-    const response = await apiClient.get<SupertagResponse[]>(`/api/supertags/category/${category}`);
-    return response.map(toSupertag);
+  async getAllTemplates(): Promise<Array<TagTemplate & { nodeCount?: number }>> {
+    const response = await apiClient.get<SupertagResponse[]>('/api/supertags');
+    return response.map((tag) => ({
+      ...toTagTemplate(tag),
+      nodeCount: tag._count?.nodes,
+    }));
   },
 
-  // 获取单个功能标签（含继承合并后的 resolvedFieldDefinitions）
   async getOne(id: string): Promise<Supertag & { nodeCount?: number }> {
     const response = await apiClient.get<SupertagResponse>(`/api/supertags/${id}`);
     return {
       ...toSupertag(response),
-      resolvedFieldDefinitions: response.resolvedFieldDefinitions ?? response.fieldDefinitions,
       nodeCount: response._count?.nodes,
     };
   },
 
-  // 创建功能标签
-  async create(params: CreateSupertagParams): Promise<Supertag> {
-    const response = await apiClient.post<SupertagResponse>('/api/supertags', params);
-    return toSupertag(response);
+  async getTemplate(id: string): Promise<TagTemplate & { nodeCount?: number }> {
+    const response = await apiClient.get<SupertagResponse>(`/api/supertags/${id}`);
+    return {
+      ...toTagTemplate(response),
+      nodeCount: response._count?.nodes,
+    };
   },
 
-  // 批量创建功能标签
-  async batchCreate(supertags: CreateSupertagParams[]): Promise<any[]> {
-    return apiClient.post('/api/supertags/batch', { supertags });
+  // v3.3: 以下写操作 API 已移除
+
+  /** @deprecated v3.3: 用户写操作已移除 */
+  async create(): Promise<never> {
+    throw new Error('[v3.3] 用户写操作已移除：supertagsApi.create 不再可用');
   },
 
-  // 更新功能标签
-  async update(id: string, params: UpdateSupertagParams): Promise<Supertag> {
-    const response = await apiClient.patch<SupertagResponse>(`/api/supertags/${id}`, params);
-    return toSupertag(response);
+  /** @deprecated v3.3: 用户写操作已移除 */
+  async batchCreate(): Promise<never> {
+    throw new Error('[v3.3] 用户写操作已移除：supertagsApi.batchCreate 不再可用');
   },
 
-  // 删除功能标签
-  async delete(id: string): Promise<void> {
-    await apiClient.delete(`/api/supertags/${id}`);
+  /** @deprecated v3.3: 用户写操作已移除 */
+  async update(): Promise<never> {
+    throw new Error('[v3.3] 用户写操作已移除：supertagsApi.update 不再可用');
+  },
+
+  /** @deprecated v3.3: 用户写操作已移除 */
+  async delete(): Promise<never> {
+    throw new Error('[v3.3] 用户写操作已移除：supertagsApi.delete 不再可用');
   },
 };
 
-// =============== 搜索 API ===============
+// =============== 搜索 API（只读） ===============
 
 export const tagsApi = {
-  // 搜索所有标签
   async search(query: string): Promise<{
     supertags: Supertag[];
   }> {

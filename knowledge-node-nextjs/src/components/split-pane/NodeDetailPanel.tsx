@@ -40,7 +40,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ className }) => {
   const updateNode = useNodeStore((state) => state.updateNode);
   
   const supertags = useSupertagStore((state) => state.supertags);
-  const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
+  const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
 
   const node = panelNodeId ? nodes[panelNodeId] : null;
 
@@ -181,7 +181,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ className }) => {
             <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">字段</h3>
             <div className="space-y-1">
               {nodeTags.map((tag) =>
-                (getResolvedFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
+                (getFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
                   <FieldEditor
                     key={fieldDef.id}
                     fieldDef={fieldDef}

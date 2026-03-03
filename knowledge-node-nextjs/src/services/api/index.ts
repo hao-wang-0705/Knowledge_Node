@@ -1,11 +1,11 @@
 /**
  * API 客户端统一导出
+ * v3.3: Supertag API 重构为只读模式，Categories 模块已移除
  */
 
 export { default as apiClient, ApiError, setUserId, getCurrentUserId } from './client';
 export { nodesApi } from './nodes';
 export { supertagsApi, tagsApi } from './tags';
-export { categoriesApi } from './categories';
 export { settingsApi, SETTING_KEYS, AuthenticationError } from './settings';
 
 // 类型导出
@@ -18,12 +18,4 @@ export type {
 
 export type {
   SupertagResponse,
-  CreateSupertagParams,
-  UpdateSupertagParams,
 } from './tags';
-
-export type {
-  CategoryResponse,
-  CreateCategoryParams,
-  UpdateCategoryParams,
-} from './categories';

@@ -8,14 +8,15 @@
  * 2. 分组结构 - AI 推荐 → 最近使用 → 功能标签
  * 3. 模糊搜索 - 支持快速过滤
  * 4. 快速创建 - 支持创建新的功能标签
+ * 
+ * v3.4: 移除分类系统，简化为扁平列表
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Check, Hash, Sparkles, Clock, Tag, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { Check, Hash, Sparkles, Clock, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BRAND } from '@/lib/brand';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { TYPE_TAG_ICONS, PRESET_CATEGORY_IDS } from '@/types';
 
 // ============================================
 // 类型定义
@@ -47,7 +48,7 @@ export interface UnifiedTagSelectorProps {
   initialSearchTerm?: string;
 }
 
-// 标签项的统一数据结构
+// 标签项的统一数据结构 (v3.4: 移除分类字段)
 interface TagItem {
   id: string;
   name: string;
@@ -55,10 +56,6 @@ interface TagItem {
   type: 'type';
   icon?: string;
   isNew?: boolean;
-  categoryId?: string;
-  categoryName?: string;
-  parentId?: string | null;  // v2.1 继承用
-  depth?: number;            // v2.1 树形缩进
 }
 
 // ============================================
@@ -83,15 +80,8 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // Store
+  // Store (v3.4: 移除分类相关)
   const supertags = useSupertagStore((state) => state.supertags);
-  const storeCategories = useSupertagStore((state) => state.categories);
-  const getCategory = useSupertagStore((state) => state.getCategory);
-  
-  // 获取所有分类（按顺序排列）
-  const categories = useMemo(() => {
-    return Object.values(storeCategories).sort((a, b) => a.order - b.order);
-  }, [storeCategories]);
   
   // 初始化搜索词
   useEffect(() => {
@@ -129,24 +119,19 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open, onClose]);
   
-  // 构建标签列表 (仅功能标签，含 parentId 用于树形)
+  // 构建标签列表 (v3.4: 简化为扁平列表)
   const allTags = useMemo((): TagItem[] => {
     return Object.values(supertags)
-      .filter((tag) => !tag.isSystem && !excludeTagIds.includes(tag.id))
-      .map((tag) => {
-        const category = getCategory(tag.categoryId);
-        return {
-          id: tag.id,
-          name: tag.name,
-          color: tag.color,
-          type: 'type' as const,
-          icon: tag.icon || TYPE_TAG_ICONS[tag.id],
-          categoryId: tag.categoryId,
-          categoryName: category?.name,
-          parentId: tag.parentId ?? undefined,
-        };
-      });
-  }, [supertags, excludeTagIds, getCategory]);
+      .filter((tag) => !excludeTagIds.includes(tag.id))
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((tag) => ({
+        id: tag.id,
+        name: tag.name,
+        color: tag.color,
+        type: 'type' as const,
+        icon: tag.icon,
+      }));
+  }, [supertags, excludeTagIds]);
   
   // 过滤后的标签列表
   const filteredTags = useMemo(() => {
@@ -160,7 +145,7 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
     );
   }, [allTags, searchTerm]);
   
-  // 分组显示的标签 (按分类分组)
+  // 分组显示的标签 (v3.4: 简化为 AI推荐 + 最近使用 + 全部标签)
   const groupedTags = useMemo(() => {
     // 如果有搜索词，只显示搜索结果
     if (searchTerm.trim()) {
@@ -168,7 +153,7 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
         search: filteredTags,
         aiRecommended: [],
         recent: [],
-        byCategory: {} as Record<string, TagItem[]>,
+        all: [],
         canCreate: filteredTags.length === 0,
       };
     }
@@ -184,44 +169,23 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
       .filter(Boolean)
       .slice(0, 5) as TagItem[];
     
-    // 按分类分组，且每分类内按继承树排序（父在前、子缩进）
-    const byCategory: Record<string, TagItem[]> = {};
-    allTags.forEach((tag) => {
-      const catId = tag.categoryId || PRESET_CATEGORY_IDS.UNCATEGORIZED;
-      if (!byCategory[catId]) byCategory[catId] = [];
-      byCategory[catId].push(tag);
-    });
-    const sortWithDepth = (items: TagItem[]): TagItem[] => {
-      const withDepth: TagItem[] = [];
-      const byParent = new Map<string | null, TagItem[]>();
-      items.forEach((t) => {
-        const p = t.parentId ?? null;
-        if (!byParent.has(p)) byParent.set(p, []);
-        byParent.get(p)!.push(t);
-      });
-      const walk = (parentId: string | null, d: number) => {
-        (byParent.get(parentId) || []).forEach((t) => {
-          withDepth.push({ ...t, depth: d });
-          walk(t.id, d + 1);
-        });
-      };
-      walk(null, 0);
-      return withDepth;
-    };
-    Object.keys(byCategory).forEach((catId) => {
-      byCategory[catId] = sortWithDepth(byCategory[catId]);
-    });
+    // 排除 AI 推荐和最近使用的标签
+    const excludeIds = new Set([
+      ...aiRecommended.map((t) => t.id),
+      ...recent.map((t) => t.id),
+    ]);
+    const all = allTags.filter((t) => !excludeIds.has(t.id));
     
     return {
       search: [],
       aiRecommended,
       recent,
-      byCategory,
+      all,
       canCreate: false,
     };
   }, [searchTerm, filteredTags, allTags, aiRecommendations, recentTags]);
   
-  // 平铺的列表（用于键盘导航）
+  // 平铺的列表（用于键盘导航）(v3.4: 简化)
   const flatList = useMemo(() => {
     const list: TagItem[] = [];
     
@@ -240,15 +204,11 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
     } else {
       list.push(...groupedTags.aiRecommended);
       list.push(...groupedTags.recent);
-      // 按分类添加
-      categories.forEach((cat) => {
-        const catTags = groupedTags.byCategory[cat.id] || [];
-        list.push(...catTags);
-      });
+      list.push(...groupedTags.all);
     }
     
     return list;
-  }, [searchTerm, groupedTags, categories]);
+  }, [searchTerm, groupedTags]);
   
   // 选中索引边界检查
   useEffect(() => {
@@ -397,31 +357,17 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
                   />
                 )}
                 
-                {/* 按分类显示标签 */}
-                {categories.map((category) => {
-                  const catTags = groupedTags.byCategory[category.id] || [];
-                  if (catTags.length === 0) return null;
-                  
-                  // 计算起始索引
-                  let startIdx = groupedTags.aiRecommended.length + groupedTags.recent.length;
-                  categories.forEach((c) => {
-                    if (c.order < category.order) {
-                      startIdx += (groupedTags.byCategory[c.id] || []).length;
-                    }
-                  });
-                  
-                  return (
-                    <TagGroup
-                      key={category.id}
-                      title={category.name}
-                      icon={<span className="text-xs">{category.icon}</span>}
-                      items={catTags}
-                      selectedIndex={selectedIndex}
-                      startIndex={startIdx}
-                      onSelect={handleSelect}
-                    />
-                  );
-                })}
+                {/* 全部标签 (v3.4: 简化，不再按分类分组) */}
+                {groupedTags.all.length > 0 && (
+                  <TagGroup
+                    title="全部标签"
+                    icon={<Hash size={12} className="text-gray-400" />}
+                    items={groupedTags.all}
+                    selectedIndex={selectedIndex}
+                    startIndex={groupedTags.aiRecommended.length + groupedTags.recent.length}
+                    onSelect={handleSelect}
+                  />
+                )}
                 
                 {/* 空状态 */}
                 {flatList.length === 0 && (
@@ -491,7 +437,6 @@ interface TagListItemProps {
 }
 
 const TagListItem: React.FC<TagListItemProps> = ({ item, isSelected, onClick }) => {
-  const depth = item.depth ?? 0;
   return (
     <button
       onClick={onClick}
@@ -501,7 +446,6 @@ const TagListItem: React.FC<TagListItemProps> = ({ item, isSelected, onClick }) 
           ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-200"
           : "hover:bg-gray-50 dark:hover:bg-gray-800"
       )}
-      style={depth > 0 ? { paddingLeft: 8 + depth * 12 } : undefined}
     >
       {/* 标签图标 */}
       <span className="flex items-center justify-center w-5 h-5 rounded bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900 dark:to-blue-800 text-xs">
@@ -512,13 +456,6 @@ const TagListItem: React.FC<TagListItemProps> = ({ item, isSelected, onClick }) 
       <span className="flex-1 text-left truncate">
         #{item.name}
       </span>
-      
-      {/* 分类标识 */}
-      {item.categoryName && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-300">
-          {item.categoryName}
-        </span>
-      )}
       
       {/* 选中指示 */}
       {isSelected && (

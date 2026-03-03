@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useCallback, useState } from 'react';
+import React, { memo, useCallback, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useQueryPanelStore, QUERY_PANEL_CONSTANTS } from '@/stores/queryPanelStore';
 import ResizeHandle from './ResizeHandle';
@@ -26,9 +26,15 @@ const MainContentWrapper: React.FC<MainContentWrapperProps> = memo(({
 }) => {
   const panelWidth = useQueryPanelStore((state) => state.panelWidth);
   const setPanelWidth = useQueryPanelStore((state) => state.setPanelWidth);
+  const hydratePanelWidth = useQueryPanelStore((state) => state.hydratePanelWidth);
   
   // 拖拽状态 - 禁用过渡动画
   const [isResizing, setIsResizing] = useState(false);
+
+  // 客户端挂载后从 localStorage 同步面板宽度，避免 SSR hydration mismatch
+  useEffect(() => {
+    hydratePanelWidth();
+  }, [hydratePanelWidth]);
 
   // 处理拖拽宽度变化
   const handleResize = useCallback((deltaX: number) => {

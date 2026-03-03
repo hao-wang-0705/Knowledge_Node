@@ -2,9 +2,9 @@
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { 
-  X, Plus, Trash2, Edit2, Hash, ChevronRight, ChevronDown,
-  Type, Calendar, List, Check, Eye, Link2, 
-  GripVertical, Sparkles, GitBranch, Circle, FileText
+  X, Plus, Trash2, Edit2, Hash, ChevronDown,
+  Type, Calendar, List, Check, Link2, 
+  GripVertical, Sparkles, FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -52,33 +52,16 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
   const newFieldInputRef = useRef<HTMLInputElement>(null);
 
   const supertags = useSupertagStore((state) => state.supertags);
-  const addSupertag = useSupertagStore((state) => state.addSupertag);
-  const updateSupertag = useSupertagStore((state) => state.updateSupertag);
-  const deleteSupertag = useSupertagStore((state) => state.deleteSupertag);
-  const addFieldDefinition = useSupertagStore((state) => state.addFieldDefinition);
-  const updateFieldDefinition = useSupertagStore((state) => state.updateFieldDefinition);
-  const removeFieldDefinition = useSupertagStore((state) => state.removeFieldDefinition);
-  const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
+  const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
 
   // 获取非系统标签列表
   const userTags = Object.values(supertags).filter(tag => !tag.isSystem);
   const selectedTag = selectedTagId ? supertags[selectedTagId] : null;
   
-  // 获取合并继承后的字段定义
   const resolvedFields = useMemo(() => {
     if (!selectedTagId) return [];
-    return getResolvedFieldDefinitions(selectedTagId) || [];
-  }, [selectedTagId, getResolvedFieldDefinitions, supertags]);
-  
-  // 获取父标签信息
-  const parentTag = selectedTag?.parentId ? supertags[selectedTag.parentId] : null;
-  
-  // 获取可选的父标签列表（排除自己和自己的后代）
-  const availableParentTags = useMemo(() => {
-    if (!selectedTagId) return userTags;
-    const descendantIds = useSupertagStore.getState().getDescendantIds(selectedTagId);
-    return userTags.filter(tag => !descendantIds.includes(tag.id));
-  }, [selectedTagId, userTags]);
+    return getFieldDefinitions(selectedTagId) || [];
+  }, [selectedTagId, getFieldDefinitions, supertags]);
 
   // 聚焦新标签输入框
   useEffect(() => {
@@ -125,175 +108,95 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
     }
   }, [selectedTagId, selectedTag]);
 
-  // 创建新标签
+  // 创建新标签 - 当前为只读模式，此功能已禁用
   const handleCreateTag = useCallback(async () => {
-    if (!newTagName.trim()) return;
-    
-    const colorIndex = userTags.length % TAG_COLORS.length;
-    const newId = await addSupertag(newTagName.trim(), TAG_COLORS[colorIndex]);
-    
-    setNewTagName('');
-    setIsAddingTag(false);
-    if (newId) {
-      setSelectedTagId(newId);
-    }
-  }, [newTagName, userTags.length, addSupertag]);
+    console.warn('[TagLibrary] 当前为只读模式，无法创建标签');
+  }, []);
 
-  // 保存标签名称编辑
+  // 保存标签名称编辑 - 当前为只读模式，此功能已禁用
   const handleSaveTagName = useCallback(() => {
-    if (!editingTagId || !editingTagName.trim()) {
-      setEditingTagId(null);
-      setEditingTagName('');
-      return;
-    }
-    
-    updateSupertag(editingTagId, { name: editingTagName.trim() });
+    console.warn('[TagLibrary] 当前为只读模式，无法保存标签名称');
     setEditingTagId(null);
     setEditingTagName('');
-  }, [editingTagId, editingTagName, updateSupertag]);
+  }, []);
 
-  // 删除标签
-  const handleDeleteTag = useCallback((tagId: string, e: React.MouseEvent) => {
+  // 删除标签 - 当前为只读模式，此功能已禁用
+  const handleDeleteTag = useCallback((_tagId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const tag = supertags[tagId];
-    if (tag && confirm(`确定要删除标签 #${tag.name} 吗？此操作不可撤销。`)) {
-      deleteSupertag(tagId);
-      if (selectedTagId === tagId) {
-        setSelectedTagId(null);
-      }
-    }
-  }, [supertags, deleteSupertag, selectedTagId]);
+    console.warn('[TagLibrary] 当前为只读模式，无法删除标签');
+  }, []);
 
-  // 行内添加新字段
+  // 行内添加新字段 - 当前为只读模式，此功能已禁用
   const handleAddFieldInline = useCallback(() => {
-    if (!selectedTagId || !newFieldName.trim()) return;
+    console.warn('[TagLibrary] 当前为只读模式，无法添加字段');
+  }, []);
 
-    const fieldKey = newFieldName.trim().toLowerCase().replace(/\s+/g, '_');
-    
-    const fieldDef: Omit<FieldDefinition, 'id'> = {
-      key: fieldKey,
-      name: newFieldName.trim(),
-      type: 'text', // 默认为文本类型
-    };
-
-    addFieldDefinition(selectedTagId, fieldDef);
-    setNewFieldName('');
-    setIsAddingField(false);
-  }, [selectedTagId, newFieldName, addFieldDefinition]);
-
-  // 更新字段类型
-  const handleFieldTypeChange = useCallback((fieldId: string, newType: FieldType) => {
-    if (!selectedTagId) return;
-    
-    const updates: Partial<FieldDefinition> = { type: newType };
-    
-    // 如果切换到 select 类型，添加默认选项
-    if (newType === 'select') {
-      updates.options = ['选项1', '选项2', '选项3'];
-    } else {
-      updates.options = undefined;
-    }
-    
-    // 如果切换到 reference 类型，清除 targetTagId（需要用户选择）
-    if (newType === 'reference') {
-      updates.targetTagId = undefined;
-    } else {
-      updates.targetTagId = undefined;
-    }
-    
-    updateFieldDefinition(selectedTagId, fieldId, updates);
-  }, [selectedTagId, updateFieldDefinition]);
+  // 更新字段类型 - 当前为只读模式，此功能已禁用
+  const handleFieldTypeChange = useCallback((_fieldId: string, _newType: FieldType) => {
+    console.warn('[TagLibrary] 当前为只读模式，无法更新字段类型');
+  }, []);
   
-  // 更新字段的引用目标标签
-  const handleFieldTargetTagChange = useCallback((fieldId: string, targetTagId: string) => {
-    if (!selectedTagId) return;
-    updateFieldDefinition(selectedTagId, fieldId, { targetTagId });
-  }, [selectedTagId, updateFieldDefinition]);
+  // 更新字段的引用目标标签 - 当前为只读模式，此功能已禁用
+  const handleFieldTargetTagChange = useCallback((_fieldId: string, _targetTagId: string) => {
+    console.warn('[TagLibrary] 当前为只读模式，无法更新引用目标');
+  }, []);
   
-  // 更新字段选项
-  const handleFieldOptionsChange = useCallback((fieldId: string, optionsStr: string) => {
-    if (!selectedTagId) return;
-    const options = optionsStr.split(',').map(o => o.trim()).filter(Boolean);
-    updateFieldDefinition(selectedTagId, fieldId, { options });
-  }, [selectedTagId, updateFieldDefinition]);
+  // 更新字段选项 - 当前为只读模式，此功能已禁用
+  const handleFieldOptionsChange = useCallback((_fieldId: string, _optionsStr: string) => {
+    console.warn('[TagLibrary] 当前为只读模式，无法更新字段选项');
+  }, []);
 
-  // 删除字段
-  const handleDeleteField = useCallback((fieldId: string) => {
-    if (!selectedTagId) return;
-    removeFieldDefinition(selectedTagId, fieldId);
-  }, [selectedTagId, removeFieldDefinition]);
+  // 删除字段 - 当前为只读模式，此功能已禁用
+  const handleDeleteField = useCallback((_fieldId: string) => {
+    console.warn('[TagLibrary] 当前为只读模式，无法删除字段');
+  }, []);
 
-  // 更新标签颜色
-  const handleColorChange = useCallback((color: string) => {
-    if (!selectedTagId) return;
-    updateSupertag(selectedTagId, { color });
-  }, [selectedTagId, updateSupertag]);
+  const handleColorChange = useCallback((_color: string) => {
+    console.warn('[TagLibrary] 当前为只读模式，无法更新颜色');
+  }, []);
   
-  // 更新父标签
-  const handleParentChange = useCallback((parentId: string | null) => {
-    if (!selectedTagId) return;
-    updateSupertag(selectedTagId, { parentId });
-  }, [selectedTagId, updateSupertag]);
-  
-  // 保存描述
   const handleSaveDescription = useCallback(() => {
-    if (!selectedTagId) return;
-    updateSupertag(selectedTagId, { description: descriptionValue.trim() || undefined });
+    console.warn('[TagLibrary] 当前为只读模式，无法保存描述');
     setIsEditingDescription(false);
-  }, [selectedTagId, descriptionValue, updateSupertag]);
+  }, []);
   
-  // 保存模版
+  // 保存模版 - 当前为只读模式，此功能已禁用
   const handleSaveTemplate = useCallback(() => {
-    if (!selectedTagId) return;
-    const lines = templateValue.split('\n').filter(l => l.trim());
-    const templateContent = lines.length > 0 
-      ? lines.map(content => ({ content: content.trim() }))
-      : null;
-    updateSupertag(selectedTagId, { templateContent });
+    console.warn('[TagLibrary] 当前为只读模式，无法保存模版');
     setIsEditingTemplate(false);
-  }, [selectedTagId, templateValue, updateSupertag]);
+  }, []);
 
-  // 渲染字段类型选择器
   const renderFieldTypeSelector = (field: FieldDefinition) => {
     const currentType = FIELD_TYPES.find(t => t.value === field.type) || FIELD_TYPES[0];
-    const isInherited = field.inherited;
     
     return (
       <Popover>
         <PopoverTrigger asChild>
           <button
-            disabled={isInherited}
-            className={cn(
-              "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors min-w-[70px]",
-              isInherited 
-                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                : "bg-gray-100 hover:bg-gray-200 text-gray-600"
-            )}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors min-w-[70px] bg-gray-100 hover:bg-gray-200 text-gray-600"
           >
             {currentType.icon}
             <span>{currentType.label}</span>
-            {!isInherited && <ChevronDown size={12} className="ml-auto" />}
+            <ChevronDown size={12} className="ml-auto" />
           </button>
         </PopoverTrigger>
-        {!isInherited && (
-          <PopoverContent className="w-40 p-1" align="start">
-            {FIELD_TYPES.map((type) => (
-              <button
-                key={type.value}
-                onClick={() => handleFieldTypeChange(field.id, type.value)}
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors",
-                  field.type === type.value
-                    ? "bg-blue-100 text-blue-700"
-                    : "hover:bg-gray-100 text-gray-700"
-                )}
-              >
-                {type.icon}
-                <span>{type.label}</span>
-              </button>
-            ))}
-          </PopoverContent>
-        )}
+        <PopoverContent className="w-40 p-1" align="start">
+          {FIELD_TYPES.map((type) => (
+            <button
+              key={type.value}
+              onClick={() => handleFieldTypeChange(field.id, type.value)}
+              className={cn(
+                "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors",
+                field.type === type.value
+                  ? "bg-blue-100 text-blue-700"
+                  : "hover:bg-gray-100 text-gray-700"
+              )}
+            >
+              {type.icon}
+              <span>{type.label}</span>
+            </button>
+          ))}
+        </PopoverContent>
       </Popover>
     );
   };
@@ -370,11 +273,7 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
 
           {/* 标签列表 */}
           <div className="flex-1 overflow-y-auto p-2">
-            {userTags.map((tag) => {
-              const hasParent = !!tag.parentId;
-              const childCount = useSupertagStore.getState().getChildren(tag.id).length;
-              
-              return (
+            {userTags.map((tag) => (
                 <div
                   key={tag.id}
                   onClick={() => setSelectedTagId(tag.id)}
@@ -408,16 +307,11 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
                     />
                   ) : (
                     <>
-                      {/* 继承指示 */}
-                      {hasParent && (
-                        <GitBranch size={10} className="text-purple-500 flex-shrink-0" />
-                      )}
                       <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">
                         #{tag.name}
                       </span>
                       <span className="text-[10px] text-gray-400">
                         {tag.fieldDefinitions.length}
-                        {childCount > 0 && <span className="text-purple-400 ml-1">+{childCount}</span>}
                       </span>
                     </>
                   )}
@@ -446,8 +340,7 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
                     </div>
                   )}
                 </div>
-              );
-            })}
+            ))}
 
             {/* 添加新标签 */}
             {isAddingTag ? (
@@ -525,59 +418,10 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
                     #
                   </div>
                   
-                  {/* 标签名称 */}
-                  <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100">
+                  <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 flex-1">
                     #{selectedTag.name}
                   </h3>
                   
-                  {/* 继承选择器 */}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button className={cn(
-                        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm transition-colors",
-                        parentTag 
-                          ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                      )}>
-                        <GitBranch size={14} />
-                        <span>{parentTag ? `继承自 #${parentTag.name}` : '设置继承…'}</span>
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-56 p-1" align="start">
-                      <div className="text-xs text-gray-500 px-2 py-1.5 border-b mb-1">选择父标签</div>
-                      <button
-                        onClick={() => handleParentChange(null)}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors",
-                          !parentTag ? "bg-gray-100" : "hover:bg-gray-100"
-                        )}
-                      >
-                        <Circle size={8} className="text-gray-400" />
-                        <span className="text-gray-500">无继承</span>
-                      </button>
-                      {availableParentTags.filter(t => t.id !== selectedTagId).map((tag) => (
-                        <button
-                          key={tag.id}
-                          onClick={() => handleParentChange(tag.id)}
-                          className={cn(
-                            "w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors",
-                            selectedTag.parentId === tag.id
-                              ? "bg-purple-100 text-purple-700"
-                              : "hover:bg-gray-100 text-gray-700"
-                          )}
-                        >
-                          <div 
-                            className="w-2 h-2 rounded-full"
-                            style={{ backgroundColor: tag.color }}
-                          />
-                          <span>#{tag.name}</span>
-                          <span className="ml-auto text-xs text-gray-400">{tag.fieldDefinitions.length} 字段</span>
-                        </button>
-                      ))}
-                    </PopoverContent>
-                  </Popover>
-                  
-                  {/* 颜色选择器 - 收纳为小图标 */}
                   <Popover>
                     <PopoverTrigger asChild>
                       <button 
@@ -666,49 +510,28 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
                   
                   {/* 字段行 */}
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {resolvedFields.map((field) => {
-                      const isInherited = field.inherited;
-                      
-                      return (
+                    {resolvedFields.map((field) => (
                         <div 
                           key={field.id}
-                          className={cn(
-                            "grid grid-cols-[24px_1fr_100px_140px_32px] gap-2 px-3 py-2 items-center group",
-                            isInherited ? "bg-purple-50/50 dark:bg-purple-900/10" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"
-                          )}
+                          className="grid grid-cols-[24px_1fr_100px_140px_32px] gap-2 px-3 py-2 items-center group hover:bg-gray-50 dark:hover:bg-gray-800/50"
                         >
-                          {/* 拖拽手柄 */}
-                          <div className={cn(
-                            "cursor-move text-gray-300",
-                            isInherited && "opacity-30"
-                          )}>
+                          <div className="cursor-move text-gray-300">
                             <GripVertical size={14} />
                           </div>
                           
-                          {/* 字段名 */}
                           <div className="flex items-center gap-2">
-                            <span className={cn(
-                              "text-sm font-medium",
-                              isInherited ? "text-purple-700 dark:text-purple-300" : "text-gray-700 dark:text-gray-300"
-                            )}>
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                               {field.name}
                             </span>
-                            {isInherited && (
-                              <span className="px-1.5 py-0.5 text-[10px] rounded bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300">
-                                继承
-                              </span>
-                            )}
                           </div>
                           
-                          {/* 类型选择 */}
                           <div>
                             {renderFieldTypeSelector(field)}
                           </div>
                           
-                          {/* 配置项 */}
                           <div>
                             {field.type === 'reference' && renderReferenceTargetSelector(field)}
-                            {field.type === 'select' && !isInherited && (
+                            {field.type === 'select' && (
                               <Popover>
                                 <PopoverTrigger asChild>
                                   <button className="text-xs text-gray-500 hover:text-gray-700 truncate max-w-full">
@@ -729,21 +552,17 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
                             )}
                           </div>
                           
-                          {/* 删除按钮 */}
                           <div className="flex justify-end">
-                            {!isInherited && (
-                              <button
-                                onClick={() => handleDeleteField(field.id)}
-                                className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                                title="删除字段"
-                              >
-                                <X size={14} />
-                              </button>
-                            )}
+                            <button
+                              onClick={() => handleDeleteField(field.id)}
+                              className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                              title="删除字段"
+                            >
+                              <X size={14} />
+                            </button>
                           </div>
                         </div>
-                      );
-                    })}
+                    ))}
                     
                     {/* 添加字段行 */}
                     {isAddingField ? (

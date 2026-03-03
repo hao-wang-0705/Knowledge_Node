@@ -286,20 +286,9 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
     set({ status: 'processing', error: null });
     
     try {
-      const resolveFields = (tagId: string, visited = new Set<string>()): FieldDefinition[] => {
+      const resolveFields = (tagId: string): FieldDefinition[] => {
         const tag = supertags[tagId];
-        if (!tag) return [];
-        if (visited.has(tagId)) return tag.fieldDefinitions ?? [];
-        visited.add(tagId);
-
-        const ownDefs = (tag.fieldDefinitions ?? []) as FieldDefinition[];
-        if (!tag.parentId) return ownDefs;
-
-        const parentDefs = resolveFields(tag.parentId, visited);
-        const merged = new Map<string, FieldDefinition>();
-        parentDefs.forEach((field) => merged.set(field.key, field));
-        ownDefs.forEach((field) => merged.set(field.key, field));
-        return Array.from(merged.values());
+        return (tag?.fieldDefinitions ?? []) as FieldDefinition[];
       };
 
       // 准备请求数据

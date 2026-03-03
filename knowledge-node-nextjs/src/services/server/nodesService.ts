@@ -93,8 +93,10 @@ async function resolveParentId(
 
 async function resolveSupertagId(userId: string, supertagId?: string | null): Promise<string | null> {
   if (!supertagId) return null;
-  const supertagExists = await prisma.supertag.findFirst({
-    where: { id: supertagId, userId },
+  // TagTemplate 是全局标签库，验证时只需检查 id 是否存在
+  // 未来如果支持 UGC 标签，可以添加 creatorId 或 userLibrary 的校验
+  const supertagExists = await prisma.tagTemplate.findFirst({
+    where: { id: supertagId },
     select: { id: true },
   });
   return supertagExists ? supertagId : null;

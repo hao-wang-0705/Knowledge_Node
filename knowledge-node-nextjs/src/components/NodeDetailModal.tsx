@@ -36,7 +36,7 @@ const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
   const updateNode = useNodeStore((state) => state.updateNode);
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
   const supertags = useSupertagStore((state) => state.supertags);
-  const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
+  const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
   const [editingContent, setEditingContent] = useState('');
   
   // 获取当前节点
@@ -90,12 +90,12 @@ const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
       tags: node.tags.filter(id => id !== tagId),
       fields: Object.fromEntries(
         Object.entries(node.fields).filter(([key]) => {
-          const defs = tag ? getResolvedFieldDefinitions(tag.id) ?? [] : [];
+          const defs = tag ? getFieldDefinitions(tag.id) ?? [] : [];
           return !defs.some(field => field.key === key);
         })
       )
     });
-  }, [nodeId, node, supertags, updateNode, getResolvedFieldDefinitions]);
+  }, [nodeId, node, supertags, updateNode, getFieldDefinitions]);
   
   // 跳转到节点详情（聚焦模式）
   const handleNavigateToNode = useCallback(() => {
@@ -193,7 +193,7 @@ const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
               </label>
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
                 {nodeTags.map((tag) =>
-                  (getResolvedFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
+                  (getFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
                     <FieldEditor
                       key={fieldDef.id}
                       fieldDef={fieldDef}

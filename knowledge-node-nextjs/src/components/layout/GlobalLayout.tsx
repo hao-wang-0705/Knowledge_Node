@@ -15,18 +15,30 @@ interface GlobalLayoutProps {
   children: React.ReactNode;
 }
 
+// 认证页面路径列表 - 这些页面不需要显示侧边栏和顶导航
+const AUTH_ROUTES = ['/login', '/register'];
+
 /**
  * 全局布局组件
  * 作为所有页面的外层框架，包含顶部导航和侧边栏
  * 根据路由判断是否显示查询面板
+ * 认证页面（登录/注册）不显示侧边栏和顶导航
  */
 const GlobalLayout: React.FC<GlobalLayoutProps> = memo(({ children }) => {
   const pathname = usePathname();
   const [showCommandCenter, setShowCommandCenter] = useState(false);
 
+  // 检测是否为认证页面
+  const isAuthPage = AUTH_ROUTES.includes(pathname);
+
   // 根据路由判断是否显示查询面板
   // 只在笔记主页面（/）显示查询面板
   const showQueryPanel = pathname === '/';
+
+  // 认证页面直接返回 children，不渲染侧边栏和顶导航
+  if (isAuthPage) {
+    return <>{children}</>;
+  }
 
   return (
     <TooltipProvider>

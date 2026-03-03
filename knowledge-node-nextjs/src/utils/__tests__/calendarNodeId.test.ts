@@ -65,8 +65,12 @@ describe('calendarNodeId', () => {
   });
 
   describe('resolveCalendarParentId', () => {
-    it('null 返回 null', () => {
-      expect(resolveCalendarParentId(null, {})).toBeNull();
+    it('null 输入返回 undefined（表示未知父节点）', () => {
+      expect(resolveCalendarParentId(null, {})).toBeUndefined();
+    });
+
+    it('undefined 输入返回 undefined（表示未知父节点）', () => {
+      expect(resolveCalendarParentId(undefined, {})).toBeUndefined();
     });
 
     it('非日历 ID 直接返回原 ID', () => {

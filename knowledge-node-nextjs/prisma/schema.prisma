@@ -8,42 +8,42 @@ datasource db {
 }
 
 model User {
-  id            String        @id @default(cuid())
-  email         String        @unique
-  passwordHash  String
-  name          String?
-  avatar        String?
-  isInitialized Boolean       @default(false)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  categories    Category[]
-  nodes         Node[]
-  supertags     Supertag[]
-  settings      UserSetting[]
+  id             String           @id @default(cuid())
+  email          String           @unique
+  passwordHash   String
+  name           String?
+  avatar         String?
+  isInitialized  Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  nodes          Node[]
+  tagTemplates   TagTemplate[]    // 创建的标签模版（管理员/UGC创建者）
+  tagLibrary     UserTagLibrary[] // 用户订阅的标签库
+  settings       UserSetting[]
 
   @@map("users")
 }
 
 model Node {
-  id          String    @id @default(cuid())
+  id          String       @id @default(cuid())
   userId      String
   parentId    String?
-  content     String    @default("")
-  nodeType    String    @default("text")
-  nodeRole    String    @default("normal")
+  content     String       @default("")
+  nodeType    String       @default("text")
+  nodeRole    String       @default("normal")
   supertagId  String?
-  payload     Json      @default("{}")
-  fields      Json      @default("{}")
-  tags        String[]  @default([])
+  payload     Json         @default("{}")
+  fields      Json         @default("{}")
+  tags        String[]     @default([])
   references  Json?
-  sortOrder   Int       @default(0)
-  isCollapsed Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  parent      Node?     @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
-  children    Node[]    @relation("NodeHierarchy")
-  supertag    Supertag? @relation(fields: [supertagId], references: [id])
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sortOrder   Int          @default(0)
+  isCollapsed Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  parent      Node?        @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Node[]       @relation("NodeHierarchy")
+  supertag    TagTemplate? @relation(fields: [supertagId], references: [id])
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([parentId])
@@ -55,50 +55,51 @@ model Node {
   @@map("nodes")
 }
 
-model Supertag {
-  id               String     @id @default(cuid())
-  userId           String
+// 标签模版表 - 系统预置标签库
+// v3.4: 移除 parentId 继承关系，移除 categoryId 分类关系
+model TagTemplate {
+  id               String           @id @default(cuid())
   name             String
-  color            String     @default("#6366F1")
+  color            String           @default("#6366F1")
   icon             String?
-  fieldDefinitions Json       @default("[]")
-  isSystem         Boolean    @default(false)
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  categoryId       String     @default("cat_uncategorized")
   description      String?
-  order            Int        @default(0)
-  parentId         String?
-  templateContent  Json?
+  fieldDefinitions Json             @default("[]")
+  isGlobalDefault  Boolean          @default(true)   // 系统预置标识，当前全为 true
+  creatorId        String?                           // 预留 UGC 创建者 ID
+  status           String           @default("active") // active/deprecated/draft
+  order            Int              @default(0)
+  templateContent  Json?                             // 默认内容模版
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  // 关联关系
   nodes            Node[]
-  parent           Supertag?  @relation("SupertagInheritance", fields: [parentId], references: [id])
-  children         Supertag[] @relation("SupertagInheritance")
-  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creator          User?            @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  userLibraries    UserTagLibrary[]
 
-  @@unique([userId, name])
-  @@index([userId])
-  @@index([parentId])
-  @@index([categoryId])
-  @@map("supertags")
+  @@index([isGlobalDefault, status])
+  @@index([creatorId])
+  @@map("tag_templates")
 }
 
-model Category {
-  id          String   @id
-  userId      String
-  name        String
-  icon        String   @default("📂")
-  color       String   @default("#6B7280")
-  description String?
-  isSystem    Boolean  @default(false)
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+// 用户标签库映射表 - 预留给未来 UGC 模版市场
+model UserTagLibrary {
+  id            String      @id @default(cuid())
+  userId        String
+  tagTemplateId String
+  isActive      Boolean     @default(true)
+  addedAt       DateTime    @default(now())
 
-  @@unique([userId, id])
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tagTemplate   TagTemplate @relation(fields: [tagTemplateId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tagTemplateId])
   @@index([userId])
-  @@map("categories")
+  @@index([tagTemplateId])
+  @@map("user_tag_library")
 }
+
+// v3.4: Category 模型已移除，标签不再按分类组织
 
 model UserSetting {
   id        String   @id @default(cuid())
@@ -113,4 +114,3 @@ model UserSetting {
   @@index([userId])
   @@map("user_settings")
 }
-

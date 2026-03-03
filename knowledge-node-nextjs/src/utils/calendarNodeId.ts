@@ -39,13 +39,25 @@ export function findCalendarNodeActualId(
  * 解析日历节点的实际 parentId（处理带前缀的情况）
  * @param originalParentId 原始父节点 ID
  * @param nodes 当前节点字典
- * @returns 实际使用的父节点 ID
+ * @returns 实际使用的父节点 ID，或 undefined 表示「未知/无法确定」
+ *
+ * 返回值语义：
+ * - string: 解析成功，返回实际的父节点 ID
+ * - null: 明确表示根节点（无父节点）
+ * - undefined: 调用方未提供有效的 parentId，无法确定正确的父节点
+ *
+ * 这个区分很重要：当调用方传入 null 时，表示调用方不知道正确的父节点，
+ * 此时不应该用 null 去覆盖节点已有的 parentId（可能是正确的）。
  */
 export function resolveCalendarParentId(
-  originalParentId: string | null,
+  originalParentId: string | null | undefined,
   nodes: Record<string, Node>
-): string | null {
-  if (!originalParentId) return null;
+): string | null | undefined {
+  // 当传入 null 或 undefined 时，返回 undefined 表示「未知」
+  // 这样调用方可以判断：如果是 undefined，则不应触发 reparent
+  if (originalParentId === null || originalParentId === undefined) {
+    return undefined;
+  }
   const calendarType = getCalendarNodeType(originalParentId);
   if (calendarType) {
     const actualId = findCalendarNodeActualId(originalParentId, nodes);

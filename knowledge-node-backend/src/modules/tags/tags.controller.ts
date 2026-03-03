@@ -3,102 +3,50 @@ import {
   Get,
   Post,
   Body,
-  Patch,
   Param,
-  Delete,
   Query,
   Headers,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiHeader, ApiQuery } from '@nestjs/swagger';
 import { TagsService } from './tags.service';
 import {
-  CreateSupertagDto,
-  UpdateSupertagDto,
-  BatchCreateSupertagsDto,
-  SupertagResponseDto,
+  CreateTagTemplateDto,
+  TagTemplateResponseDto,
 } from './dto/tag.dto';
 
+/**
+ * 系统预置标签 API - 只读接口
+ * v3.4: 移除 category 路由，标签不再按分类组织
+ */
 @ApiTags('supertags')
 @Controller('api/supertags')
 export class SupertagsController {
   constructor(private readonly tagsService: TagsService) {}
 
-  @Post()
-  @ApiOperation({ summary: '创建功能标签' })
-  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiResponse({ status: 201, description: '标签创建成功', type: SupertagResponseDto })
-  create(
-    @Headers('x-user-id') userId: string,
-    @Body() createDto: CreateSupertagDto,
-  ) {
-    return this.tagsService.createSupertag(userId, createDto);
-  }
-
-  @Post('batch')
-  @ApiOperation({ summary: '批量创建功能标签' })
-  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiResponse({ status: 201, description: '标签批量创建成功' })
-  batchCreate(
-    @Headers('x-user-id') userId: string,
-    @Body() batchDto: BatchCreateSupertagsDto,
-  ) {
-    return this.tagsService.batchCreateSupertags(userId, batchDto);
-  }
-
   @Get()
-  @ApiOperation({ summary: '获取所有功能标签' })
+  @ApiOperation({ summary: '获取所有可用标签（系统预置 + 用户订阅）' })
   @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiResponse({ status: 200, description: '返回标签列表', type: [SupertagResponseDto] })
+  @ApiResponse({ status: 200, description: '返回标签列表', type: [TagTemplateResponseDto] })
   findAll(@Headers('x-user-id') userId: string) {
-    return this.tagsService.findAllSupertags(userId);
-  }
-
-  @Get('category/:categoryId')
-  @ApiOperation({ summary: '按分类获取功能标签' })
-  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiResponse({ status: 200, description: '返回标签列表', type: [SupertagResponseDto] })
-  findByCategory(
-    @Headers('x-user-id') userId: string,
-    @Param('categoryId') categoryId: string,
-  ) {
-    return this.tagsService.findSupertagsByCategory(userId, categoryId);
+    return this.tagsService.findAllTagTemplates(userId);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: '获取单个功能标签' })
+  @ApiOperation({ summary: '获取单个标签详情' })
   @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiResponse({ status: 200, description: '返回标签详情', type: SupertagResponseDto })
+  @ApiResponse({ status: 200, description: '返回标签详情', type: TagTemplateResponseDto })
   findOne(
     @Headers('x-user-id') userId: string,
     @Param('id') id: string,
   ) {
-    return this.tagsService.findOneSupertag(userId, id);
-  }
-
-  @Patch(':id')
-  @ApiOperation({ summary: '更新功能标签' })
-  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiResponse({ status: 200, description: '标签更新成功', type: SupertagResponseDto })
-  update(
-    @Headers('x-user-id') userId: string,
-    @Param('id') id: string,
-    @Body() updateDto: UpdateSupertagDto,
-  ) {
-    return this.tagsService.updateSupertag(userId, id, updateDto);
-  }
-
-  @Delete(':id')
-  @ApiOperation({ summary: '删除功能标签' })
-  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
-  @ApiResponse({ status: 200, description: '标签删除成功' })
-  remove(
-    @Headers('x-user-id') userId: string,
-    @Param('id') id: string,
-  ) {
-    return this.tagsService.removeSupertag(userId, id);
+    return this.tagsService.findOneTagTemplate(userId, id);
   }
 }
 
+/**
+ * 标签搜索 API
+ */
 @ApiTags('tags')
 @Controller('api/tags')
 export class TagsController {
@@ -114,5 +62,41 @@ export class TagsController {
     @Query('q') query: string,
   ) {
     return this.tagsService.searchTags(userId, query);
+  }
+}
+
+/**
+ * 内部管理 API - 仅供管理员/系统调用
+ */
+@ApiTags('internal-tags')
+@Controller('api/internal/tags')
+export class InternalTagsController {
+  constructor(private readonly tagsService: TagsService) {}
+
+  @Post()
+  @ApiOperation({ summary: '创建系统预置标签（管理员专用）' })
+  @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
+  @ApiResponse({ status: 201, description: '标签创建成功', type: TagTemplateResponseDto })
+  create(
+    @Headers('x-admin-key') adminKey: string,
+    @Body() createDto: CreateTagTemplateDto,
+  ) {
+    const expectedKey = process.env.ADMIN_API_KEY || 'admin-secret-key';
+    if (adminKey !== expectedKey) {
+      throw new UnauthorizedException('Invalid admin key');
+    }
+    return this.tagsService.createTagTemplate(createDto);
+  }
+
+  @Get()
+  @ApiOperation({ summary: '获取所有标签模版（管理员专用）' })
+  @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
+  @ApiResponse({ status: 200, description: '返回所有标签模版', type: [TagTemplateResponseDto] })
+  findAll(@Headers('x-admin-key') adminKey: string) {
+    const expectedKey = process.env.ADMIN_API_KEY || 'admin-secret-key';
+    if (adminKey !== expectedKey) {
+      throw new UnauthorizedException('Invalid admin key');
+    }
+    return this.tagsService.findAllTagTemplatesAdmin();
   }
 }

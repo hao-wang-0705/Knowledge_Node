@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { 
-  Plus, Sparkles, Loader2, Type, Hash, Calendar, List, Link2, 
+  Plus, Sparkles, Loader2, Type, Hash, Calendar, List, Link2, Cpu,
   X, GripVertical, ChevronDown, AlertCircle, Check
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -20,7 +20,6 @@ import {
   DragStartEvent,
 } from '@dnd-kit/core';
 import {
-  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
@@ -32,23 +31,24 @@ interface SchemaFieldListProps {
   tag: Supertag;
 }
 
-// 字段类型配置
+// 字段类型配置 (v3.4: 新增 AI 字段类型)
 const FIELD_TYPES: { value: FieldType; label: string; icon: React.ReactNode; color: string }[] = [
   { value: 'text', label: '文本', icon: <Type size={12} />, color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400' },
   { value: 'number', label: '数字', icon: <Hash size={12} />, color: 'bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400' },
   { value: 'date', label: '日期', icon: <Calendar size={12} />, color: 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400' },
   { value: 'select', label: '单选', icon: <List size={12} />, color: 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400' },
   { value: 'reference', label: '引用', icon: <Link2 size={12} />, color: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400' },
+  { value: 'ai_text', label: 'AI 文本', icon: <Cpu size={12} />, color: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400' },
+  { value: 'ai_select', label: 'AI 选项', icon: <Cpu size={12} />, color: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400' },
 ];
 
 // 类型选择下拉菜单组件 - 使用 Portal 防止溢出
 interface TypeDropdownProps {
   currentType: FieldType;
-  isInherited: boolean;
   onTypeChange: (type: FieldType) => void;
 }
 
-const TypeDropdown: React.FC<TypeDropdownProps> = ({ currentType, isInherited, onTypeChange }) => {
+const TypeDropdown: React.FC<TypeDropdownProps> = ({ currentType, onTypeChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -61,25 +61,22 @@ const TypeDropdown: React.FC<TypeDropdownProps> = ({ currentType, isInherited, o
     if (!buttonRef.current) return;
     
     const rect = buttonRef.current.getBoundingClientRect();
-    const menuWidth = 128; // w-32 = 8rem = 128px
-    const menuHeight = FIELD_TYPES.length * 30 + 8; // 估算菜单高度
+    const menuWidth = 128;
+    const menuHeight = FIELD_TYPES.length * 30 + 8;
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     
-    let top = rect.bottom + 4; // mt-1 = 4px
+    let top = rect.bottom + 4;
     let left = rect.left;
     
-    // 检查右边界
     if (left + menuWidth > viewportWidth - 8) {
       left = rect.right - menuWidth;
     }
     
-    // 检查左边界
     if (left < 8) {
       left = 8;
     }
     
-    // 检查底部边界，如果超出则向上弹出
     if (top + menuHeight > viewportHeight - 8) {
       top = rect.top - menuHeight - 4;
     }
@@ -87,7 +84,6 @@ const TypeDropdown: React.FC<TypeDropdownProps> = ({ currentType, isInherited, o
     setMenuPosition({ top, left });
   }, []);
   
-  // 打开时计算位置
   useEffect(() => {
     if (isOpen) {
       calculatePosition();
@@ -100,7 +96,6 @@ const TypeDropdown: React.FC<TypeDropdownProps> = ({ currentType, isInherited, o
     }
   }, [isOpen, calculatePosition]);
   
-  // 点击外部关闭
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -112,18 +107,6 @@ const TypeDropdown: React.FC<TypeDropdownProps> = ({ currentType, isInherited, o
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [isOpen]);
-
-  if (isInherited) {
-    return (
-      <div className={cn(
-        "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium",
-        "bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed"
-      )}>
-        {currentTypeConfig.icon}
-        <span>{currentTypeConfig.label}</span>
-      </div>
-    );
-  }
 
   return (
     <div ref={dropdownRef} className="relative">
@@ -171,14 +154,13 @@ const TypeDropdown: React.FC<TypeDropdownProps> = ({ currentType, isInherited, o
   );
 };
 
-// 单选选项编辑器组件 - 表单模式，使用 fixed 定位防止溢出
+// 单选选项编辑器组件
 interface SelectOptionsEditorProps {
   options: string[];
-  isInherited: boolean;
   onOptionsChange: (options: string[]) => void;
 }
 
-const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isInherited, onOptionsChange }) => {
+const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, onOptionsChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [editingOptions, setEditingOptions] = useState<string[]>(options);
   const [newOption, setNewOption] = useState('');
@@ -187,30 +169,26 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isIn
   const buttonRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 计算菜单位置
   const calculatePosition = useCallback(() => {
     if (!buttonRef.current) return;
     
     const rect = buttonRef.current.getBoundingClientRect();
-    const menuWidth = 256; // w-64 = 16rem = 256px
-    const menuHeight = 250; // 估算高度
+    const menuWidth = 256;
+    const menuHeight = 250;
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     
     let top = rect.bottom + 4;
     let left = rect.left;
     
-    // 检查右边界
     if (left + menuWidth > viewportWidth - 8) {
       left = viewportWidth - menuWidth - 8;
     }
     
-    // 检查左边界
     if (left < 8) {
       left = 8;
     }
     
-    // 检查底部边界
     if (top + menuHeight > viewportHeight - 8) {
       top = rect.top - menuHeight - 4;
     }
@@ -218,7 +196,6 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isIn
     setMenuPosition({ top, left });
   }, []);
   
-  // 打开时计算位置
   useEffect(() => {
     if (isOpen) {
       calculatePosition();
@@ -231,12 +208,10 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isIn
     }
   }, [isOpen, calculatePosition]);
 
-  // 点击外部关闭
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (editorRef.current && !editorRef.current.contains(e.target as Node)) {
         setIsOpen(false);
-        // 关闭时保存
         if (JSON.stringify(editingOptions) !== JSON.stringify(options)) {
           onOptionsChange(editingOptions.filter(o => o.trim()));
         }
@@ -248,7 +223,6 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isIn
     }
   }, [isOpen, editingOptions, options, onOptionsChange]);
 
-  // 打开时同步选项
   useEffect(() => {
     if (isOpen) {
       setEditingOptions(options);
@@ -278,20 +252,11 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isIn
   };
 
   const handleBlurOption = (index: number) => {
-    // 保存更新
     const cleaned = editingOptions.filter(o => o.trim());
     if (JSON.stringify(cleaned) !== JSON.stringify(options)) {
       onOptionsChange(cleaned);
     }
   };
-
-  if (isInherited) {
-    return (
-      <span className="text-xs text-gray-400 truncate">
-        {options.length} 个选项
-      </span>
-    );
-  }
 
   return (
     <div ref={editorRef} className="relative">
@@ -312,7 +277,6 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isIn
             选项列表
           </div>
           
-          {/* 选项列表 */}
           <div className="space-y-1.5 max-h-40 overflow-auto mb-2">
             {editingOptions.map((opt, index) => (
               <div key={index} className="flex items-center gap-2">
@@ -342,7 +306,6 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isIn
             ))}
           </div>
 
-          {/* 添加新选项 */}
           <div className="flex items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
             <input
               ref={inputRef}
@@ -372,13 +335,12 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, isIn
   );
 };
 
-// 引用目标选择器组件 - 使用 fixed 定位防止溢出
+// 引用目标选择器组件
 interface ReferenceTargetSelectorProps {
   targetTagId: string | undefined;
   multiple: boolean | undefined;
   supertags: Record<string, Supertag>;
   currentTagId: string;
-  isInherited: boolean;
   onTargetChange: (targetTagId: string) => void;
   onMultipleChange: (multiple: boolean) => void;
 }
@@ -388,7 +350,6 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
   multiple,
   supertags,
   currentTagId,
-  isInherited,
   onTargetChange,
   onMultipleChange,
 }) => {
@@ -400,30 +361,26 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
   const targetTag = targetTagId ? supertags[targetTagId] : null;
   const needsTarget = !targetTagId;
 
-  // 计算菜单位置
   const calculatePosition = useCallback(() => {
     if (!buttonRef.current) return;
     
     const rect = buttonRef.current.getBoundingClientRect();
-    const menuWidth = 192; // w-48 = 12rem = 192px
-    const menuHeight = 240; // max-h-60 = 15rem = 240px
+    const menuWidth = 192;
+    const menuHeight = 240;
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     
     let top = rect.bottom + 4;
     let left = rect.left;
     
-    // 检查右边界
     if (left + menuWidth > viewportWidth - 8) {
       left = viewportWidth - menuWidth - 8;
     }
     
-    // 检查左边界
     if (left < 8) {
       left = 8;
     }
     
-    // 检查底部边界
     if (top + menuHeight > viewportHeight - 8) {
       top = rect.top - menuHeight - 4;
     }
@@ -431,7 +388,6 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
     setMenuPosition({ top, left });
   }, []);
   
-  // 打开时计算位置
   useEffect(() => {
     if (isOpen) {
       calculatePosition();
@@ -444,7 +400,6 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
     }
   }, [isOpen, calculatePosition]);
 
-  // 点击外部关闭
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (selectorRef.current && !selectorRef.current.contains(e.target as Node)) {
@@ -456,22 +411,6 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [isOpen]);
-
-  if (isInherited) {
-    return (
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-gray-100 dark:bg-gray-700 text-gray-400 truncate">
-          <span>→</span>
-          <span className="truncate">{targetTag ? `#${targetTag.name}` : '—'}</span>
-        </div>
-        {multiple && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300">
-            多选
-          </span>
-        )}
-      </div>
-    );
-  }
 
   return (
     <div ref={selectorRef} className="flex items-center gap-2">
@@ -490,7 +429,6 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
         {needsTarget && <span className="text-red-500 flex-shrink-0">*</span>}
       </button>
 
-      {/* 多选开关 */}
       <button
         onClick={() => onMultipleChange(!multiple)}
         className={cn(
@@ -540,7 +478,7 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
   );
 };
 
-// 可排序的字段行组件
+// 可排序的字段行组件 (v3.4: 移除继承相关逻辑)
 interface SortableFieldRowProps {
   field: FieldDefinition;
   tag: Supertag;
@@ -578,14 +516,14 @@ const SortableFieldRow: React.FC<SortableFieldRowProps> = ({
     transition,
   };
 
-  const isInherited = field.inherited;
+  const isAIField = field.type === 'ai_text' || field.type === 'ai_select';
 
   const rowClasses = cn(
     "grid grid-cols-[24px_1fr_90px_1fr_56px] gap-2 px-3 py-2 items-center group transition-all",
     isDragging && "opacity-30",
     isDragOverlay && "bg-white dark:bg-gray-800 shadow-xl rounded-lg border-2 border-blue-400",
-    isInherited 
-      ? "bg-purple-50/50 dark:bg-purple-900/10" 
+    isAIField 
+      ? "bg-pink-50/50 dark:bg-pink-900/10" 
       : "hover:bg-gray-50 dark:hover:bg-gray-800/50"
   );
 
@@ -595,33 +533,26 @@ const SortableFieldRow: React.FC<SortableFieldRowProps> = ({
       <div
         {...attributes}
         {...listeners}
-        className={cn(
-          "cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400",
-          isInherited && "opacity-30 cursor-not-allowed"
-        )}
+        className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400"
       >
         <GripVertical size={14} />
       </div>
 
       {/* 字段名 */}
       <div className="flex items-center gap-2 min-w-0">
-        <span className={cn(
-          "text-sm font-medium truncate",
-          isInherited ? "text-purple-700 dark:text-purple-300" : "text-gray-700 dark:text-gray-300"
-        )}>
+        <span className="text-sm font-medium truncate text-gray-700 dark:text-gray-300">
           {field.name}
         </span>
-        {isInherited && (
-          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300">
-            继承
+        {isAIField && (
+          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300">
+            AI
           </span>
         )}
       </div>
 
-      {/* 类型选择 - 使用自定义下拉组件 */}
+      {/* 类型选择 */}
       <TypeDropdown
         currentType={field.type}
-        isInherited={isInherited || false}
         onTypeChange={(type) => onTypeChange(field.id, type)}
       />
 
@@ -633,39 +564,45 @@ const SortableFieldRow: React.FC<SortableFieldRowProps> = ({
             multiple={field.multiple}
             supertags={supertags}
             currentTagId={tag.id}
-            isInherited={isInherited || false}
             onTargetChange={(targetId) => onTargetTagChange(field.id, targetId)}
             onMultipleChange={(multiple) => onMultipleChange(field.id, multiple)}
           />
         )}
-        {field.type === 'select' && (
+        {(field.type === 'select' || field.type === 'ai_select') && (
           <SelectOptionsEditor
             options={field.options || []}
-            isInherited={isInherited || false}
             onOptionsChange={(opts) => onOptionsChange(field.id, opts)}
           />
         )}
-        {field.type !== 'reference' && field.type !== 'select' && (
+        {isAIField && field.aiConfig && (
+          <span className="text-xs text-pink-500">
+            {field.aiConfig.aiType === 'urgency_score' ? '紧急度评分' : 
+             field.aiConfig.aiType === 'subtask_split' ? '子任务拆解' : '自定义'}
+          </span>
+        )}
+        {field.type !== 'reference' && field.type !== 'select' && field.type !== 'ai_select' && !isAIField && (
           <span className="text-xs text-gray-400">—</span>
         )}
       </div>
 
       {/* 删除按钮 */}
       <div className="flex justify-end">
-        {!isInherited && (
-          <button
-            onClick={() => onDelete(field.id)}
-            className="p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-            title="删除字段"
-          >
-            <X size={14} />
-          </button>
-        )}
+        <button
+          onClick={() => onDelete(field.id)}
+          className="p-1 text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+          title="删除字段"
+        >
+          <X size={14} />
+        </button>
       </div>
     </div>
   );
 };
 
+/**
+ * Schema 字段列表组件 (v3.4)
+ * 移除继承字段标识，新增 AI 字段类型展示
+ */
 const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
   const [isAddingField, setIsAddingField] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
@@ -674,27 +611,10 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const supertags = useSupertagStore((state) => state.supertags);
-  const addFieldDefinition = useSupertagStore((state) => state.addFieldDefinition);
-  const updateFieldDefinition = useSupertagStore((state) => state.updateFieldDefinition);
-  const removeFieldDefinition = useSupertagStore((state) => state.removeFieldDefinition);
-  const updateSupertag = useSupertagStore((state) => state.updateSupertag);
-  const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
 
-  // 从 store 获取最新的 tag 数据，确保响应式更新
+  // 从 store 获取最新的 tag 数据
   const currentTag = supertags[tag.id] || tag;
-  
-  // 获取父标签的字段定义（用于触发继承字段的更新）
-  const parentFieldDefinitions = useMemo(() => {
-    if (!currentTag.parentId) return [];
-    const parentTag = supertags[currentTag.parentId];
-    return parentTag?.fieldDefinitions || [];
-  }, [currentTag.parentId, supertags]);
-
-  // 获取合并后的字段（包括继承的）- 依赖于实际的字段数据以实现实时更新
-  const resolvedFields = useMemo(() => {
-    return getResolvedFieldDefinitions(tag.id) || [];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tag.id, getResolvedFieldDefinitions, currentTag.fieldDefinitions, parentFieldDefinitions]);
+  const fields = currentTag.fieldDefinitions || [];
 
   // 拖拽传感器
   const sensors = useSensors(
@@ -702,108 +622,55 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  // 行内添加新字段
+  // 行内添加新字段 - 当前为只读模式，此功能已禁用
   const handleAddFieldInline = useCallback(() => {
-    if (!newFieldName.trim()) return;
-    const fieldKey = newFieldName.trim().toLowerCase().replace(/\s+/g, '_');
-    addFieldDefinition(tag.id, {
-      key: fieldKey,
-      name: newFieldName.trim(),
-      type: 'text',
-    });
-    setNewFieldName('');
-    setIsAddingField(false);
-  }, [tag.id, newFieldName, addFieldDefinition]);
+    console.warn('[SchemaFieldList] 当前为只读模式，无法添加字段');
+  }, []);
 
-  // 更新字段类型
-  const handleTypeChange = useCallback((fieldId: string, type: FieldType) => {
-    const updates: Partial<FieldDefinition> = { type };
-    if (type === 'select') {
-      updates.options = ['选项1', '选项2', '选项3'];
-    } else {
-      updates.options = undefined;
-    }
-    if (type !== 'reference') {
-      updates.targetTagId = undefined;
-    }
-    updateFieldDefinition(tag.id, fieldId, updates);
-  }, [tag.id, updateFieldDefinition]);
+  // 更新字段类型 - 当前为只读模式，此功能已禁用
+  const handleTypeChange = useCallback((_fieldId: string, _type: FieldType) => {
+    console.warn('[SchemaFieldList] 当前为只读模式，无法更新字段类型');
+  }, []);
 
-  // 更新引用目标
-  const handleTargetTagChange = useCallback((fieldId: string, targetTagId: string) => {
-    updateFieldDefinition(tag.id, fieldId, { targetTagId });
-  }, [tag.id, updateFieldDefinition]);
+  // 更新引用目标 - 当前为只读模式，此功能已禁用
+  const handleTargetTagChange = useCallback((_fieldId: string, _targetTagId: string) => {
+    console.warn('[SchemaFieldList] 当前为只读模式，无法更新引用目标');
+  }, []);
 
-  // 更新引用多选
-  const handleMultipleChange = useCallback((fieldId: string, multiple: boolean) => {
-    updateFieldDefinition(tag.id, fieldId, { multiple });
-  }, [tag.id, updateFieldDefinition]);
+  // 更新引用多选 - 当前为只读模式，此功能已禁用
+  const handleMultipleChange = useCallback((_fieldId: string, _multiple: boolean) => {
+    console.warn('[SchemaFieldList] 当前为只读模式，无法更新多选设置');
+  }, []);
 
-  // 更新选项
-  const handleOptionsChange = useCallback((fieldId: string, options: string[]) => {
-    updateFieldDefinition(tag.id, fieldId, { options });
-  }, [tag.id, updateFieldDefinition]);
+  // 更新选项 - 当前为只读模式，此功能已禁用
+  const handleOptionsChange = useCallback((_fieldId: string, _options: string[]) => {
+    console.warn('[SchemaFieldList] 当前为只读模式，无法更新选项');
+  }, []);
 
-  // 删除字段
-  const handleDelete = useCallback((fieldId: string) => {
-    removeFieldDefinition(tag.id, fieldId);
-  }, [tag.id, removeFieldDefinition]);
+  // 删除字段 - 当前为只读模式，此功能已禁用
+  const handleDelete = useCallback((_fieldId: string) => {
+    console.warn('[SchemaFieldList] 当前为只读模式，无法删除字段');
+  }, []);
 
   // 拖拽开始
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string);
   }, []);
 
-  // 拖拽结束
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
+  // 拖拽结束 - 当前为只读模式，此功能已禁用
+  const handleDragEnd = useCallback((_event: DragEndEvent) => {
     setActiveId(null);
-    
-    if (over && active.id !== over.id) {
-      // 只能排序自有字段
-      const ownFields = currentTag.fieldDefinitions;
-      const oldIndex = ownFields.findIndex(f => f.id === active.id);
-      const newIndex = ownFields.findIndex(f => f.id === over.id);
-      
-      if (oldIndex !== -1 && newIndex !== -1) {
-        const newFieldDefinitions = arrayMove(ownFields, oldIndex, newIndex);
-        updateSupertag(tag.id, { fieldDefinitions: newFieldDefinitions });
-      }
-    }
-  }, [currentTag.fieldDefinitions, tag.id, updateSupertag]);
+    console.warn('[SchemaFieldList] 当前为只读模式，无法调整字段顺序');
+  }, []);
 
-  // AI 生成字段（通过 Store 统一调用）
+  // AI 生成字段 - 当前为只读模式，此功能已禁用
   const handleAIGenerate = useCallback(async () => {
     setIsGenerating(true);
-    setGenerationError(null);
+    setGenerationError('当前为只读模式，无法使用 AI 生成字段');
+    setTimeout(() => setIsGenerating(false), 500);
+  }, []);
 
-    try {
-      // 通过 Store 的 generateSchemaFields 方法调用 AI
-      const fields = await useSupertagStore.getState().generateSchemaFields(tag.id);
-
-      if (fields && Array.isArray(fields)) {
-        for (const field of fields) {
-          const fieldDef: Omit<FieldDefinition, 'id'> = {
-            key: field.key || field.name.toLowerCase().replace(/\s+/g, '_'),
-            name: field.name,
-            type: field.type as FieldType,
-          };
-          if (field.type === 'select' && field.options) {
-            fieldDef.options = field.options;
-          }
-          addFieldDefinition(tag.id, fieldDef);
-        }
-      } else {
-        setGenerationError('AI 返回的数据格式不正确');
-      }
-    } catch (error) {
-      setGenerationError(error instanceof Error ? error.message : '生成字段时发生错误');
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [tag.id, addFieldDefinition]);
-
-  const activeField = activeId ? resolvedFields.find(f => f.id === activeId) : null;
+  const activeField = activeId ? fields.find(f => f.id === activeId) : null;
 
   return (
     <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
@@ -814,7 +681,7 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
           字段定义 (Schema)
         </h3>
         
-        {/* AI 建议入口 - 非阻断式 */}
+        {/* AI 建议入口 */}
         <button
           onClick={handleAIGenerate}
           disabled={isGenerating}
@@ -865,11 +732,11 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
           onDragEnd={handleDragEnd}
         >
           <SortableContext
-            items={currentTag.fieldDefinitions.map(f => f.id)}
+            items={fields.map(f => f.id)}
             strategy={verticalListSortingStrategy}
           >
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {resolvedFields.map((field) => (
+              {fields.map((field) => (
                 <SortableFieldRow
                   key={field.id}
                   field={field}
@@ -903,7 +770,7 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
           </DragOverlay>
         </DndContext>
 
-        {/* 添加字段行 - 行内添加 */}
+        {/* 添加字段行 */}
         {isAddingField ? (
           <div className="grid grid-cols-[24px_1fr_90px_1fr_56px] gap-2 px-3 py-2 items-center bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-700">
             <div></div>
@@ -927,7 +794,6 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
             <span className="text-xs text-gray-400">文本</span>
             <span className="text-xs text-gray-400">创建后配置</span>
             <div className="flex items-center gap-1">
-              {/* 确认按钮 */}
               <button
                 onClick={handleAddFieldInline}
                 disabled={!newFieldName.trim()}
@@ -941,7 +807,6 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
               >
                 <Check size={16} />
               </button>
-              {/* 取消按钮 */}
               <button
                 onClick={() => {
                   setIsAddingField(false);
@@ -967,7 +832,7 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
       </div>
 
       {/* 空状态提示 */}
-      {resolvedFields.length === 0 && !isAddingField && (
+      {fields.length === 0 && !isAddingField && (
         <div className="text-center py-6 text-gray-400">
           <Type size={20} className="mx-auto mb-2 opacity-50" />
           <p className="text-sm">暂无字段定义</p>

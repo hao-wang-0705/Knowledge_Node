@@ -110,11 +110,13 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   const handleGoToAllNotes = useCallback(() => {
     if (!userRootId) return;
     setHoistedNode(userRootId);
-  }, [userRootId, setHoistedNode]);
+    router.push('/');  // 确保从其他页面能正确切换回笔记主页
+  }, [userRootId, setHoistedNode, router]);
 
   const handleGoToToday = useCallback(() => {
     goToToday();
-  }, [goToToday]);
+    router.push('/');  // 确保从其他页面能正确切换回笔记主页
+  }, [goToToday, router]);
 
   const handleCreateNotebook = useCallback(() => {
     if (!userRootId) return;
@@ -129,8 +131,9 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
     (nodeId: string) => {
       if (editingNodeId === nodeId) return;
       setHoistedNode(nodeId);
+      router.push('/');  // 确保从其他页面能正确切换回笔记主页
     },
-    [setHoistedNode, editingNodeId]
+    [setHoistedNode, editingNodeId, router]
   );
 
   const handleDoubleClick = useCallback((nodeId: string, currentName: string) => {

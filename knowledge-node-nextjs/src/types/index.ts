@@ -104,54 +104,42 @@ export interface DailyNotePayload {
 // 超级标签体系 (Supertag System)
 // =============================================================================
 
+// 字段类型 - v3.4 增加 AI 字段类型（ai_text, ai_select）
+export type FieldType = 'text' | 'number' | 'date' | 'select' | 'reference' | 'ai_text' | 'ai_select';
+
 /**
- * 标签分类组
- * 支持用户自定义分类，用于组织和管理标签
+ * AI 字段预设类型
  */
-export interface TagCategoryGroup {
-  id: string;
-  name: string;          // 分类名称，如 "功能标签"、"生活"、"工作"
-  icon: string;          // 分类图标
-  color: string;         // 分类颜色
-  description?: string;  // 分类描述
-  isSystem?: boolean;    // 是否为系统分类（不可删除）
-  order: number;         // 排序顺序
-  createdAt: number;
-  updatedAt: number;
+export type AIFieldPresetType = 'urgency_score' | 'subtask_split' | 'custom';
+
+/**
+ * AI 字段触发时机
+ */
+export type AIFieldTrigger = 'create' | 'update' | 'manual';
+
+/**
+ * AI 字段输出格式
+ */
+export type AIFieldOutputFormat = 'text' | 'select' | 'list';
+
+/**
+ * AI 字段配置
+ * v3.4: 新增 AI 智能字段配置结构
+ */
+export interface AIFieldConfig {
+  /** AI 字段预设类型 */
+  aiType: AIFieldPresetType;
+  /** 自定义 Prompt（aiType=custom 时必填） */
+  prompt?: string;
+  /** 触发时机 */
+  triggerOn: AIFieldTrigger;
+  /** 依赖的输入字段（从节点 content 或其他字段获取） */
+  inputFields?: string[];
+  /** 输出格式 */
+  outputFormat: AIFieldOutputFormat;
+  /** select 类型的选项列表 */
+  options?: string[];
 }
-
-/**
- * 预设分类ID
- */
-export const PRESET_CATEGORY_IDS = {
-  FUNCTION: 'cat_function',    // 功能标签
-  WORK: 'cat_work',           // 工作
-  LIFE: 'cat_life',           // 生活
-  UNCATEGORIZED: 'cat_uncategorized', // 未分类
-} as const;
-
-/**
- * 功能标签图标映射
- */
-export const TYPE_TAG_ICONS: Record<string, string> = {
-  'tag_task': '☑️',
-  'tag_meeting': '📅',
-  'tag_idea': '💡',
-  'tag_problem': '🔥',
-  'tag_bug': '🐛',
-  'tag_issue': '🐛',
-  'tag_movie': '🎬',
-  'tag_game': '🎮',
-  'tag_tool': '🔧',
-  'tag_doc': '📄',
-  // 生活类标签
-  'tag_food': '🍽️',
-  'tag_travel': '✈️',
-  'tag_expense': '💰',
-};
-
-// 字段类型 - v2.1 增加 reference（节点引用）
-export type FieldType = 'text' | 'number' | 'date' | 'select' | 'reference';
 
 /** v2.1 默认内容模版节点树（用于 Supertag.templateContent） */
 export interface TemplateNode {
@@ -170,28 +158,58 @@ export interface FieldDefinition {
   targetTagId?: string;
   /** v2.1: reference 是否允许多选 */
   multiple?: boolean;
-  /** v2.1: 是否为继承自父标签的字段（只读展示用） */
-  inherited?: boolean;
+  /** v3.4: AI 字段配置（仅 ai_text/ai_select 类型） */
+  aiConfig?: AIFieldConfig;
   displayConfig?: Record<string, unknown>;
 }
 
-// 超级标签定义 (Schema)
+// =============================================================================
+// 标签模版系统 (Tag Template System) - v3.4 重构
+// =============================================================================
+
+/**
+ * 标签模版定义 (系统预置标签)
+ * v3.4: 移除父子继承关系和分类系统
+ */
+export interface TagTemplate {
+  id: string;
+  name: string;              // 标签名称，例如 "书籍", "会议"
+  color: string;             // 标签颜色
+  icon?: string;             // 标签图标 (如 ☑️, 📅, 💡)
+  description?: string;      // 标签描述
+  fieldDefinitions: FieldDefinition[];
+  /** v3.3: 是否为全局默认标签（系统预置） */
+  isGlobalDefault: boolean;
+  /** v3.3: 创建者 ID（预留 UGC 市场） */
+  creatorId?: string | null;
+  /** v3.3: 标签状态 active/deprecated */
+  status: 'active' | 'deprecated';
+  order?: number;            // 在列表中的排序
+  /** v2.1: 默认内容模版（节点树） */
+  templateContent?: TemplateNode | TemplateNode[] | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * 超级标签定义 (Schema)
+ * @deprecated v3.4: 请使用 TagTemplate 类型，此类型保留仅为向后兼容
+ */
 export interface Supertag {
   id: string;
   name: string;          // 例如 "书籍", "会议"
   color: string;         // 标签颜色
   fieldDefinitions: FieldDefinition[];
-  isSystem?: boolean;    // 是否为系统标签（日历标签）
-  categoryId: string;    // 所属分类 ID（关联 TagCategoryGroup）
+  isSystem?: boolean;    // 是否为系统标签（日历标签）- 已废弃
   icon?: string;         // 标签图标 (如 ☑️, 📅, 💡)
   description?: string;  // 标签描述
-  order?: number;        // 在分类内的排序
-  /** v2.1: 父标签 ID（继承用） */
-  parentId?: string | null;
+  order?: number;        // 在列表中的排序
   /** v2.1: 默认内容模版（节点树），应用标签时若无子节点则自动填充 */
   templateContent?: TemplateNode | TemplateNode[] | null;
-  /** v2.1: 合并继承后的字段定义（由 API 返回，含父标签字段） */
-  resolvedFieldDefinitions?: FieldDefinition[];
+  /** v3.3: 向后兼容字段 */
+  isGlobalDefault?: boolean;
+  status?: 'active' | 'deprecated';
+  creatorId?: string | null;
 }
 
 // =============================================================================
@@ -263,25 +281,21 @@ export interface NodeStore {
   initWithMockData: () => void;
 }
 
+/**
+ * SupertagStore 类型定义
+ * v3.4: 简化为扁平列表模式，移除分类和继承相关方法
+ */
 export interface SupertagStore {
   supertags: Record<string, Supertag>;
+  /** v3.4: 只读模式标识 */
+  isReadOnly: boolean;
   
-  // 功能标签操作
-  addSupertag: (name: string, color: string) => string;
-  updateSupertag: (id: string, updates: Partial<Supertag>) => void;
-  deleteSupertag: (id: string) => void;
-  
-  // 字段操作
-  addFieldDefinition: (supertagId: string, field: Omit<FieldDefinition, 'id'>) => void;
-  updateFieldDefinition: (supertagId: string, fieldId: string, updates: Partial<FieldDefinition>) => void;
-  removeFieldDefinition: (supertagId: string, fieldId: string) => void;
-  
-  // 持久化
-  loadFromStorage: () => void;
-  saveToStorage: () => void;
-  
-  // 初始化
-  initWithMockData: () => void;
+  // 只读查询方法
+  loadFromAPI: () => Promise<void>;
+  getAllSupertags: () => Supertag[];
+  getSupertag: (id: string) => Supertag | undefined;
+  getRecentTags: () => Supertag[];
+  trackTagUsage: (tagId: string) => void;
 }
 
 // 工具函数类型
@@ -366,33 +380,50 @@ export interface BatchNodeRequest {
   }>;
 }
 
+// =============================================================================
+// v3.3: 用户写操作已移除，以下类型仅供管理员内部 API 使用
+// =============================================================================
+
 /**
- * Supertag 创建请求
+ * 标签模版创建请求（仅管理员内部 API 使用）
+ * v3.4: 移除 parentId 和 categoryId 字段
+ * @internal
+ */
+export interface CreateTagTemplateRequest {
+  name: string;
+  color?: string;
+  icon?: string;
+  description?: string;
+  order?: number;
+  fieldDefinitions?: FieldDefinition[];
+  templateContent?: TemplateNode | TemplateNode[] | null;
+  isGlobalDefault?: boolean;
+  status?: 'active' | 'deprecated';
+}
+
+/**
+ * @deprecated v3.4: 用户写操作已移除，此类型保留仅为类型兼容
  */
 export interface CreateSupertagRequest {
   name: string;
   color?: string;
   icon?: string;
   description?: string;
-  categoryId?: string;
   order?: number;
   fieldDefinitions?: FieldDefinition[];
-  parentId?: string | null;
   templateContent?: TemplateNode | TemplateNode[] | null;
 }
 
 /**
- * Supertag 更新请求
+ * @deprecated v3.4: 用户写操作已移除，此类型保留仅为类型兼容
  */
 export interface UpdateSupertagRequest {
   name?: string;
   color?: string;
   icon?: string;
   description?: string;
-  categoryId?: string;
   order?: number;
   fieldDefinitions?: FieldDefinition[];
-  parentId?: string | null;
   templateContent?: TemplateNode | TemplateNode[] | null;
 }
 
@@ -418,7 +449,31 @@ export interface DbNode {
 }
 
 /**
- * 数据库 Supertag 类型 (与 Prisma 模型对应)
+ * 数据库 TagTemplate 类型 (与 Prisma 模型对应)
+ * v3.4: 移除 parentId, categoryId, resolvedFieldDefinitions 字段
+ */
+export interface DbTagTemplate {
+  id: string;
+  name: string;
+  color: string;
+  icon: string | null;
+  description: string | null;
+  fieldDefinitions: FieldDefinition[];
+  /** v3.3: 全局默认标志 */
+  isGlobalDefault: boolean;
+  /** v3.3: 创建者 ID（预留 UGC） */
+  creatorId: string | null;
+  /** v3.3: 标签状态 */
+  status: string;
+  order: number;
+  templateContent: TemplateNode | TemplateNode[] | null;
+  createdAt: Date;
+  updatedAt: Date;
+  _count?: { nodes: number };
+}
+
+/**
+ * @deprecated v3.4: 请使用 DbTagTemplate，此类型保留仅为向后兼容
  */
 export interface DbSupertag {
   id: string;
@@ -430,7 +485,5 @@ export interface DbSupertag {
   isSystem: boolean;
   createdAt: Date;
   updatedAt: Date;
-  parentId?: string | null;
   templateContent?: TemplateNode | TemplateNode[] | null;
-  resolvedFieldDefinitions?: FieldDefinition[];
 }

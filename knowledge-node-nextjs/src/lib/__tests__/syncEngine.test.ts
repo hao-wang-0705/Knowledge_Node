@@ -10,7 +10,6 @@ import {
 const {
   mockedNodesApi,
   mockedSupertagsApi,
-  mockedCategoriesApi,
   AuthenticationError,
 } = vi.hoisted(() => ({
   mockedNodesApi: {
@@ -23,18 +22,12 @@ const {
     update: vi.fn(async () => ({})),
     delete: vi.fn(async () => ({})),
   },
-  mockedCategoriesApi: {
-    create: vi.fn(async () => ({})),
-    update: vi.fn(async () => ({})),
-    delete: vi.fn(async () => ({})),
-  },
   AuthenticationError: class AuthenticationError extends Error {},
 }));
 
 vi.mock('@/services/api', () => ({
   nodesApi: mockedNodesApi,
   supertagsApi: mockedSupertagsApi,
-  categoriesApi: mockedCategoriesApi,
   AuthenticationError,
 }));
 

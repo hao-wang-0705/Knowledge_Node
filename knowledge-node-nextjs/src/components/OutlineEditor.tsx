@@ -48,7 +48,7 @@ const OutlineEditor: React.FC = () => {
   
   const loadSupertagsFromAPI = useSupertagStore((state) => state.loadFromAPI);
   const supertags = useSupertagStore((state) => state.supertags);
-  const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
+  const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
   
   const isInDailyTree = useNodeStore((state) => state.isInDailyTree);
 
@@ -218,12 +218,12 @@ const OutlineEditor: React.FC = () => {
       fields: Object.fromEntries(
         Object.entries(hoistedNode.fields).filter(([key]) => {
           const tag = supertags[tagId];
-          const defs = tag ? getResolvedFieldDefinitions(tag.id) ?? [] : [];
+          const defs = tag ? getFieldDefinitions(tag.id) ?? [] : [];
           return !defs.some(field => field.key === key);
         })
       )
     });
-  }, [hoistedNodeId, hoistedNode, supertags, updateNode, getResolvedFieldDefinitions]);
+  }, [hoistedNodeId, hoistedNode, supertags, updateNode, getFieldDefinitions]);
 
   // 获取页面标题 - 聚焦模式下显示当前节点内容
   const pageTitle = useMemo(() => {
@@ -412,7 +412,7 @@ const OutlineEditor: React.FC = () => {
               <div className="bg-slate-50/80 border-l-2 border-blue-200 rounded-r-lg mb-4">
                 <div className="py-2">
                   {hoistedNodeTags.map((tag) =>
-                    (getResolvedFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
+                    (getFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
                       <FieldEditor
                         key={fieldDef.id}
                         fieldDef={fieldDef}

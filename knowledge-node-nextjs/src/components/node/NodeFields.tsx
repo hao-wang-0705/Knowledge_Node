@@ -7,7 +7,7 @@ interface NodeFieldsProps {
   nodeId: string;
   depth: number;
   nodeTags: Supertag[];
-  getResolvedFieldDefinitions: (tagId: string) => FieldDefinition[];
+  getFieldDefinitions: (tagId: string) => FieldDefinition[];
   onFieldChange: (fieldKey: string, value: unknown) => void;
 }
 
@@ -16,7 +16,7 @@ export default function NodeFields({
   nodeId,
   depth,
   nodeTags,
-  getResolvedFieldDefinitions,
+  getFieldDefinitions,
   onFieldChange,
 }: NodeFieldsProps) {
   if (!nodeTags.length || node.isCollapsed) {
@@ -30,7 +30,7 @@ export default function NodeFields({
     >
       <div className="py-1">
         {nodeTags.map((tag) =>
-          (getResolvedFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
+          (getFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
             <FieldEditor
               key={fieldDef.id}
               fieldDef={fieldDef}

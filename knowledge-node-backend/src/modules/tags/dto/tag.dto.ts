@@ -1,71 +1,22 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsArray, IsBoolean, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsBoolean, IsObject, IsNumber } from 'class-validator';
 
-// =============== Supertag DTOs ===============
+// =============== TagTemplate DTOs (系统预置标签) ===============
 
-export class CreateSupertagDto {
+/**
+ * 创建系统预置标签 DTO（管理员专用）
+ * v3.4: 移除 parentId 和 categoryId
+ */
+export class CreateTagTemplateDto {
   @ApiProperty({ description: '标签名称' })
   @IsString()
   name: string;
 
-  @ApiProperty({ description: '标签颜色' })
-  @IsString()
-  color: string;
-
-  @ApiPropertyOptional({ description: '标签分类ID' })
-  @IsString()
-  @IsOptional()
-  categoryId?: string;
-
-  @ApiPropertyOptional({ description: '标签图标' })
-  @IsString()
-  @IsOptional()
-  icon?: string;
-
-  @ApiPropertyOptional({ description: '标签描述' })
-  @IsString()
-  @IsOptional()
-  description?: string;
-
-  @ApiPropertyOptional({ description: '字段定义', default: [] })
-  @IsArray()
-  @IsOptional()
-  fieldDefinitions?: any[];
-
-  @ApiPropertyOptional({ description: '是否为系统标签', default: false })
-  @IsBoolean()
-  @IsOptional()
-  isSystem?: boolean;
-
-  /** v2.1: 父标签 ID，用于继承 */
-  @ApiPropertyOptional({ description: '父标签 ID（继承用）' })
-  @IsString()
-  @IsOptional()
-  parentId?: string;
-
-  /** v2.1: 默认内容模版，JSON 节点树' */
-  @ApiPropertyOptional({ description: '默认内容模版（节点树 JSON）' })
-  @IsObject()
-  @IsOptional()
-  templateContent?: any;
-}
-
-export class UpdateSupertagDto {
-  @ApiPropertyOptional({ description: '标签名称' })
-  @IsString()
-  @IsOptional()
-  name?: string;
-
-  @ApiPropertyOptional({ description: '标签颜色' })
+  @ApiPropertyOptional({ description: '标签颜色', default: '#6366F1' })
   @IsString()
   @IsOptional()
   color?: string;
 
-  @ApiPropertyOptional({ description: '标签分类ID' })
-  @IsString()
-  @IsOptional()
-  categoryId?: string;
-
   @ApiPropertyOptional({ description: '标签图标' })
   @IsString()
   @IsOptional()
@@ -76,25 +27,42 @@ export class UpdateSupertagDto {
   @IsOptional()
   description?: string;
 
-  @ApiPropertyOptional({ description: '字段定义' })
+  @ApiPropertyOptional({ description: '字段定义（JSON Schema）', default: [] })
   @IsArray()
   @IsOptional()
   fieldDefinitions?: any[];
 
-  /** v2.1: 父标签 ID */
-  @ApiPropertyOptional({ description: '父标签 ID（继承用）' })
+  @ApiPropertyOptional({ description: '是否为全局默认标签', default: true })
+  @IsBoolean()
+  @IsOptional()
+  isGlobalDefault?: boolean;
+
+  @ApiPropertyOptional({ description: '标签状态', default: 'active' })
   @IsString()
   @IsOptional()
-  parentId?: string;
+  status?: string;
 
-  /** v2.1: 默认内容模版 */
   @ApiPropertyOptional({ description: '默认内容模版（节点树 JSON）' })
   @IsObject()
   @IsOptional()
   templateContent?: any;
+
+  @ApiPropertyOptional({ description: '创建者 ID（预留 UGC）' })
+  @IsString()
+  @IsOptional()
+  creatorId?: string;
+
+  @ApiPropertyOptional({ description: '排序顺序', default: 0 })
+  @IsNumber()
+  @IsOptional()
+  order?: number;
 }
 
-export class SupertagResponseDto {
+/**
+ * 标签模版响应 DTO
+ * v3.4: 移除 parentId, categoryId, resolvedFieldDefinitions
+ */
+export class TagTemplateResponseDto {
   @ApiProperty({ description: '标签ID' })
   id: string;
 
@@ -103,9 +71,6 @@ export class SupertagResponseDto {
 
   @ApiProperty({ description: '标签颜色' })
   color: string;
-
-  @ApiPropertyOptional({ description: '标签分类ID' })
-  categoryId?: string;
 
   @ApiPropertyOptional({ description: '标签图标' })
   icon?: string;
@@ -116,137 +81,39 @@ export class SupertagResponseDto {
   @ApiProperty({ description: '字段定义' })
   fieldDefinitions: any[];
 
-  @ApiProperty({ description: '是否为系统标签' })
-  isSystem: boolean;
+  @ApiProperty({ description: '是否为全局默认标签' })
+  isGlobalDefault: boolean;
 
-  @ApiProperty({ description: '创建时间' })
-  createdAt: Date;
-
-  @ApiProperty({ description: '更新时间' })
-  updatedAt: Date;
-
-  /** v2.1: 父标签 ID */
-  @ApiPropertyOptional()
-  parentId?: string | null;
-
-  /** v2.1: 默认内容模版 */
-  @ApiPropertyOptional()
-  templateContent?: any;
-
-  /** v2.1: 合并继承后的字段定义（含父标签字段） */
-  @ApiPropertyOptional({ description: '合并继承后的字段定义' })
-  resolvedFieldDefinitions?: any[];
-}
-
-// =============== ContextTag DTOs ===============
-
-export class CreateContextTagDto {
-  @ApiProperty({ description: '标签名称' })
-  @IsString()
-  name: string;
-
-  @ApiProperty({ description: '标签颜色' })
-  @IsString()
-  color: string;
-
-  @ApiPropertyOptional({ description: '标签描述' })
-  @IsString()
-  @IsOptional()
-  description?: string;
-
-  @ApiPropertyOptional({ description: '别名列表', default: [] })
-  @IsArray()
-  @IsOptional()
-  aliases?: string[];
-
-  @ApiPropertyOptional({ description: '父标签ID' })
-  @IsString()
-  @IsOptional()
-  parentId?: string;
-
-  @ApiPropertyOptional({ description: '状态', default: 'active' })
-  @IsString()
-  @IsOptional()
-  status?: string;
-}
-
-export class UpdateContextTagDto {
-  @ApiPropertyOptional({ description: '标签名称' })
-  @IsString()
-  @IsOptional()
-  name?: string;
-
-  @ApiPropertyOptional({ description: '标签颜色' })
-  @IsString()
-  @IsOptional()
-  color?: string;
-
-  @ApiPropertyOptional({ description: '标签描述' })
-  @IsString()
-  @IsOptional()
-  description?: string;
-
-  @ApiPropertyOptional({ description: '别名列表' })
-  @IsArray()
-  @IsOptional()
-  aliases?: string[];
-
-  @ApiPropertyOptional({ description: '父标签ID' })
-  @IsString()
-  @IsOptional()
-  parentId?: string;
-
-  @ApiPropertyOptional({ description: '状态' })
-  @IsString()
-  @IsOptional()
-  status?: string;
-}
-
-export class ContextTagResponseDto {
-  @ApiProperty({ description: '标签ID' })
-  id: string;
-
-  @ApiProperty({ description: '标签名称' })
-  name: string;
-
-  @ApiProperty({ description: '标签颜色' })
-  color: string;
-
-  @ApiPropertyOptional({ description: '标签描述' })
-  description?: string;
-
-  @ApiProperty({ description: '别名列表' })
-  aliases: string[];
-
-  @ApiPropertyOptional({ description: '父标签ID' })
-  parentId?: string;
-
-  @ApiProperty({ description: '状态' })
+  @ApiProperty({ description: '标签状态' })
   status: string;
 
-  @ApiProperty({ description: '关联节点数量' })
-  nodeCount: number;
+  @ApiPropertyOptional({ description: '创建者 ID' })
+  creatorId?: string;
 
-  @ApiPropertyOptional({ description: '最后活跃时间' })
-  lastActiveAt?: Date;
+  @ApiProperty({ description: '排序顺序' })
+  order: number;
 
   @ApiProperty({ description: '创建时间' })
   createdAt: Date;
 
   @ApiProperty({ description: '更新时间' })
   updatedAt: Date;
+
+  @ApiPropertyOptional({ description: '默认内容模版' })
+  templateContent?: any;
+
+  @ApiProperty({ description: '是否为系统标签（兼容旧字段）' })
+  isSystem?: boolean;
 }
 
-// =============== Batch DTOs ===============
+// =============== 搜索响应 DTO ===============
 
-export class BatchCreateSupertagsDto {
-  @ApiProperty({ description: '要创建的功能标签列表' })
-  @IsArray()
-  supertags: CreateSupertagDto[];
+export class SearchTagsResponseDto {
+  @ApiProperty({ description: '匹配的标签列表', type: [TagTemplateResponseDto] })
+  supertags: TagTemplateResponseDto[];
 }
 
-export class BatchCreateContextTagsDto {
-  @ApiProperty({ description: '要创建的上下文标签列表' })
-  @IsArray()
-  contextTags: CreateContextTagDto[];
-}
+// =============== 向后兼容别名 ===============
+
+/** @deprecated 使用 TagTemplateResponseDto 代替 */
+export type SupertagResponseDto = TagTemplateResponseDto;

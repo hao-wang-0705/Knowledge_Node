@@ -1,32 +1,41 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Hash } from 'lucide-react';
-import { useSupertagStore } from '@/stores/supertagStore';
-import TagListPanel from './TagListPanel';
-import TagEditorCanvas from './TagEditorCanvas';
-
 /**
- * 标签库页面组件
- * 已适配全局布局框架，移除独立的全屏布局
+ * 标签库页面组件 (v3.3)
+ * 
+ * 重构为只读"系统预置标签图鉴"
+ * - 参考 Tana 风格：卡片网格布局 + 详情折叠面板
+ * - 预留 Disabled 状态的"Browse templates"按钮
+ * - 移除所有编辑功能
  */
+
+import React, { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, Hash, Library, Sparkles } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useSupertagStore } from '@/stores/supertagStore';
+import TagGalleryGrid from './TagGalleryGrid';
+import TagDetailPanel from './TagDetailPanel';
+
 const TagLibraryPage: React.FC = () => {
   const router = useRouter();
   
-  // 从 URL 获取初始选中的标签 ID（客户端安全方式）
+  // 选中的标签 ID
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [showDetailPanel, setShowDetailPanel] = useState(false);
   
+  // 从 store 获取数据
   const supertags = useSupertagStore((state) => state.supertags);
-  
-  // 获取非系统标签列表
-  const userTags = useMemo(() => {
-    return Object.values(supertags).filter(tag => !tag.isSystem);
-  }, [supertags]);
+  const loadFromAPI = useSupertagStore((state) => state.loadFromAPI);
   
   // 选中的标签
   const selectedTag = selectedTagId ? supertags[selectedTagId] : null;
+  
+  // 初始化加载数据
+  useEffect(() => {
+    loadFromAPI();
+  }, [loadFromAPI]);
   
   // 客户端初始化时读取 URL 参数
   useEffect(() => {
@@ -35,17 +44,11 @@ const TagLibraryPage: React.FC = () => {
       const idFromUrl = urlParams.get('id');
       if (idFromUrl && supertags[idFromUrl]) {
         setSelectedTagId(idFromUrl);
+        setShowDetailPanel(true);
       }
       setIsInitialized(true);
     }
   }, [supertags, isInitialized]);
-  
-  // 如果没有选中标签但有可用标签，自动选中第一个
-  useEffect(() => {
-    if (isInitialized && !selectedTagId && userTags.length > 0) {
-      setSelectedTagId(userTags[0].id);
-    }
-  }, [isInitialized, selectedTagId, userTags]);
   
   // 更新 URL 参数
   useEffect(() => {
@@ -64,75 +67,114 @@ const TagLibraryPage: React.FC = () => {
   // 处理选择标签
   const handleSelectTag = useCallback((tagId: string) => {
     setSelectedTagId(tagId);
+    setShowDetailPanel(true);
   }, []);
   
-  // 处理新建标签后的回调
-  const handleTagCreated = useCallback((tagId: string) => {
-    setSelectedTagId(tagId);
+  // 关闭详情面板
+  const handleCloseDetail = useCallback(() => {
+    setShowDetailPanel(false);
   }, []);
 
   return (
     <div className="flex h-full flex-1 bg-white dark:bg-slate-900 rounded-tl-xl overflow-hidden">
-      {/* 左侧列表栏 */}
-      <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 bg-slate-50/50 dark:bg-gray-800/50 flex flex-col">
-        {/* 标题区域 */}
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-3">
+      {/* 主内容区域 */}
+      <div className={cn(
+        "flex-1 flex flex-col overflow-hidden transition-all duration-300",
+        showDetailPanel && selectedTag && "mr-0 lg:mr-[400px]"
+      )}>
+        {/* 顶部标题栏 */}
+        <div className="flex-shrink-0 px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between">
+            {/* 左侧：返回按钮 + 标题 */}
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleBack}
+                className={cn(
+                  "flex items-center justify-center w-10 h-10 rounded-xl",
+                  "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300",
+                  "hover:bg-gray-100 dark:hover:bg-gray-700",
+                  "transition-colors"
+                )}
+                title="返回笔记"
+              >
+                <ArrowLeft size={20} />
+              </button>
+              
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg"
+                  style={{
+                    background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
+                  }}
+                >
+                  <Hash size={24} className="text-white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                    标签图鉴
+                  </h1>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                    <Sparkles size={12} />
+                    系统预置标签库
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {/* 右侧：Browse templates 按钮（预留） */}
             <button
-              onClick={handleBack}
-              className="flex items-center justify-center w-10 h-10 rounded-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="返回笔记"
+              disabled
+              className={cn(
+                "flex items-center gap-2 px-4 py-2.5 rounded-xl",
+                "bg-gray-100 dark:bg-gray-800",
+                "text-gray-400 dark:text-gray-500",
+                "cursor-not-allowed",
+                "border border-gray-200 dark:border-gray-700"
+              )}
+              title="模版市场即将上线"
             >
-              <ArrowLeft size={20} />
+              <Library size={18} />
+              <span className="text-sm font-medium">Browse templates</span>
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                Coming Soon
+              </span>
             </button>
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg"
-              style={{
-                background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
-              }}
-            >
-              <Hash size={20} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                标签库
-              </h1>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                管理超级标签
-              </p>
-            </div>
           </div>
         </div>
         
-        {/* 标签列表 */}
-        <TagListPanel
-          tags={userTags}
-          selectedTagId={selectedTagId}
-          onSelectTag={handleSelectTag}
-          onTagCreated={handleTagCreated}
-        />
+        {/* 标签网格 */}
+        <div className="flex-1 overflow-hidden">
+          <TagGalleryGrid
+            onSelectTag={handleSelectTag}
+            selectedTagId={selectedTagId}
+          />
+        </div>
       </div>
       
-      {/* 右侧编辑区 */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {selectedTag ? (
-          <TagEditorCanvas tag={selectedTag} />
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                <Hash size={32} className="text-gray-400" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-600 dark:text-gray-400">
-                选择一个标签开始配置
-              </h3>
-              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-                在左侧列表中选择或创建新标签
-              </p>
-            </div>
+      {/* 右侧详情面板 */}
+      {showDetailPanel && selectedTag && (
+        <>
+          {/* 遮罩层（移动端） */}
+          <div
+            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 lg:hidden"
+            onClick={handleCloseDetail}
+          />
+          
+          {/* 详情面板 */}
+          <div
+            className={cn(
+              "fixed right-0 top-0 bottom-0 w-full sm:w-[400px]",
+              "bg-white dark:bg-gray-900",
+              "border-l border-gray-200 dark:border-gray-700",
+              "shadow-2xl z-50",
+              "transform transition-transform duration-300",
+              showDetailPanel ? "translate-x-0" : "translate-x-full"
+            )}
+          >
+            <TagDetailPanel tag={selectedTag} onClose={handleCloseDetail} />
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };

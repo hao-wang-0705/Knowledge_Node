@@ -1,15 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSupertagStore } from '@/stores/supertagStore';
-import { PRESET_CATEGORY_IDS, type Supertag } from '@/types';
+import type { Supertag } from '@/types';
 
 vi.mock('@/services/api', () => ({
-  categoriesApi: {
-    getAll: vi.fn(async () => []),
-    create: vi.fn(async () => ({})),
-    update: vi.fn(async () => ({})),
-    delete: vi.fn(async () => ({})),
-    batchUpdate: vi.fn(async () => ({})),
-  },
   settingsApi: {
     get: vi.fn(async () => []),
     set: vi.fn(async () => ({})),
@@ -26,11 +19,10 @@ const createTag = (overrides: Partial<Supertag>): Supertag => ({
   name: '默认标签',
   color: '#6366F1',
   fieldDefinitions: [],
-  categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
   ...overrides,
 });
 
-describe('supertagStore', () => {
+describe('supertagStore (v3.4 只读模式)', () => {
   beforeEach(() => {
     useSupertagStore.setState({
       supertags: {},
@@ -41,124 +33,75 @@ describe('supertagStore', () => {
     });
   });
 
-  it('可以返回标签后代 ID（包含自身）', () => {
+  it('getSupertag 可以获取单个标签', () => {
     useSupertagStore.setState({
       supertags: {
         a: createTag({ id: 'a', name: 'A' }),
-        b: createTag({ id: 'b', name: 'B', parentId: 'a' }),
-        c: createTag({ id: 'c', name: 'C', parentId: 'b' }),
-        d: createTag({ id: 'd', name: 'D' }),
+        b: createTag({ id: 'b', name: 'B' }),
       },
     });
 
-    const ids = useSupertagStore.getState().getDescendantIds('a');
-    expect(ids).toEqual(expect.arrayContaining(['a', 'b', 'c']));
-    expect(ids).not.toContain('d');
+    const tag = useSupertagStore.getState().getSupertag('a');
+    expect(tag?.name).toBe('A');
+    expect(useSupertagStore.getState().getSupertag('x')).toBeUndefined();
   });
 
-  it('字段继承时子标签可覆盖父标签同 key 字段', () => {
+  it('getAllSupertags 返回所有标签列表', () => {
     useSupertagStore.setState({
       supertags: {
-        parent: createTag({
-          id: 'parent',
-          name: 'Parent',
-          fieldDefinitions: [
-            { id: 'f1', key: 'priority', name: '优先级', type: 'text' },
-            { id: 'f2', key: 'owner', name: '负责人', type: 'text' },
-          ],
-        }),
-        child: createTag({
-          id: 'child',
-          name: 'Child',
-          parentId: 'parent',
-          fieldDefinitions: [{ id: 'f3', key: 'priority', name: '子优先级', type: 'select' }],
-        }),
+        a: createTag({ id: 'a', name: 'A' }),
+        b: createTag({ id: 'b', name: 'B' }),
       },
     });
 
-    const defs = useSupertagStore.getState().getResolvedFieldDefinitions('child');
-    const priority = defs.find((f) => f.key === 'priority');
-    const owner = defs.find((f) => f.key === 'owner');
-
-    expect(priority?.name).toBe('子优先级');
-    expect(priority?.inherited).toBe(false);
-    expect(owner?.inherited).toBe(true);
+    const tags = useSupertagStore.getState().getAllSupertags();
+    expect(tags).toHaveLength(2);
+    expect(tags.map((t) => t.id)).toEqual(expect.arrayContaining(['a', 'b']));
   });
 
-  it('存在循环继承时不会无限递归（Edge Case）', () => {
+  it('trackTagUsage 可以追踪最近使用的标签', () => {
     useSupertagStore.setState({
       supertags: {
-        a: createTag({
-          id: 'a',
-          name: 'A',
-          parentId: 'b',
-          fieldDefinitions: [{ id: 'fa', key: 'a', name: 'A', type: 'text' }],
-        }),
-        b: createTag({
-          id: 'b',
-          name: 'B',
-          parentId: 'a',
-          fieldDefinitions: [{ id: 'fb', key: 'b', name: 'B', type: 'text' }],
-        }),
+        a: createTag({ id: 'a', name: 'A' }),
+        b: createTag({ id: 'b', name: 'B' }),
       },
     });
 
-    const defs = useSupertagStore.getState().getResolvedFieldDefinitions('a');
-    expect(defs.length).toBeGreaterThan(0);
+    useSupertagStore.getState().trackTagUsage('a');
+    useSupertagStore.getState().trackTagUsage('b');
+    useSupertagStore.getState().trackTagUsage('a'); // 重复使用
+
+    const recent = useSupertagStore.getState().getRecentTags(10);
+    expect(recent[0]).toBe('a'); // 最近使用的在前
+    expect(recent[1]).toBe('b');
   });
 
-  it('fieldDefinitions 更新后 getResolvedFieldDefinitions 返回新字段列表', () => {
+  it('getFieldDefinitions 返回标签的字段定义', () => {
     useSupertagStore.setState({
       supertags: {
         tag1: createTag({
           id: 'tag1',
           name: 'Tag1',
           fieldDefinitions: [
-            { id: 'f1', key: 'old', name: '旧字段', type: 'text' },
+            { id: 'f1', key: 'status', name: '状态', type: 'select', options: ['A', 'B'] },
+            { id: 'f2', key: 'due', name: '截止日期', type: 'date' },
           ],
         }),
       },
     });
 
-    let defs = useSupertagStore.getState().getResolvedFieldDefinitions('tag1');
-    expect(defs).toHaveLength(1);
-    expect(defs[0].key).toBe('old');
-
-    useSupertagStore.setState({
-      supertags: {
-        tag1: createTag({
-          id: 'tag1',
-          name: 'Tag1',
-          fieldDefinitions: [
-            { id: 'f1', key: 'old', name: '旧字段', type: 'text' },
-            { id: 'f2', key: 'new', name: '新字段', type: 'number' },
-          ],
-        }),
-      },
-    });
-
-    defs = useSupertagStore.getState().getResolvedFieldDefinitions('tag1');
+    const defs = useSupertagStore.getState().getFieldDefinitions('tag1');
     expect(defs).toHaveLength(2);
-    expect(defs.map((d) => d.key)).toEqual(expect.arrayContaining(['old', 'new']));
-    expect(defs.find((d) => d.key === 'new')?.type).toBe('number');
+    expect(defs[0].key).toBe('status');
+    expect(defs[1].key).toBe('due');
   });
 
-  it('优先使用 API 返回的 resolvedFieldDefinitions（Edge Case）', () => {
-    useSupertagStore.setState({
-      supertags: {
-        apiTag: createTag({
-          id: 'apiTag',
-          name: 'API 标签',
-          fieldDefinitions: [{ id: 'f1', key: 'local', name: '本地', type: 'text' }],
-          resolvedFieldDefinitions: [
-            { id: 'f2', key: 'resolved', name: '合并后', type: 'text' as const },
-          ],
-        }),
-      },
-    });
+  it('getFieldDefinitions 对不存在的标签返回空数组', () => {
+    const defs = useSupertagStore.getState().getFieldDefinitions('non-existent');
+    expect(defs).toEqual([]);
+  });
 
-    const defs = useSupertagStore.getState().getResolvedFieldDefinitions('apiTag');
-    expect(defs).toHaveLength(1);
-    expect(defs[0].key).toBe('resolved');
+  it('isReadOnly 始终为 true', () => {
+    expect(useSupertagStore.getState().isReadOnly).toBe(true);
   });
 });

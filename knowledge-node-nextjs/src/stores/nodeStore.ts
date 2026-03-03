@@ -243,7 +243,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
     set((state) => {
       // 在 set 回调内部解析父节点的实际 ID，确保使用最新的状态
-      resolvedParentId = resolveCalendarParentId(parentId, state.nodes);
+      // undefined 表示无法解析，转为 null（作为根节点）
+      resolvedParentId = resolveCalendarParentId(parentId, state.nodes) ?? null;
       
       const newNode: Node = {
         id: newId,
@@ -343,8 +344,9 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   addNodes: (newNodes, newRootIds, targetParentId, afterId) => {
     // v3.1 修复：解析父节点 ID 并收集需要同步的节点
+    // undefined 表示无法解析，转为 null（作为根节点）
     const state = get();
-    const resolvedTargetParentId = resolveCalendarParentId(targetParentId, state.nodes);
+    const resolvedTargetParentId = resolveCalendarParentId(targetParentId, state.nodes) ?? null;
     const nodesToSync: Array<{ node: Node; sortOrder: number }> = [];
     
     set((state) => {
@@ -436,8 +438,9 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     };
     
     // v3.1 修复：解析父节点 ID 并校验
+    // undefined 表示无法解析，转为 null（作为根节点）
     const state = get();
-    const resolvedParentId = resolveCalendarParentId(parentId, state.nodes);
+    const resolvedParentId = resolveCalendarParentId(parentId, state.nodes) ?? null;
     
     const newNode: Node = {
       id: newId,
@@ -888,7 +891,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           if (!existingNode) return currentState;
 
           // 已存在：检查 parentId 是否正确，错误则 reparent
-          if (existingNode.parentId !== resolvedParentId) {
+          // 重要修复：仅当 resolvedParentId !== undefined 时才执行 reparent
+          // undefined 表示调用方未提供有效的 parentId（不知道正确的父节点）
+          // 此时不应覆盖节点已有的 parentId
+          if (resolvedParentId !== undefined && existingNode.parentId !== resolvedParentId) {
+            console.log(`[ensureNode] reparent 日历节点 ${actualId}: ${existingNode.parentId} -> ${resolvedParentId}`);
             const newNodes = { ...currentState.nodes };
             const oldParentId = existingNode.parentId;
 
@@ -931,7 +938,9 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         return currentState;
       }
 
-      actualParentIdForSync = resolvedParentId;
+      // 新建节点时：如果 resolvedParentId 是 undefined，转为 null（暂作根节点）
+      // undefined 表示调用方不知道正确的父节点，此时创建为根节点更安全
+      actualParentIdForSync = resolvedParentId === undefined ? null : resolvedParentId;
       const newNode: Node = {
         id,
         content,

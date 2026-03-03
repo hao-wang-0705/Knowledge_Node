@@ -437,11 +437,6 @@ const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, cl
       <div className="flex items-center gap-2 text-sm text-gray-500">
         {getFieldIcon(fieldDef.type)}
         <span className="font-medium">{fieldDef.name}</span>
-        {fieldDef.inherited && (
-          <span className="px-1.5 py-0.5 text-[10px] leading-none rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
-            继承
-          </span>
-        )}
       </div>
       
       {/* 分隔符 bullet */}

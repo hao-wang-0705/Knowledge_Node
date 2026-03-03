@@ -1,9 +1,23 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supertagsApi } from '@/lib/api-client';
-import type { Supertag, CreateSupertagRequest, UpdateSupertagRequest } from '@/types';
-import { PRESET_CATEGORY_IDS } from '@/types';
+/**
+ * Supertag Hooks
+ * v3.3: 重构为只读模式，移除所有写操作 hooks
+ * 
+ * 保留的只读 hooks:
+ * - useSupertags: 获取所有标签列表
+ * - useSupertag: 获取单个标签详情
+ * 
+ * 已移除的写操作 hooks:
+ * - useCreateSupertag
+ * - useUpdateSupertag
+ * - useDeleteSupertag
+ * - useSupertagOperations
+ */
+
+import { useQuery } from '@tanstack/react-query';
+import { supertagsApi } from '@/services/api/tags';
+import type { Supertag } from '@/types';
 
 // Query Keys
 export const supertagKeys = {
@@ -15,182 +29,86 @@ export const supertagKeys = {
 };
 
 /**
- * 获取所有 Supertags 的 Hook
+ * 获取所有 Supertags 的 Hook（只读）
+ * 返回系统预置标签列表
  */
 export function useSupertags() {
   return useQuery({
     queryKey: supertagKeys.lists(),
     queryFn: supertagsApi.getAll,
+    staleTime: 5 * 60 * 1000, // 5 分钟缓存
   });
 }
 
 /**
- * 获取单个 Supertag 的 Hook
+ * 获取单个 Supertag 的 Hook（只读）
+ * @param id 标签 ID
  */
 export function useSupertag(id: string) {
   return useQuery({
     queryKey: supertagKeys.detail(id),
-    queryFn: () => supertagsApi.getById(id),
+    queryFn: () => supertagsApi.getOne(id),
     enabled: !!id,
+    staleTime: 5 * 60 * 1000, // 5 分钟缓存
   });
 }
 
+// =============================================================================
+// v3.3: 以下写操作 hooks 已移除
+// =============================================================================
+
 /**
- * 创建 Supertag 的 Hook（带乐观更新）
+ * @deprecated v3.3: 用户写操作已移除，此 hook 不再可用
+ * 如需创建标签，请使用管理员内部 API
  */
 export function useCreateSupertag() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: CreateSupertagRequest) => supertagsApi.create(data),
-
-    onMutate: async (newSupertag) => {
-      await queryClient.cancelQueries({ queryKey: supertagKeys.lists() });
-
-      const previousSupertags = queryClient.getQueryData<Supertag[]>(
-        supertagKeys.lists()
-      );
-
-      if (previousSupertags) {
-        const tempSupertag: Supertag = {
-          id: `temp-${Date.now()}`,
-          name: newSupertag.name,
-          color: newSupertag.color ?? '#6366F1',
-          icon: newSupertag.icon,
-          fieldDefinitions: newSupertag.fieldDefinitions ?? [],
-          isSystem: false,
-          categoryId: newSupertag.categoryId ?? PRESET_CATEGORY_IDS.UNCATEGORIZED,
-        };
-
-        queryClient.setQueryData<Supertag[]>(supertagKeys.lists(), [
-          ...previousSupertags,
-          tempSupertag,
-        ]);
-      }
-
-      return { previousSupertags };
-    },
-
-    onError: (err, newSupertag, context) => {
-      if (context?.previousSupertags) {
-        queryClient.setQueryData(
-          supertagKeys.lists(),
-          context.previousSupertags
-        );
-      }
-      console.error('创建标签失败:', err);
-    },
-
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: supertagKeys.lists() });
-    },
-  });
+  console.warn('[v3.3] useCreateSupertag 已废弃：用户写操作已移除');
+  return {
+    mutate: () => { throw new Error('用户写操作已移除'); },
+    mutateAsync: () => Promise.reject(new Error('用户写操作已移除')),
+    isPending: false,
+    isError: true,
+    error: new Error('用户写操作已移除'),
+  };
 }
 
 /**
- * 更新 Supertag 的 Hook（带乐观更新）
+ * @deprecated v3.3: 用户写操作已移除，此 hook 不再可用
  */
 export function useUpdateSupertag() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateSupertagRequest }) =>
-      supertagsApi.update(id, data),
-
-    onMutate: async ({ id, data }) => {
-      await queryClient.cancelQueries({ queryKey: supertagKeys.lists() });
-      await queryClient.cancelQueries({ queryKey: supertagKeys.detail(id) });
-
-      const previousSupertags = queryClient.getQueryData<Supertag[]>(
-        supertagKeys.lists()
-      );
-
-      if (previousSupertags) {
-        queryClient.setQueryData<Supertag[]>(
-          supertagKeys.lists(),
-          previousSupertags.map((tag) =>
-            tag.id === id ? { ...tag, ...data } : tag
-          )
-        );
-      }
-
-      return { previousSupertags };
-    },
-
-    onError: (err, variables, context) => {
-      if (context?.previousSupertags) {
-        queryClient.setQueryData(
-          supertagKeys.lists(),
-          context.previousSupertags
-        );
-      }
-      console.error('更新标签失败:', err);
-    },
-
-    onSettled: (data, error, { id }) => {
-      queryClient.invalidateQueries({ queryKey: supertagKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: supertagKeys.detail(id) });
-    },
-  });
+  console.warn('[v3.3] useUpdateSupertag 已废弃：用户写操作已移除');
+  return {
+    mutate: () => { throw new Error('用户写操作已移除'); },
+    mutateAsync: () => Promise.reject(new Error('用户写操作已移除')),
+    isPending: false,
+    isError: true,
+    error: new Error('用户写操作已移除'),
+  };
 }
 
 /**
- * 删除 Supertag 的 Hook（带乐观更新）
+ * @deprecated v3.3: 用户写操作已移除，此 hook 不再可用
  */
 export function useDeleteSupertag() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (id: string) => supertagsApi.delete(id),
-
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: supertagKeys.lists() });
-
-      const previousSupertags = queryClient.getQueryData<Supertag[]>(
-        supertagKeys.lists()
-      );
-
-      if (previousSupertags) {
-        queryClient.setQueryData<Supertag[]>(
-          supertagKeys.lists(),
-          previousSupertags.filter((tag) => tag.id !== id)
-        );
-      }
-
-      return { previousSupertags };
-    },
-
-    onError: (err, id, context) => {
-      if (context?.previousSupertags) {
-        queryClient.setQueryData(
-          supertagKeys.lists(),
-          context.previousSupertags
-        );
-      }
-      console.error('删除标签失败:', err);
-    },
-
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: supertagKeys.lists() });
-    },
-  });
+  console.warn('[v3.3] useDeleteSupertag 已废弃：用户写操作已移除');
+  return {
+    mutate: () => { throw new Error('用户写操作已移除'); },
+    mutateAsync: () => Promise.reject(new Error('用户写操作已移除')),
+    isPending: false,
+    isError: true,
+    error: new Error('用户写操作已移除'),
+  };
 }
 
 /**
- * Supertag 操作的组合 Hook
+ * @deprecated v3.3: 用户写操作已移除，此 hook 不再可用
  */
 export function useSupertagOperations() {
-  const createSupertag = useCreateSupertag();
-  const updateSupertag = useUpdateSupertag();
-  const deleteSupertag = useDeleteSupertag();
-
+  console.warn('[v3.3] useSupertagOperations 已废弃：用户写操作已移除');
   return {
-    createSupertag,
-    updateSupertag,
-    deleteSupertag,
-    isLoading:
-      createSupertag.isPending ||
-      updateSupertag.isPending ||
-      deleteSupertag.isPending,
+    createSupertag: useCreateSupertag(),
+    updateSupertag: useUpdateSupertag(),
+    deleteSupertag: useDeleteSupertag(),
+    isLoading: false,
   };
 }

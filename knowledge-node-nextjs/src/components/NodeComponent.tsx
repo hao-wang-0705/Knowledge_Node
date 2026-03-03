@@ -58,7 +58,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
   
   const supertags = useSupertagStore((state) => state.supertags);
-  const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
+  const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
   const trackTagUsage = useSupertagStore((state) => state.trackTagUsage);
   const getRecentTags = useSupertagStore((state) => state.getRecentTags);
 
@@ -239,7 +239,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     if (node && !node.tags.includes(tagId)) {
       // 检查标签是否有 status 字段定义，如果有则自动设置默认状态
       const tag = supertags[tagId];
-      const defs = tag ? getResolvedFieldDefinitions(tag.id) ?? [] : [];
+      const defs = tag ? getFieldDefinitions(tag.id) ?? [] : [];
       const hasStatusField = defs.some((f) => f.key === 'status');
       
       const updates: { tags: string[]; fields?: Record<string, any> } = {
@@ -259,7 +259,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     setShowTagSelector(false);
     setSelectedTagIndex(0);
     setTagSearchTerm('');
-  }, [node, nodeId, updateNode, supertags, getResolvedFieldDefinitions]);
+  }, [node, nodeId, updateNode, supertags, getFieldDefinitions]);
 
   // 统一标签选择器回调 - 选择标签
   const handleUnifiedTagSelect = useCallback((tagId: string, tagType: 'type' | 'context') => {
@@ -285,7 +285,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       if (!node.tags.includes(tagId)) {
         applySupertag(nodeId, tagId, { fillTemplateIfEmpty: true });
         const tag = supertags[tagId];
-        const defs = tag ? getResolvedFieldDefinitions(tag.id) ?? [] : [];
+        const defs = tag ? getFieldDefinitions(tag.id) ?? [] : [];
         const hasStatusField = defs.some((f: { key: string }) => f.key === 'status');
         if (hasStatusField && !node.fields?.status) {
           updateNode(nodeId, { fields: { ...node.fields, status: '待办' } });
@@ -298,7 +298,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     
     // 恢复焦点
     setTimeout(() => contentRef.current?.focus(), 50);
-  }, [node, nodeId, updateNode, applySupertag, supertags, trackTagUsage, getResolvedFieldDefinitions]);
+  }, [node, nodeId, updateNode, applySupertag, supertags, trackTagUsage, getFieldDefinitions]);
   
   // 统一标签选择器回调 - 创建新标签（仅支持功能标签）
   const handleUnifiedTagCreate = useCallback((name: string, tagType: 'type' | 'context') => {
@@ -600,13 +600,13 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         fields: Object.fromEntries(
           Object.entries(node.fields).filter(([key]) => {
             const tag = supertags[tagId];
-            const defs = tag ? getResolvedFieldDefinitions(tag.id) ?? [] : [];
+            const defs = tag ? getFieldDefinitions(tag.id) ?? [] : [];
             return !defs.some(field => field.key === key);
           })
         )
       });
     }
-  }, [node, nodeId, updateNode, supertags, getResolvedFieldDefinitions]);
+  }, [node, nodeId, updateNode, supertags, getFieldDefinitions]);
 
   if (!node) return null;
 
@@ -773,7 +773,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           nodeId={nodeId}
           depth={depth}
           nodeTags={nodeTags}
-          getResolvedFieldDefinitions={getResolvedFieldDefinitions}
+          getFieldDefinitions={getFieldDefinitions}
           onFieldChange={handleFieldChange}
         />
       )}

@@ -1,4 +1,4 @@
-import { Node, Supertag, PRESET_CATEGORY_IDS } from '@/types';
+import { Node, Supertag } from '@/types';
 import { generateId } from './helpers';
 import { SYSTEM_TAGS, getCalendarPath, getISOWeekNumber, getISOWeekYear } from './date-helpers';
 
@@ -17,16 +17,14 @@ export const TAG_COLORS = [
 // 固定的标签 ID（用于 reference 类型引用）
 // 仅保留5个核心标签：待办、会议、问题、灵感、文档
 export const FIXED_TAG_IDS = {
-  TASK: 'tag_task',        // 待办（原任务）
-  MEETING: 'tag_meeting',  // 会议
-  PROBLEM: 'tag_problem',  // 问题
-  IDEA: 'tag_idea',        // 灵感
-  DOC: 'tag_doc',          // 文档
-  // v2.1: 继承示例标签
-  WORK_MEETING: 'tag_work_meeting',  // 工作会议（继承自会议）
+  TASK: 'tag_task',
+  MEETING: 'tag_meeting',
+  PROBLEM: 'tag_problem',
+  IDEA: 'tag_idea',
+  DOC: 'tag_doc',
 };
 
-// 创建系统标签（日历相关）
+// 创建系统标签（日历相关）- v3.4: 移除 categoryId
 const createSystemSupertags = (): Record<string, Supertag> => {
   return {
     // 年标签
@@ -35,8 +33,6 @@ const createSystemSupertags = (): Record<string, Supertag> => {
       name: 'Year',
       color: '#6366F1', // 靛蓝色
       fieldDefinitions: [],
-      isSystem: true,
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
     },
     // 月标签
     [SYSTEM_TAGS.MONTH]: {
@@ -44,8 +40,6 @@ const createSystemSupertags = (): Record<string, Supertag> => {
       name: 'Month',
       color: '#8B5CF6', // 紫色
       fieldDefinitions: [],
-      isSystem: true,
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
     },
     // 周标签
     [SYSTEM_TAGS.WEEK]: {
@@ -53,8 +47,6 @@ const createSystemSupertags = (): Record<string, Supertag> => {
       name: 'Week',
       color: '#06B6D4', // 青色
       fieldDefinitions: [],
-      isSystem: true,
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
     },
     // 日标签
     [SYSTEM_TAGS.DAY]: {
@@ -62,8 +54,6 @@ const createSystemSupertags = (): Record<string, Supertag> => {
       name: 'Day',
       color: '#10B981', // 绿色
       fieldDefinitions: [],
-      isSystem: true,
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
     },
   };
 };
@@ -75,14 +65,13 @@ export const createMockSupertags = (): Record<string, Supertag> => {
   const systemTags = createSystemSupertags();
   
   // 功能标签 (Type Tags) - 定义节点的属性和行为
-  // 仅保留5个核心标签
+  // 仅保留5个核心标签 (v3.4: 移除 categoryId)
   const typeTags: Record<string, Supertag> = {
     // 待办标签 ☑️（原任务）
     [FIXED_TAG_IDS.TASK]: {
       id: FIXED_TAG_IDS.TASK,
       name: '待办',
       color: '#EF4444', // 红色
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
       icon: '☑️',
       description: '待办事项和任务追踪',
       order: 0,
@@ -98,7 +87,6 @@ export const createMockSupertags = (): Record<string, Supertag> => {
       id: FIXED_TAG_IDS.MEETING,
       name: '会议',
       color: '#2563EB', // 蓝色
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
       icon: '📅',
       description: '会议记录和日程安排',
       order: 1,
@@ -116,7 +104,6 @@ export const createMockSupertags = (): Record<string, Supertag> => {
       id: FIXED_TAG_IDS.PROBLEM,
       name: '问题',
       color: '#DC2626', // 红色
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
       icon: '🔥',
       description: '工作中的痛点、困惑或待解决的问题',
       order: 2,
@@ -132,7 +119,6 @@ export const createMockSupertags = (): Record<string, Supertag> => {
       id: FIXED_TAG_IDS.IDEA,
       name: '灵感',
       color: '#22C55E', // 绿色
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
       icon: '💡',
       description: '灵光一现的想法、参考案例或假设',
       order: 3,
@@ -148,7 +134,6 @@ export const createMockSupertags = (): Record<string, Supertag> => {
       id: FIXED_TAG_IDS.DOC,
       name: '文档',
       color: '#64748B', // 灰色
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
       icon: '📄',
       description: '文档管理和知识沉淀',
       order: 4,
@@ -158,22 +143,6 @@ export const createMockSupertags = (): Record<string, Supertag> => {
         { id: 'f_doc_author', key: 'author', name: '作者', type: 'text' },
         { id: 'f_doc_version', key: 'version', name: '版本', type: 'text' },
         { id: 'f_doc_link', key: 'url', name: '关联链接', type: 'text' },
-      ],
-    },
-    // v2.1 继承示例：工作会议（继承自会议标签）🏢
-    [FIXED_TAG_IDS.WORK_MEETING]: {
-      id: FIXED_TAG_IDS.WORK_MEETING,
-      name: '工作会议',
-      color: '#1D4ED8', // 深蓝色
-      categoryId: PRESET_CATEGORY_IDS.UNCATEGORIZED,
-      icon: '🏢',
-      description: '工作相关的会议，继承自「会议」标签',
-      order: 5,
-      parentId: FIXED_TAG_IDS.MEETING, // 继承自会议标签
-      fieldDefinitions: [
-        // 自有字段（会覆盖或补充父标签的字段）
-        { id: 'f_wm_project', key: 'project', name: '关联项目', type: 'text' },
-        { id: 'f_wm_decision', key: 'decision', name: '决策事项', type: 'text' },
       ],
     },
   };

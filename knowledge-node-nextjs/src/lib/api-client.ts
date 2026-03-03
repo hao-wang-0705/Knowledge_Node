@@ -4,8 +4,6 @@ import type {
   Supertag,
   CreateNodeRequest,
   UpdateNodeRequest,
-  CreateSupertagRequest,
-  UpdateSupertagRequest,
 } from '@/types';
 
 const API_BASE = '/api';
@@ -101,12 +99,13 @@ export const nodesApi = {
 };
 
 // =============================================================================
-// Supertag API
+// Supertag API（只读）
+// v3.3: 重构为只读模式，移除所有用户写操作
 // =============================================================================
 
 export const supertagsApi = {
   /**
-   * 获取所有 Supertags
+   * 获取所有 Supertags（系统预置标签）
    */
   getAll: async (): Promise<Supertag[]> => {
     const res = await fetchApi<Supertag[]>('/supertags');
@@ -122,37 +121,29 @@ export const supertagsApi = {
     return res.data;
   },
 
+  // =============================================================================
+  // v3.3: 以下写操作已移除
+  // =============================================================================
+
   /**
-   * 创建 Supertag
+   * @deprecated v3.3: 用户写操作已移除
    */
-  create: async (data: CreateSupertagRequest): Promise<Supertag> => {
-    const res = await fetchApi<Supertag>('/supertags', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    if (!res.data) throw new Error('创建失败');
-    return res.data;
+  create: async (): Promise<never> => {
+    throw new Error('[v3.3] 用户写操作已移除：supertagsApi.create 不再可用');
   },
 
   /**
-   * 更新 Supertag
+   * @deprecated v3.3: 用户写操作已移除
    */
-  update: async (id: string, data: UpdateSupertagRequest): Promise<Supertag> => {
-    const res = await fetchApi<Supertag>(`/supertags/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-    if (!res.data) throw new Error('更新失败');
-    return res.data;
+  update: async (): Promise<never> => {
+    throw new Error('[v3.3] 用户写操作已移除：supertagsApi.update 不再可用');
   },
 
   /**
-   * 删除 Supertag
+   * @deprecated v3.3: 用户写操作已移除
    */
-  delete: async (id: string): Promise<void> => {
-    await fetchApi(`/supertags/${id}`, {
-      method: 'DELETE',
-    });
+  delete: async (): Promise<never> => {
+    throw new Error('[v3.3] 用户写操作已移除：supertagsApi.delete 不再可用');
   },
 };
 

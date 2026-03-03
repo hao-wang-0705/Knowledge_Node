@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { 
   Type, Hash, CalendarDays, List, Circle, X, 
-  AlertCircle, CheckCircle2, ChevronDown, Link2
+  AlertCircle, CheckCircle2, ChevronDown, Link2, Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FieldDefinition, FieldType } from '@/types';
@@ -51,6 +51,18 @@ const FIELD_TYPE_CONFIG: Record<FieldType, FieldTypeConfig> = {
     color: 'text-cyan-500',
     bgColor: 'bg-cyan-50',
     placeholder: 'Select node'
+  },
+  ai_text: {
+    icon: <Sparkles size={14} />,
+    color: 'text-violet-500',
+    bgColor: 'bg-violet-50',
+    placeholder: 'AI generated text'
+  },
+  ai_select: {
+    icon: <Sparkles size={14} />,
+    color: 'text-violet-500',
+    bgColor: 'bg-violet-50',
+    placeholder: 'AI generated selection'
   },
 };
 

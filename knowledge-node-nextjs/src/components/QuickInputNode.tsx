@@ -47,7 +47,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
   const addNode = useNodeStore((state) => state.addNode);
   const updateNode = useNodeStore((state) => state.updateNode);
   const supertags = useSupertagStore((state) => state.supertags);
-  const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
+  const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
   const trackTagUsage = useSupertagStore((state) => state.trackTagUsage);
 
   // 进入编辑模式时自动聚焦
@@ -130,7 +130,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
           
           // 检查是否需要设置默认状态
           const firstTag = supertags[pendingTags[0]];
-          const defs = firstTag ? getResolvedFieldDefinitions(firstTag.id) ?? [] : [];
+          const defs = firstTag ? getFieldDefinitions(firstTag.id) ?? [] : [];
           if (defs.some((f) => f.key === 'status')) {
             updates.fields = { status: '待办' };
           }
@@ -146,7 +146,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
     if (inputRef.current) {
       inputRef.current.textContent = '';
     }
-  }, [content, pendingTags, parentId, addNode, updateNode, supertags, getResolvedFieldDefinitions]);
+  }, [content, pendingTags, parentId, addNode, updateNode, supertags, getFieldDefinitions]);
 
   // 标记是否正在通过 Enter 键创建节点，防止 blur 重复触发
   const isCreatingRef = useRef(false);
@@ -186,7 +186,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
             updates.supertagId = pendingTags[0];
             
             const firstTag = supertags[pendingTags[0]];
-            const defs = firstTag ? getResolvedFieldDefinitions(firstTag.id) ?? [] : [];
+            const defs = firstTag ? getFieldDefinitions(firstTag.id) ?? [] : [];
             if (defs.some((f) => f.key === 'status')) {
               updates.fields = { status: '待办' };
             }
@@ -220,7 +220,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
         inputRef.current.textContent = '';
       }
     }
-  }, [isComposing, showTagSelector, showMentionPopover, pendingTags, parentId, addNode, updateNode, supertags, getResolvedFieldDefinitions]);
+  }, [isComposing, showTagSelector, showMentionPopover, pendingTags, parentId, addNode, updateNode, supertags, getFieldDefinitions]);
 
   // 失焦处理
   const handleBlur = useCallback((e: React.FocusEvent) => {
@@ -442,7 +442,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
               setTimeout(() => inputRef.current?.focus(), 50);
             }}
             onSelectTag={(tagId) => handleTagSelect(tagId)}
-            onCreateTag={() => {
+            onCreateTag={(_name: string, _tagType: 'type') => {
               setShowTagSelector(false);
               setTagSearchTerm('');
             }}

@@ -132,11 +132,16 @@ const createMockQueries = (): QueryBlock[] => {
 /**
  * 查询面板 Store（常驻模式）
  * 管理查询块列表和面板宽度，移除 isOpen 状态
+ * 
+ * 注意：panelWidth 初始值使用 DEFAULT_WIDTH 以避免 SSR hydration mismatch
+ * 客户端挂载后通过 hydratePanelWidth 从 localStorage 同步真实值
  */
 export const useQueryPanelStore = create<QueryPanelStore>((set, get) => ({
   // ========== 初始状态 ==========
   queries: [],
-  panelWidth: typeof window !== 'undefined' ? getStoredPanelWidth() : QUERY_PANEL_CONSTANTS.DEFAULT_WIDTH,
+  // SSR 安全：始终使用默认值，避免 hydration mismatch
+  panelWidth: QUERY_PANEL_CONSTANTS.DEFAULT_WIDTH,
+  _hydrated: false, // 标记是否已从 localStorage 同步
 
   // ========== 查询块操作 ==========
   
@@ -218,6 +223,20 @@ export const useQueryPanelStore = create<QueryPanelStore>((set, get) => ({
   initMockData: () => {
     const mockQueries = createMockQueries();
     set({ queries: mockQueries });
+  },
+
+  /**
+   * 从 localStorage 同步面板宽度
+   * 客户端挂载后调用，避免 SSR hydration mismatch
+   */
+  hydratePanelWidth: () => {
+    const { _hydrated } = get();
+    if (_hydrated) return; // 已同步过，跳过
+    
+    if (typeof window !== 'undefined') {
+      const storedWidth = getStoredPanelWidth();
+      set({ panelWidth: storedWidth, _hydrated: true });
+    }
   },
 }));
 

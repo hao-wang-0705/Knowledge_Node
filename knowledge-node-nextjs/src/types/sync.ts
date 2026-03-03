@@ -26,7 +26,7 @@ export type OperationType = 'create' | 'update' | 'delete';
 /**
  * 实体类型（与业务模型对应）
  */
-export type EntityType = 'node' | 'supertag' | 'category';
+export type EntityType = 'node' | 'supertag';
 
 /**
  * 操作状态

@@ -133,10 +133,29 @@ export {
   SCHEMA_GENERATION_SYSTEM_PROMPT,
   buildSchemaGeneratePrompt,
   parseSchemaGenerateResponse,
+  // v3.4: AI 字段 Prompt 相关
+  AI_FIELD_PROMPTS,
+  buildAIFieldPrompt,
+  parseAIFieldResponse,
+  getAIFieldDefaultValue,
   type PromptVariables,
   type SupertagSchema,
   type CapturePromptParams,
   type CaptureStructuredResponse,
   type SchemaGenerateParams,
   type SchemaGenerateResponse,
+  type AIFieldPromptParams,
 } from './prompts';
+
+// v3.4: AI 字段处理器
+export {
+  AIFieldProcessor,
+  getAIFieldProcessor,
+  processAIField,
+  processNodeAIFields,
+  hasAIFields,
+  getAIFieldDefinitions,
+  type AIFieldProcessRequest,
+  type AIFieldProcessResult,
+  type BatchProcessResult,
+} from './field-processor';

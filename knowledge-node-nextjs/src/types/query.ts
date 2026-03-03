@@ -30,6 +30,8 @@ export interface QueryPanelState {
   queries: QueryBlock[];
   /** 面板宽度（像素） */
   panelWidth: number;
+  /** 是否已从 localStorage 同步（内部使用） */
+  _hydrated?: boolean;
 }
 
 /**
@@ -46,6 +48,8 @@ export interface QueryPanelActions {
   setPanelWidth: (width: number) => void;
   /** 初始化 Mock 数据 */
   initMockData: () => void;
+  /** 从 localStorage 同步面板宽度（客户端挂载时调用） */
+  hydratePanelWidth: () => void;
 }
 
 /**

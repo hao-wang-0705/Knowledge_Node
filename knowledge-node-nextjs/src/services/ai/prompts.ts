@@ -3,7 +3,7 @@
  * 统一管理所有 AI 功能的 Prompt 模板
  */
 
-import type { CommandTemplate } from '@/types';
+import type { CommandTemplate, FieldDefinition, AIFieldConfig, AIFieldPresetType } from '@/types';
 
 // ============================================================================
 // Prompt 模板变量定义
@@ -857,5 +857,229 @@ export function parseCaptureResponse(content: string): CaptureStructuredResponse
       fields: {},
       confidence: 0,
     };
+  }
+}
+
+// ============================================================================
+// AI 字段 Prompt 模块
+// v3.4: 新增 AI 智能字段的 Prompt 模板
+// ============================================================================
+
+/**
+ * AI 字段系统 Prompt
+ */
+export const AI_FIELD_PROMPTS = {
+  /** AI 字段处理系统角色 */
+  SYSTEM: `你是一个智能任务分析助手，专门帮助用户分析任务内容并生成结构化数据。
+
+你的职责是：
+1. 分析任务的描述内容
+2. 根据指定的字段类型输出正确格式的结果
+3. 保持输出简洁、准确、可执行
+
+输出规则：
+- 只返回请求的数据，不要添加额外解释
+- 严格按照指定的格式输出
+- 如果无法判断，使用合理的默认值`,
+
+  /** 紧急度评分 Prompt */
+  URGENCY_SCORE: `请分析以下任务内容，评估其紧急程度并返回优先级评分。
+
+## 任务内容
+{{content}}
+
+## 上下文字段
+{{contextFields}}
+
+## 评分标准
+- P0：紧急且重要，需要立即处理（如：今天截止、严重bug、阻塞性问题）
+- P1：重要但不紧急，需要近期处理（如：本周截止、重要功能开发）
+- P2：常规任务，正常排期处理（如：日常工作、优化改进）
+- P3：低优先级，可以延后处理（如：锦上添花、长期规划）
+
+## 判断依据
+1. 是否有明确截止日期？距离截止日期多远？
+2. 内容中是否包含"紧急"、"立即"、"尽快"等关键词？
+3. 是否涉及阻塞性问题或重要客户？
+4. 任务的影响范围和重要性如何？
+
+请只返回优先级标签（P0/P1/P2/P3），不要添加任何其他内容。`,
+
+  /** 子任务拆解 Prompt */
+  SUBTASK_SPLIT: `请分析以下任务内容，将其拆解为可执行的子任务列表。
+
+## 任务内容
+{{content}}
+
+## 拆解要求
+1. 将任务分解为 3-7 个具体子任务
+2. 每个子任务应该是可在 1-2 小时内完成的单元
+3. 子任务应该按照合理的执行顺序排列
+4. 每个子任务描述应简洁明了（不超过 30 字）
+
+## 输出格式
+请以 JSON 数组格式返回子任务列表：
+["子任务1", "子任务2", "子任务3"]
+
+只返回 JSON 数组，不要包含 markdown 代码块或其他内容。`,
+
+  /** 自定义字段 Prompt 模板 */
+  CUSTOM: `请根据以下内容完成指定的分析任务。
+
+## 内容
+{{content}}
+
+## 任务要求
+{{customPrompt}}
+
+## 上下文字段
+{{contextFields}}
+
+## 输出格式
+{{outputFormat}}
+
+请严格按照输出格式要求返回结果。`,
+} as const;
+
+/**
+ * AI 字段 Prompt 构建参数
+ */
+export interface AIFieldPromptParams {
+  /** AI 字段预设类型 */
+  aiType: AIFieldPresetType;
+  /** 节点内容 */
+  nodeContent: string;
+  /** 字段定义 */
+  fieldDef: FieldDefinition;
+  /** 现有字段值 */
+  existingFields?: Record<string, unknown>;
+  /** 自定义 Prompt（仅 custom 类型） */
+  customPrompt?: string;
+}
+
+/**
+ * 构建 AI 字段 Prompt
+ */
+export function buildAIFieldPrompt(params: AIFieldPromptParams): string {
+  const { aiType, nodeContent, fieldDef, existingFields = {}, customPrompt } = params;
+
+  // 格式化上下文字段
+  const contextFieldsStr = Object.entries(existingFields)
+    .filter(([_, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => `- ${key}: ${JSON.stringify(value)}`)
+    .join('\n') || '无';
+
+  // 根据类型选择 Prompt 模板
+  switch (aiType) {
+    case 'urgency_score':
+      return AI_FIELD_PROMPTS.URGENCY_SCORE
+        .replace('{{content}}', nodeContent)
+        .replace('{{contextFields}}', contextFieldsStr);
+
+    case 'subtask_split':
+      return AI_FIELD_PROMPTS.SUBTASK_SPLIT
+        .replace('{{content}}', nodeContent);
+
+    case 'custom':
+      // 确定输出格式说明
+      let outputFormatStr = '';
+      const aiConfig = fieldDef.aiConfig;
+      if (aiConfig) {
+        switch (aiConfig.outputFormat) {
+          case 'select':
+            outputFormatStr = `请从以下选项中选择一个返回：${aiConfig.options?.join('、') || ''}`;
+            break;
+          case 'list':
+            outputFormatStr = '请以 JSON 数组格式返回：["项目1", "项目2", ...]';
+            break;
+          case 'text':
+          default:
+            outputFormatStr = '请直接返回文本内容，不要添加额外格式。';
+        }
+      }
+
+      return AI_FIELD_PROMPTS.CUSTOM
+        .replace('{{content}}', nodeContent)
+        .replace('{{customPrompt}}', customPrompt || '请分析内容并给出合理的结果')
+        .replace('{{contextFields}}', contextFieldsStr)
+        .replace('{{outputFormat}}', outputFormatStr);
+
+    default:
+      throw new Error(`不支持的 AI 字段类型: ${aiType}`);
+  }
+}
+
+/**
+ * 解析 AI 字段响应
+ */
+export function parseAIFieldResponse(
+  content: string,
+  aiConfig: AIFieldConfig
+): string | string[] | null {
+  // 清理响应内容
+  let cleaned = content.trim();
+
+  // 移除可能的 markdown 代码块标记
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+  }
+
+  // 根据输出格式解析
+  switch (aiConfig.outputFormat) {
+    case 'select':
+      // 验证是否在选项列表中
+      if (aiConfig.options && aiConfig.options.length > 0) {
+        // 尝试精确匹配
+        const exactMatch = aiConfig.options.find(
+          (opt) => opt.toLowerCase() === cleaned.toLowerCase()
+        );
+        if (exactMatch) return exactMatch;
+
+        // 尝试包含匹配
+        const containsMatch = aiConfig.options.find((opt) =>
+          cleaned.toLowerCase().includes(opt.toLowerCase())
+        );
+        if (containsMatch) return containsMatch;
+
+        // 无法匹配，返回第一个选项作为默认值
+        console.warn(`[AI Field] 无法匹配选项，使用默认值: ${aiConfig.options[0]}`);
+        return aiConfig.options[0];
+      }
+      return cleaned;
+
+    case 'list':
+      try {
+        const parsed = JSON.parse(cleaned);
+        if (Array.isArray(parsed)) {
+          return parsed.map(String).filter(Boolean);
+        }
+        // 如果不是数组，尝试按换行拆分
+        return cleaned.split('\n').map((s) => s.trim()).filter(Boolean);
+      } catch {
+        // JSON 解析失败，按换行拆分
+        return cleaned
+          .split('\n')
+          .map((s) => s.replace(/^[-\d.)\]]+\s*/, '').trim())
+          .filter(Boolean);
+      }
+
+    case 'text':
+    default:
+      return cleaned;
+  }
+}
+
+/**
+ * 获取 AI 字段默认值
+ */
+export function getAIFieldDefaultValue(aiConfig: AIFieldConfig): unknown {
+  switch (aiConfig.outputFormat) {
+    case 'select':
+      return aiConfig.options?.[aiConfig.options.length - 1] || null; // 默认最低优先级
+    case 'list':
+      return [];
+    case 'text':
+    default:
+      return '';
   }
 }

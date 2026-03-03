@@ -159,32 +159,27 @@ export function validateParentExists(
     return { valid: true, resolvedParentId: null };
   }
 
-  // 解析可能的日历节点 ID
-  const resolvedParentId = resolveCalendarParentId(parentId, nodes);
+  const resolved = resolveCalendarParentId(parentId, nodes);
   
-  if (resolvedParentId === null) {
-    // resolveCalendarParentId 返回 null 表示传入的是 null，这是合法的
+  if (resolved === null || resolved === undefined) {
     return { valid: true, resolvedParentId: null };
   }
 
-  const parentNode = nodes[resolvedParentId];
+  const parentNode = nodes[resolved];
   if (!parentNode) {
-    // 父节点在前端不存在
-    // 检查是否有待处理的创建操作（父节点可能还在队列中）
-    const pendingOp = findPendingParentOperation(resolvedParentId);
+    const pendingOp = findPendingParentOperation(resolved);
     if (pendingOp) {
-      // 父节点在队列中等待创建，这是合法的（依赖追踪会处理顺序）
-      return { valid: true, resolvedParentId };
+      return { valid: true, resolvedParentId: resolved };
     }
     
     return {
       valid: false,
-      resolvedParentId,
-      error: `父节点 ${resolvedParentId} 不存在且不在创建队列中`,
+      resolvedParentId: resolved,
+      error: `父节点 ${resolved} 不存在且不在创建队列中`,
     };
   }
 
-  return { valid: true, resolvedParentId };
+  return { valid: true, resolvedParentId: resolved };
 }
 
 // =============================================================================

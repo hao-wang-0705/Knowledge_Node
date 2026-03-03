@@ -17,8 +17,6 @@ import {
 } from '@/types/sync';
 import {
   nodesApi,
-  supertagsApi,
-  categoriesApi,
   AuthenticationError,
 } from '@/services/api';
 
@@ -138,9 +136,6 @@ export async function executeOperation(operation: SyncOperation): Promise<void> 
       case 'supertag':
         await executeSupertagOperation(type, entityId, payload);
         break;
-      case 'category':
-        await executeCategoryOperation(type, entityId, payload);
-        break;
       default:
         throw new Error(`未知的实体类型: ${entityType}`);
     }
@@ -221,48 +216,16 @@ async function executeNodeOperation(
  */
 /**
  * 执行 Supertag 操作
+ * v3.3: 用户写操作已移除，此函数仅记录日志并抛出错误
+ * @deprecated 标签同步操作已移除，系统标签由管理员统一管理
  */
 async function executeSupertagOperation(
   type: OperationType,
   entityId: string,
-  payload: unknown
+  _payload: unknown
 ): Promise<void> {
-  switch (type) {
-    case 'create':
-      await supertagsApi.create(payload as Parameters<typeof supertagsApi.create>[0]);
-      break;
-    case 'update':
-      await supertagsApi.update(entityId, payload as Parameters<typeof supertagsApi.update>[1]);
-      break;
-    case 'delete':
-      await supertagsApi.delete(entityId);
-      break;
-    default:
-      throw new Error(`未知的操作类型: ${type}`);
-  }
-}
-
-/**
- * 执行分类操作
- */
-async function executeCategoryOperation(
-  type: OperationType,
-  entityId: string,
-  payload: unknown
-): Promise<void> {
-  switch (type) {
-    case 'create':
-      await categoriesApi.create(payload as Parameters<typeof categoriesApi.create>[0]);
-      break;
-    case 'update':
-      await categoriesApi.update(entityId, payload as Parameters<typeof categoriesApi.update>[1]);
-      break;
-    case 'delete':
-      await categoriesApi.delete(entityId);
-      break;
-    default:
-      throw new Error(`未知的操作类型: ${type}`);
-  }
+  console.warn(`[SyncEngine] v3.3: Supertag 写操作已移除 - ${type} ${entityId}`);
+  throw new Error('[v3.3] 用户写操作已移除：Supertag 同步操作不再可用，标签由系统统一管理');
 }
 
 // =============================================================================
