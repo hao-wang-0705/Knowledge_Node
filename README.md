@@ -55,6 +55,9 @@ npx prisma generate
 # 运行数据库迁移
 npx prisma migrate dev
 
+# 初始化系统预设标签（Task/Meeting/Idea/Book）
+npm run prisma:seed
+
 # 启动开发服务器
 npm run start:dev
 ```
@@ -179,7 +182,7 @@ Knowledge_Node/
 |------|------|------|
 | 节点 | `/api/nodes` | 节点 CRUD、树形操作、搜索 |
 | 笔记本 | `/api/notebooks` | 笔记本 CRUD、复制 |
-| 功能标签 | `/api/supertags` | Supertag CRUD |
+| 功能标签 | `/api/supertags` | 只读预设标签查询 |
 | 上下文标签 | `/api/context-tags` | ContextTag CRUD |
 | 用户 | `/api/users` | 用户管理 |
 

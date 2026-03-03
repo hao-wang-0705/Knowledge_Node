@@ -4,6 +4,9 @@
 > 更新时间: 2026-03-03  
 > 适用对象: 系统管理员、后端开发人员
 
+> [!WARNING]
+> 本文档中的部分实现路径已过期。当前标签能力以 backend `knowledge-node-backend/src/modules/tags/*` 为唯一事实来源，Next 侧标签路由仅做代理层。新增/修复预设标签请优先执行 `knowledge-node-backend/prisma/seed.ts` 并通过 backend API 验证。
+
 ---
 
 ## 📋 目录

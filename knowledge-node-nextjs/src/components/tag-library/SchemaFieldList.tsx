@@ -452,7 +452,7 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
             选择引用的目标标签
           </div>
           {Object.values(supertags)
-            .filter(t => t.id !== currentTagId && !t.isSystem)
+            .filter(t => t.id !== currentTagId && t.status !== 'deprecated')
             .map((t) => (
               <button
                 key={t.id}

@@ -110,9 +110,14 @@ export const nodesApi = {
     return apiClient.post('/api/nodes/batch', { nodes });
   },
 
-  // 更新节点
+  // 更新节点（将 type 映射为 nodeType 以符合后端 DTO）
   async update(id: string, params: UpdateNodeParams): Promise<Node> {
-    const response = await apiClient.patch<NodeResponse>(`/api/nodes/${id}`, params);
+    const body: Record<string, unknown> = { ...params };
+    if (params.type !== undefined && body.nodeType === undefined) {
+      body.nodeType = params.type;
+      delete body.type;
+    }
+    const response = await apiClient.patch<NodeResponse>(`/api/nodes/${id}`, body);
     return toNode(response);
   },
 

@@ -73,6 +73,16 @@ export class TagsController {
 export class InternalTagsController {
   constructor(private readonly tagsService: TagsService) {}
 
+  private assertAdminKey(adminKey: string) {
+    const expectedKey = process.env.ADMIN_API_KEY;
+    if (!expectedKey) {
+      throw new UnauthorizedException('ADMIN_API_KEY 未配置');
+    }
+    if (adminKey !== expectedKey) {
+      throw new UnauthorizedException('Invalid admin key');
+    }
+  }
+
   @Post()
   @ApiOperation({ summary: '创建系统预置标签（管理员专用）' })
   @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
@@ -81,10 +91,7 @@ export class InternalTagsController {
     @Headers('x-admin-key') adminKey: string,
     @Body() createDto: CreateTagTemplateDto,
   ) {
-    const expectedKey = process.env.ADMIN_API_KEY || 'admin-secret-key';
-    if (adminKey !== expectedKey) {
-      throw new UnauthorizedException('Invalid admin key');
-    }
+    this.assertAdminKey(adminKey);
     return this.tagsService.createTagTemplate(createDto);
   }
 
@@ -93,10 +100,7 @@ export class InternalTagsController {
   @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
   @ApiResponse({ status: 200, description: '返回所有标签模版', type: [TagTemplateResponseDto] })
   findAll(@Headers('x-admin-key') adminKey: string) {
-    const expectedKey = process.env.ADMIN_API_KEY || 'admin-secret-key';
-    if (adminKey !== expectedKey) {
-      throw new UnauthorizedException('Invalid admin key');
-    }
+    this.assertAdminKey(adminKey);
     return this.tagsService.findAllTagTemplatesAdmin();
   }
 }

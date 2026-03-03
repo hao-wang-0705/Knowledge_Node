@@ -302,7 +302,7 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
         manualTagId: state.manualTagId,
         // 发送精简版 Supertag Schema
         supertags: Object.values(supertags)
-          .filter((tag) => !tag.isSystem)
+          .filter((tag) => tag.status !== 'deprecated')
           .map((tag) => ({
             id: tag.id,
             name: tag.name,

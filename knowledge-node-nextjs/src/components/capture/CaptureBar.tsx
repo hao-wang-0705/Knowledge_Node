@@ -90,8 +90,8 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   
   const hasContent = useCaptureHasContent();
   
-  // 获取非系统标签
-  const availableTags = Object.values(supertags).filter((t) => !t.isSystem);
+  // 获取可用标签（排除已废弃标签）
+  const availableTags = Object.values(supertags).filter((t) => t.status !== 'deprecated');
   const filteredTags = tagSearchQuery
     ? availableTags.filter((t) => 
         t.name.toLowerCase().includes(tagSearchQuery.toLowerCase())

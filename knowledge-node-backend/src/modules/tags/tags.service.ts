@@ -55,7 +55,21 @@ export class TagsService {
    */
   async findOneTagTemplate(userId: string, id: string) {
     const tag = await this.prisma.tagTemplate.findFirst({
-      where: { id, status: 'active' },
+      where: {
+        id,
+        status: 'active',
+        OR: [
+          { isGlobalDefault: true },
+          {
+            userLibraries: {
+              some: {
+                userId,
+                isActive: true,
+              },
+            },
+          },
+        ],
+      },
       include: {
         _count: { select: { nodes: true } },
       },
@@ -95,7 +109,7 @@ export class TagsService {
       },
     });
 
-    return { supertags: tags.map(tag => this.toCompatibleFormat(tag)) };
+    return { supertags: tags.map((tag) => this.toCompatibleFormat(tag)) };
   }
 
   // =============== 管理员专用方法 ===============
@@ -149,7 +163,24 @@ export class TagsService {
 
   // =============== 工具方法 ===============
 
-  private toCompatibleFormat(tag: any) {
+  private toCompatibleFormat(
+    tag: {
+      id: string;
+      name: string;
+      color: string;
+      icon: string | null;
+      description: string | null;
+      fieldDefinitions: unknown;
+      order: number;
+      templateContent: unknown;
+      createdAt: Date;
+      updatedAt: Date;
+      isGlobalDefault: boolean;
+      status: string;
+      creatorId: string | null;
+      _count?: { nodes: number };
+    },
+  ) {
     return {
       id: tag.id,
       name: tag.name,
@@ -164,7 +195,8 @@ export class TagsService {
       isGlobalDefault: tag.isGlobalDefault,
       status: tag.status,
       creatorId: tag.creatorId,
-      isSystem: tag.isGlobalDefault,
+      // 兼容字段保留，但不再绑定预设语义
+      isSystem: false,
       _count: tag._count,
     };
   }

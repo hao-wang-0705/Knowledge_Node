@@ -42,7 +42,7 @@ const PreviewBubble: React.FC<PreviewBubbleProps> = ({
   const { updatePreviewField, updatePreviewTag, setPreview } = useCaptureStore();
   
   const currentTag = preview.supertagId ? supertags[preview.supertagId] : null;
-  const availableTags = Object.values(supertags).filter((t) => !t.isSystem);
+  const availableTags = Object.values(supertags).filter((t) => t.status !== 'deprecated');
   
   // ============================================
   // 标签切换

@@ -1,6 +1,6 @@
 {
   "name": "knowledge-node-nextjs",
-  "version": "3.2.0",
+  "version": "3.6.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -15,7 +15,7 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "db:seed": "npx ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts",
+    "db:seed": "cd ../knowledge-node-backend && npm run prisma:seed",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "postinstall": "prisma generate"

@@ -246,11 +246,11 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         tags: [...node.tags, tagId]
       };
       
-      // 如果标签有状态字段且节点当前没有状态值，自动设为"待办"
+      // 如果标签有状态字段且节点当前没有状态值，自动设为 "Todo"
       if (hasStatusField && !node.fields.status) {
         updates.fields = {
           ...node.fields,
-          status: '待办'
+          status: 'Todo'
         };
       }
       
@@ -288,7 +288,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         const defs = tag ? getFieldDefinitions(tag.id) ?? [] : [];
         const hasStatusField = defs.some((f: { key: string }) => f.key === 'status');
         if (hasStatusField && !node.fields?.status) {
-          updateNode(nodeId, { fields: { ...node.fields, status: '待办' } });
+          updateNode(nodeId, { fields: { ...node.fields, status: 'Todo' } });
         }
       }
     }
@@ -332,8 +332,8 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     
     // 标签选择器打开时的键盘导航
     if (showTagSelector) {
-      // 过滤掉系统标签和已添加的标签
-      const availableTagsList = Object.values(supertags).filter(tag => !tag.isSystem && !node?.tags.includes(tag.id));
+      // 过滤掉已废弃标签和已添加的标签
+      const availableTagsList = Object.values(supertags).filter(tag => tag.status !== 'deprecated' && !node?.tags.includes(tag.id));
       
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -611,12 +611,12 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   if (!node) return null;
 
   const hasChildren = node.childrenIds.length > 0;
-  // 功能标签 (Type Tags) - 胶囊样式（所有非系统标签都是功能标签）
-  const typeTags = node.tags.map(tagId => supertags[tagId]).filter(tag => tag && !tag.isSystem);
+  // 功能标签 (Type Tags) - 胶囊样式（排除已废弃标签）
+  const typeTags = node.tags.map(tagId => supertags[tagId]).filter(tag => tag && tag.status !== 'deprecated');
   // 向后兼容：旧的 nodeTags
   const nodeTags = node.tags.map(tagId => supertags[tagId]).filter(Boolean);
-  // 过滤掉系统标签和已添加的标签
-  const availableTags = Object.values(supertags).filter(tag => !tag.isSystem && !node.tags.includes(tag.id));
+  // 过滤掉已废弃标签和已添加的标签
+  const availableTags = Object.values(supertags).filter(tag => tag.status !== 'deprecated' && !node.tags.includes(tag.id));
   
   // 检查内容是否包含引用
   const contentHasReferences = hasReferences(node?.content || '');

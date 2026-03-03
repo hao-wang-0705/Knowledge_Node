@@ -65,5 +65,5 @@ ENV PORT=4000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget -q --spider http://localhost:4000/api/docs || exit 1
 
-# Run migrations and start the server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+# Run migrations, seed preset tags (e.g. Task), then start the server
+CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/main"]

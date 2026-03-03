@@ -54,8 +54,8 @@ const TagLibrary: React.FC<TagLibraryProps> = ({ open, onClose }) => {
   const supertags = useSupertagStore((state) => state.supertags);
   const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
 
-  // 获取非系统标签列表
-  const userTags = Object.values(supertags).filter(tag => !tag.isSystem);
+  // 获取可用标签列表（排除已废弃标签）
+  const userTags = Object.values(supertags).filter(tag => tag.status !== 'deprecated');
   const selectedTag = selectedTagId ? supertags[selectedTagId] : null;
   
   const resolvedFields = useMemo(() => {

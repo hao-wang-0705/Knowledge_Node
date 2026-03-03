@@ -25,17 +25,11 @@ const TagLibraryPage: React.FC = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [showDetailPanel, setShowDetailPanel] = useState(false);
   
-  // 从 store 获取数据
+  // 从 store 获取数据（数据加载由路由层负责）
   const supertags = useSupertagStore((state) => state.supertags);
-  const loadFromAPI = useSupertagStore((state) => state.loadFromAPI);
   
   // 选中的标签
   const selectedTag = selectedTagId ? supertags[selectedTagId] : null;
-  
-  // 初始化加载数据
-  useEffect(() => {
-    loadFromAPI();
-  }, [loadFromAPI]);
   
   // 客户端初始化时读取 URL 参数
   useEffect(() => {

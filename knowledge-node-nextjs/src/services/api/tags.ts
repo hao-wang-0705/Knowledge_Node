@@ -4,12 +4,12 @@
  * v3.4: 移除分类系统和继承机制
  * 
  * 保留的只读 API:
- * - supertagsApi.getAll: 获取所有标签
- * - supertagsApi.getOne: 获取单个标签详情
+ * - supertagsApi.getAllTemplates: 获取所有标签
+ * - supertagsApi.getTemplate: 获取单个标签详情
  */
 
 import apiClient from './client';
-import type { Supertag, TagTemplate } from '@/types';
+import type { TagTemplate } from '@/types';
 
 // =============== API 响应类型 ===============
 
@@ -20,7 +20,6 @@ export interface SupertagResponse {
   icon?: string;
   description?: string;
   fieldDefinitions: any[];
-  isSystem?: boolean;
   isGlobalDefault?: boolean;
   creatorId?: string | null;
   status?: string;
@@ -31,21 +30,6 @@ export interface SupertagResponse {
 }
 
 // =============== 类型转换函数 ===============
-
-function toSupertag(response: SupertagResponse): Supertag {
-  return {
-    id: response.id,
-    name: response.name,
-    color: response.color,
-    icon: response.icon,
-    description: response.description,
-    fieldDefinitions: response.fieldDefinitions ?? [],
-    templateContent: response.templateContent ?? undefined,
-    isGlobalDefault: response.isGlobalDefault,
-    status: response.status as 'active' | 'deprecated' | undefined,
-    creatorId: response.creatorId,
-  };
-}
 
 function toTagTemplate(response: SupertagResponse): TagTemplate {
   return {
@@ -68,13 +52,9 @@ function toTagTemplate(response: SupertagResponse): TagTemplate {
 // =============== Supertag API（只读） ===============
 
 export const supertagsApi = {
-  async getAll(): Promise<Array<Supertag & { nodeCount?: number }>> {
-    const response = await apiClient.get<SupertagResponse[]>('/api/supertags');
-    return response.map((tag) => ({
-      ...toSupertag(tag),
-      templateContent: tag.templateContent ?? undefined,
-      nodeCount: tag._count?.nodes,
-    }));
+  // 向后兼容：旧调用名
+  async getAll(): Promise<Array<TagTemplate & { nodeCount?: number }>> {
+    return this.getAllTemplates();
   },
 
   async getAllTemplates(): Promise<Array<TagTemplate & { nodeCount?: number }>> {
@@ -85,12 +65,9 @@ export const supertagsApi = {
     }));
   },
 
-  async getOne(id: string): Promise<Supertag & { nodeCount?: number }> {
-    const response = await apiClient.get<SupertagResponse>(`/api/supertags/${id}`);
-    return {
-      ...toSupertag(response),
-      nodeCount: response._count?.nodes,
-    };
+  // 向后兼容：旧调用名
+  async getOne(id: string): Promise<TagTemplate & { nodeCount?: number }> {
+    return this.getTemplate(id);
   },
 
   async getTemplate(id: string): Promise<TagTemplate & { nodeCount?: number }> {
@@ -128,14 +105,14 @@ export const supertagsApi = {
 
 export const tagsApi = {
   async search(query: string): Promise<{
-    supertags: Supertag[];
+    supertags: TagTemplate[];
   }> {
     const response = await apiClient.get<{
       supertags: SupertagResponse[];
     }>('/api/tags/search', { q: query });
     
     return {
-      supertags: response.supertags.map(toSupertag),
+      supertags: response.supertags.map(toTagTemplate),
     };
   },
 };

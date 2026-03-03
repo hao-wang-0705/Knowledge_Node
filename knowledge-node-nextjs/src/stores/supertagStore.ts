@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Supertag, FieldDefinition } from '@/types';
+import { TagTemplate, FieldDefinition } from '@/types';
 import { AuthenticationError } from '@/services/api';
 
 // ============================================================================
@@ -7,7 +7,7 @@ import { AuthenticationError } from '@/services/api';
 // ============================================================================
 
 interface SupertagStoreState {
-  supertags: Record<string, Supertag>;
+  supertags: Record<string, TagTemplate>;
   recentTags: string[];
   isLoading: boolean;
   isInitialized: boolean;
@@ -26,8 +26,8 @@ interface SupertagStoreActions {
   clearRecentTags: () => void;
   
   // 工具函数（只读查询）
-  getSupertag: (id: string) => Supertag | undefined;
-  getAllSupertags: () => Supertag[];
+  getSupertag: (id: string) => TagTemplate | undefined;
+  getAllSupertags: () => TagTemplate[];
   
   /** 获取字段定义（v3.4: 直接返回标签自身的字段定义，不再处理继承） */
   getFieldDefinitions: (tagId: string) => FieldDefinition[];
@@ -51,11 +51,25 @@ export const useSupertagStore = create<SupertagStore>((set, get) => ({
   // API 数据加载（只读）
   // ============================================
   loadFromAPI: async () => {
+    // 幂等保护：避免在已有请求进行中时重复触发
+    const { isLoading } = get();
+    if (isLoading) {
+      console.log('[supertagStore] loadFromAPI 已在进行中，跳过本次调用');
+      return;
+    }
+
     set({ isLoading: true, error: null });
     
+    // 为网络请求增加超时保护，防止前端长期停留在加载态
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 15000);
+
     try {
       const response = await fetch('/api/supertags', {
         credentials: 'include',
+        signal: controller.signal,
       });
       
       // 检查 HTTP 状态
@@ -116,8 +130,8 @@ export const useSupertagStore = create<SupertagStore>((set, get) => ({
       }
       
       // 将标签数组转换为 Record 格式
-      const supertagsRecord: Record<string, Supertag> = {};
-      (supertagsResponse.data as Supertag[]).forEach(tag => {
+      const supertagsRecord: Record<string, TagTemplate> = {};
+      (supertagsResponse.data as TagTemplate[]).forEach(tag => {
         supertagsRecord[tag.id] = tag;
       });
       
@@ -130,6 +144,17 @@ export const useSupertagStore = create<SupertagStore>((set, get) => ({
       
       console.log(`[supertagStore] 从 API 加载了 ${Object.keys(supertagsRecord).length} 个系统预置标签（只读模式）`);
     } catch (error) {
+      // 处理请求超时
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.error('[supertagStore] loadFromAPI 请求超时');
+        set({
+          isLoading: false,
+          error: '获取标签超时，请稍后重试',
+          isInitialized: true,
+        });
+        return;
+      }
+
       // 捕获 AuthenticationError 需要重新抛出
       if (error instanceof AuthenticationError) {
         throw error;
@@ -141,6 +166,8 @@ export const useSupertagStore = create<SupertagStore>((set, get) => ({
         error: error instanceof Error ? error.message : '网络请求失败',
         isInitialized: true,
       });
+    } finally {
+      clearTimeout(timeoutId);
     }
   },
 

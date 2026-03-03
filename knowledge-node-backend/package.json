@@ -1,6 +1,6 @@
 {
   "name": "knowledge-node-backend",
-  "version": "3.2.0",
+  "version": "3.6.0",
   "description": "Knowledge Node 后端服务 - NestJS + Prisma + PostgreSQL",
   "main": "dist/main.js",
   "scripts": {
@@ -13,7 +13,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:prod": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed": "node prisma/seed.js",
     "db:delete-orphan-nodes": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" scripts/delete-orphan-nodes.ts",
     "db:push": "prisma db push",
     "db:reset": "prisma migrate reset",
@@ -30,6 +30,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "dependencies": {
     "@nestjs/common": "^11.1.13",
     "@nestjs/config": "^4.0.3",

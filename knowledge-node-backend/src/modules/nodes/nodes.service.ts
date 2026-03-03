@@ -412,12 +412,28 @@ export class NodesService {
       }
     }
 
+    // 显式构建 Prisma data，确保 supertagId / tags 等被正确写入（避免 spread 遗漏或键名不一致）
+    const data: Prisma.NodeUncheckedUpdateInput = {
+      parentId: nextParentId,
+    };
+    if (updateNodeDto.content !== undefined) data.content = updateNodeDto.content;
+    if (updateNodeDto.nodeType !== undefined) data.nodeType = updateNodeDto.nodeType;
+    if (updateNodeDto.sortOrder !== undefined) data.sortOrder = updateNodeDto.sortOrder;
+    if (updateNodeDto.isCollapsed !== undefined) data.isCollapsed = updateNodeDto.isCollapsed;
+    if (updateNodeDto.fields !== undefined) data.fields = updateNodeDto.fields as Prisma.InputJsonValue;
+    if (updateNodeDto.payload !== undefined) data.payload = updateNodeDto.payload as Prisma.InputJsonValue;
+    if (updateNodeDto.supertagId !== undefined) data.supertagId = updateNodeDto.supertagId ?? null;
+    if (updateNodeDto.tags !== undefined) data.tags = updateNodeDto.tags;
+    if (updateNodeDto.references !== undefined) {
+      data.references =
+        updateNodeDto.references != null
+          ? (updateNodeDto.references as Prisma.InputJsonValue)
+          : Prisma.JsonNull;
+    }
+
     const node = await this.prisma.node.update({
       where: { id },
-      data: {
-        ...updateNodeDto,
-        parentId: nextParentId,
-      },
+      data,
     });
     return this.mapNodeToApiModel(node, userId);
   }

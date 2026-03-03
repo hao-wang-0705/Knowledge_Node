@@ -132,7 +132,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
           const firstTag = supertags[pendingTags[0]];
           const defs = firstTag ? getFieldDefinitions(firstTag.id) ?? [] : [];
           if (defs.some((f) => f.key === 'status')) {
-            updates.fields = { status: '待办' };
+            updates.fields = { status: 'Todo' };
           }
         }
         
@@ -188,7 +188,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
             const firstTag = supertags[pendingTags[0]];
             const defs = firstTag ? getFieldDefinitions(firstTag.id) ?? [] : [];
             if (defs.some((f) => f.key === 'status')) {
-              updates.fields = { status: '待办' };
+              updates.fields = { status: 'Todo' };
             }
           }
           
