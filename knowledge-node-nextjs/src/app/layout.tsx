@@ -3,6 +3,7 @@ import "./globals.css";
 import { ToastProvider } from "@/components/ui/toast";
 import { SessionProvider } from "@/components/SessionProvider";
 import { QueryProvider } from "@/components/QueryProvider";
+import { GlobalLayout } from "@/components/layout";
 import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = {
@@ -21,7 +22,9 @@ export default function RootLayout({
         <SessionProvider>
           <QueryProvider>
             <ToastProvider>
-              {children}
+              <GlobalLayout>
+                {children}
+              </GlobalLayout>
             </ToastProvider>
           </QueryProvider>
         </SessionProvider>

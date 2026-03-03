@@ -12,46 +12,41 @@ interface SplitPaneProviderProps {
 
 /**
  * 右侧面板 Context Provider
- * 管理面板开关和布局
+ * 仅管理 NodeDetailPanel（节点详情面板）
  * 
- * 使用 Fragment 包裹，不添加额外的 DOM 层级
- * 主内容区域的 marginRight 通过 CSS 变量控制
+ * 注意：QueryPanel 已移至 MainContentWrapper 中作为常驻面板
  */
 const SplitPaneProvider: React.FC<SplitPaneProviderProps> = ({
   children,
 }) => {
-  const { isOpen, panelWidth } = useSplitPane();
+  // 节点详情面板状态
+  const { isOpen: isDetailOpen, panelWidth: detailPanelWidth, closePanel: closeDetailPanel } = useSplitPane();
 
   return (
     <>
-      {/* 主内容区域包裹器 - 使用 flex-1 继承父级布局，添加 marginRight 支持面板 */}
+      {/* 主内容区域包裹器 */}
       <div 
-        className="flex-1 flex flex-col min-w-0 relative transition-all duration-200"
-        style={{
-          marginRight: isOpen ? panelWidth : 0,
-        }}
+        className="flex-1 flex flex-col min-w-0 relative transition-all duration-300 ease-in-out"
       >
         {children}
       </div>
 
-      {/* 右侧详情面板 - 固定定位，不影响主布局 */}
+      {/* 右侧节点详情面板 - 固定定位，覆盖式显示 */}
       <div
         className={cn(
-          'fixed top-0 right-0 h-full z-40 transition-transform duration-200',
-          isOpen ? 'translate-x-0' : 'translate-x-full'
+          'fixed top-14 right-0 h-[calc(100vh-56px)] z-50 transition-transform duration-200',
+          isDetailOpen ? 'translate-x-0' : 'translate-x-full'
         )}
-        style={{ width: panelWidth }}
+        style={{ width: detailPanelWidth }}
       >
         <NodeDetailPanel />
       </div>
 
-      {/* 面板打开时的遮罩（可选，用于小屏幕） */}
-      {isOpen && (
+      {/* 面板打开时的遮罩（用于点击关闭） */}
+      {isDetailOpen && (
         <div 
-          className="fixed inset-0 bg-black/10 z-30 lg:hidden"
-          onClick={() => {
-            // 点击遮罩关闭面板（仅在小屏幕）
-          }}
+          className="fixed inset-0 top-14 bg-black/20 z-40 backdrop-blur-[1px]"
+          onClick={closeDetailPanel}
         />
       )}
     </>

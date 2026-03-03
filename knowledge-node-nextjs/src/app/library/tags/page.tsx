@@ -8,7 +8,7 @@ import TagLibraryPage from '@/components/tag-library/TagLibraryPage';
 // 加载状态组件
 function LoadingState() {
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
+    <div className="flex h-full items-center justify-center">
       <div className="text-center">
         <div
           className="w-12 h-12 mx-auto mb-4 rounded-xl flex items-center justify-center animate-pulse"
@@ -27,7 +27,7 @@ function LoadingState() {
 // 错误状态组件
 function ErrorState({ message }: { message: string }) {
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
+    <div className="flex h-full items-center justify-center">
       <div className="text-center">
         <div className="w-12 h-12 mx-auto mb-4 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
           <span className="text-red-500 text-xl">!</span>

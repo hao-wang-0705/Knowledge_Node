@@ -6,10 +6,10 @@ interface TagLibraryLayoutProps {
   children: ReactNode;
 }
 
+/**
+ * 标签库页面布局
+ * 已使用全局布局，此处仅作为占位符保持路由结构
+ */
 export default function TagLibraryLayout({ children }: TagLibraryLayoutProps) {
-  return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-      {children}
-    </div>
-  );
+  return <>{children}</>;
 }

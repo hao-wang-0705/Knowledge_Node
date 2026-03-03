@@ -2,10 +2,8 @@
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { FileText, Calendar, ChevronRight, Book, X, Hash, Plus } from 'lucide-react';
-import { UserMenu } from '@/components/UserMenu';
+import { Calendar, ChevronRight, Book, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
@@ -14,20 +12,18 @@ import { useAuthErrorHandler } from '@/hooks/useAuthErrorHandler';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import NodeComponent from './NodeComponent';
 import FieldEditor from './FieldEditor';
-import Sidebar from './Sidebar';
-import CommandCenter from './CommandCenter';
 import { formatDate } from '@/utils/helpers';
 import { getCalendarNodeType } from '@/utils/date-helpers';
 import QuickInputNode from './QuickInputNode';
 import { CaptureBar } from './capture';
-import { BRAND } from '@/lib/brand';
 import { getTagStyle } from '@/utils/tag-styles';
-import { SplitPaneProvider } from './split-pane';
-import { SyncStatusIndicator } from './SyncStatusIndicator';
 import { OfflineToast } from './OfflineToast';
 
+/**
+ * 笔记编辑器主组件
+ * 重构后仅包含笔记内容区域，顶导/侧导已移至 GlobalLayout
+ */
 const OutlineEditor: React.FC = () => {
-  const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [hasInitialNavigated, setHasInitialNavigated] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -53,9 +49,7 @@ const OutlineEditor: React.FC = () => {
   const loadSupertagsFromAPI = useSupertagStore((state) => state.loadFromAPI);
   const supertags = useSupertagStore((state) => state.supertags);
   const getResolvedFieldDefinitions = useSupertagStore((state) => state.getResolvedFieldDefinitions);
-  const isSupertagsInitialized = useSupertagStore((state) => state.isInitialized);
   
-  const getSidebarEntries = useNodeStore((state) => state.getSidebarEntries);
   const isInDailyTree = useNodeStore((state) => state.isInDailyTree);
 
   const { data: session } = useSession();
@@ -170,7 +164,7 @@ const OutlineEditor: React.FC = () => {
     };
   }, [nodes]);
 
-  // 待同步：按节点去重，显示“X 个节点待同步”
+  // 待同步：按节点去重，显示"X 个节点待同步"
   const pendingNodeCount = useMemo(() => {
     const pending = pendingOperations.filter(
       (op) => (op.status === 'pending' || op.status === 'failed') && op.entityType === 'node'
@@ -182,10 +176,6 @@ const OutlineEditor: React.FC = () => {
   const handleAddNode = useCallback(() => {
     addNode(hoistedNodeId);
   }, [addNode, hoistedNodeId]);
-
-  const handleGoToToday = useCallback(() => {
-    goToToday();
-  }, [goToToday]);
 
   // 判断当前聚焦节点的日历类型
   const calendarNodeType = useMemo(() => {
@@ -317,270 +307,208 @@ const OutlineEditor: React.FC = () => {
   }, [isEditingTitle]);
 
   return (
-    <TooltipProvider>
-      <div className="h-screen flex bg-gradient-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900">
-        {/* 左侧侧边栏 */}
-        <Sidebar 
-          className="w-64 flex-shrink-0" 
-          onOpenCommandCenter={() => setShowCommandCenter(true)}
-        />
-        
-        {/* 中间主视图 - 包含右侧面板 */}
-        <SplitPaneProvider>
-          {/* 顶部导航栏 */}
-          <header className="h-14 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
-            <div className="h-full px-6 flex items-center justify-between">
-              {/* 左侧：Logo 和标题 */}
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
-                  <FileText size={18} className="text-white" />
-                </div>
-                <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-                  {BRAND.name}
-                </h1>
-              </div>
+    <>
+      {/* 主内容区 */}
+      <main className="flex-1 overflow-y-auto pb-32">
+        <div className="max-w-3xl mx-auto px-6 py-8">
+          {/* 统一面包屑：用户昵称(全部笔记) > Daily notes / 笔记本 > 年/周/日 或 笔记n */}
+          <div className="flex items-center gap-1 text-sm text-gray-500 mb-4 flex-wrap">
+            {unifiedBreadcrumbItems.map((item, index) => (
+              <React.Fragment key={item.id}>
+                {index > 0 && <ChevronRight size={14} className="text-gray-400" />}
+                {index === unifiedBreadcrumbItems.length - 1 ? (
+                  <span className="text-gray-800 font-medium flex items-center gap-1">
+                    {activeNotebookNodeId && index > 0 && <Book size={14} />}
+                    {item.label}
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setHoistedNode(item.id)}
+                    className={cn(
+                      "hover:underline flex items-center gap-1",
+                      item.isUserRoot ? "hover:text-[var(--brand-primary)]" : "hover:text-blue-600"
+                    )}
+                  >
+                    {activeNotebookNodeId && index === 1 && <Book size={14} />}
+                    {item.label}
+                  </button>
+                )}
+              </React.Fragment>
+            ))}
+            {unifiedBreadcrumbItems.length === 0 && activeNotebookNodeId && (
+              <span className="text-gray-800 font-medium flex items-center gap-1">
+                <Book size={14} />
+                {notebookName || '笔记本'}
+              </span>
+            )}
+          </div>
 
-              {/* 右侧：操作按钮和用户菜单 */}
-              <div className="flex items-center gap-2">
-                {/* 今日按钮 */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className={cn(
-                        "hover:bg-green-50",
-                        isCalendarView ? "text-green-600" : "text-gray-500 hover:text-green-600"
-                      )}
-                      onClick={handleGoToToday}
+          {/* 页面标题区域 */}
+          <div className="mb-8">
+            {isEditingTitle ? (
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={editingTitleValue}
+                onChange={(e) => setEditingTitleValue(e.target.value)}
+                onBlur={handleSaveTitle}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveTitle();
+                  if (e.key === 'Escape') setIsEditingTitle(false);
+                }}
+                className="text-2xl font-bold text-gray-800 dark:text-gray-100 bg-transparent border-none outline-none w-full"
+              />
+            ) : (
+              <h2 
+                className={cn(
+                  "text-2xl font-bold text-gray-800 dark:text-gray-100 mb-1",
+                  activeNotebookNodeId && "cursor-text hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 -mx-1"
+                )}
+                onClick={handleTitleClick}
+              >
+                {pageTitle}
+              </h2>
+            )}
+            
+            {/* 聚焦节点的超级标签徽章 */}
+            {hoistedNodeTags.length > 0 && (
+              <div className="flex items-center gap-2 mt-2 mb-3 flex-wrap">
+                {hoistedNodeTags.map((tag) => {
+                  // 使用统一的标签样式函数
+                  const tagStyle = getTagStyle(tag);
+                  return (
+                    <div
+                      key={tag.id}
+                      className="group/tag relative inline-flex items-center"
                     >
-                      <Calendar size={18} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>今日日记</TooltipContent>
-                </Tooltip>
-
-                {/* 同步状态指示器 */}
-                <SyncStatusIndicator />
-
-                {/* 分隔线 */}
-                <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-1" />
-
-                {/* 用户菜单 */}
-                <UserMenu />
-              </div>
-            </div>
-          </header>
-
-          {/* 主内容区 */}
-          <main className="flex-1 overflow-y-auto pb-32">
-            <div className="max-w-3xl mx-auto px-6 py-8">
-              {/* 统一面包屑：用户昵称(全部笔记) > Daily notes / 笔记本 > 年/周/日 或 笔记n */}
-              <div className="flex items-center gap-1 text-sm text-gray-500 mb-4 flex-wrap">
-                {unifiedBreadcrumbItems.map((item, index) => (
-                  <React.Fragment key={item.id}>
-                    {index > 0 && <ChevronRight size={14} className="text-gray-400" />}
-                    {index === unifiedBreadcrumbItems.length - 1 ? (
-                      <span className="text-gray-800 font-medium flex items-center gap-1">
-                        {activeNotebookNodeId && index > 0 && <Book size={14} />}
-                        {item.label}
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => setHoistedNode(item.id)}
+                      <span
                         className={cn(
-                          "hover:underline flex items-center gap-1",
-                          item.isUserRoot ? "hover:text-[var(--brand-primary)]" : "hover:text-blue-600"
+                          "inline-flex items-center gap-1 px-2.5 py-1 text-sm font-medium rounded-md cursor-default select-none",
+                          tagStyle.gradient,
+                          tagStyle.text
                         )}
                       >
-                        {activeNotebookNodeId && index === 1 && <Book size={14} />}
-                        {item.label}
+                        <span className="text-base">{tagStyle.icon}</span>
+                        {tag.name}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveHoistedTag(tag.id);
+                        }}
+                        className="absolute -right-1 -top-1 w-4 h-4 flex items-center justify-center rounded-full bg-gray-400 hover:bg-red-500 text-white opacity-0 group-hover/tag:opacity-100 transition-opacity shadow-sm"
+                        title={`移除 #${tag.name}`}
+                      >
+                        <X size={10} />
                       </button>
-                    )}
-                  </React.Fragment>
-                ))}
-                {unifiedBreadcrumbItems.length === 0 && activeNotebookNodeId && (
-                  <span className="text-gray-800 font-medium flex items-center gap-1">
-                    <Book size={14} />
-                    {notebookName || '笔记本'}
-                  </span>
-                )}
-              </div>
-
-              {/* 页面标题区域 */}
-              <div className="mb-8">
-                {isEditingTitle ? (
-                  <input
-                    ref={titleInputRef}
-                    type="text"
-                    value={editingTitleValue}
-                    onChange={(e) => setEditingTitleValue(e.target.value)}
-                    onBlur={handleSaveTitle}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveTitle();
-                      if (e.key === 'Escape') setIsEditingTitle(false);
-                    }}
-                    className="text-2xl font-bold text-gray-800 dark:text-gray-100 bg-transparent border-none outline-none w-full"
-                  />
-                ) : (
-                  <h2 
-                    className={cn(
-                      "text-2xl font-bold text-gray-800 dark:text-gray-100 mb-1",
-                      activeNotebookNodeId && "cursor-text hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 -mx-1"
-                    )}
-                    onClick={handleTitleClick}
-                  >
-                    {pageTitle}
-                  </h2>
-                )}
-                
-                {/* 聚焦节点的超级标签徽章 */}
-                {hoistedNodeTags.length > 0 && (
-                  <div className="flex items-center gap-2 mt-2 mb-3 flex-wrap">
-                    {hoistedNodeTags.map((tag) => {
-                      // 使用统一的标签样式函数
-                      const tagStyle = getTagStyle(tag);
-                      return (
-                        <div
-                          key={tag.id}
-                          className="group/tag relative inline-flex items-center"
-                        >
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 px-2.5 py-1 text-sm font-medium rounded-md cursor-default select-none",
-                              tagStyle.gradient,
-                              tagStyle.text
-                            )}
-                          >
-                            <span className="text-base">{tagStyle.icon}</span>
-                            {tag.name}
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveHoistedTag(tag.id);
-                            }}
-                            className="absolute -right-1 -top-1 w-4 h-4 flex items-center justify-center rounded-full bg-gray-400 hover:bg-red-500 text-white opacity-0 group-hover/tag:opacity-100 transition-opacity shadow-sm"
-                            title={`移除 #${tag.name}`}
-                          >
-                            <X size={10} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                
-                {/* 聚焦节点的表单字段 */}
-                {hoistedNodeTags.length > 0 && hoistedNode && (
-                  <div className="bg-slate-50/80 border-l-2 border-blue-200 rounded-r-lg mb-4">
-                    <div className="py-2">
-                      {hoistedNodeTags.map((tag) =>
-                        (getResolvedFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
-                          <FieldEditor
-                            key={fieldDef.id}
-                            fieldDef={fieldDef}
-                            value={hoistedNode.fields[fieldDef.key]}
-                            onChange={(value) => handleHoistedFieldChange(fieldDef.key, value)}
-                            nodeId={hoistedNodeId || undefined}
-                            tagId={tag.id}
-                          />
-                        ))
-                      )}
                     </div>
-                  </div>
-                )}
-                
-                {/* 日历节点的特殊提示 */}
-                {isCalendarView && isDayView && (
-                  <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                    <p className="text-sm text-green-800 dark:text-green-200">
-                      ✨ 这是今天的日记页面，开始记录您的想法吧！
-                    </p>
-                  </div>
-                )}
+                  );
+                })}
               </div>
-
-              {/* 节点列表 */}
-              <div className="space-y-1">
-                {displayedNodeIds.length > 0 ? (
-                  displayedNodeIds.map((nodeId) => (
-                    <NodeComponent
-                      key={nodeId}
-                      nodeId={nodeId}
-                      depth={0}
-                    />
-                  ))
-                ) : (
-                  <div className="text-center py-12">
-                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                      {isCalendarView ? (
-                        <Calendar size={32} className="text-green-400" />
-                      ) : (
-                        <Book size={32} className="text-blue-400" />
-                      )}
-                    </div>
-                    <p className="text-gray-500 dark:text-gray-400 mb-2">
-                      {hoistedNodeId ? '这里还没有内容' : '暂无内容'}
-                    </p>
-                    <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">
-                      {canAddNode 
-                        ? '点击下方按钮添加第一条内容' 
-                        : '展开子节点查看更多内容'}
-                    </p>
-                    {canAddNode && (
-                      <Button onClick={handleAddNode} variant="outline">
-                        <Plus size={16} className="mr-2" />
-                        开始记录
-                      </Button>
-                    )}
-                  </div>
-                )}
+            )}
+            
+            {/* 聚焦节点的表单字段 */}
+            {hoistedNodeTags.length > 0 && hoistedNode && (
+              <div className="bg-slate-50/80 border-l-2 border-blue-200 rounded-r-lg mb-4">
+                <div className="py-2">
+                  {hoistedNodeTags.map((tag) =>
+                    (getResolvedFieldDefinitions(tag.id) ?? []).map((fieldDef) => (
+                      <FieldEditor
+                        key={fieldDef.id}
+                        fieldDef={fieldDef}
+                        value={hoistedNode.fields[fieldDef.key]}
+                        onChange={(value) => handleHoistedFieldChange(fieldDef.key, value)}
+                        nodeId={hoistedNodeId || undefined}
+                        tagId={tag.id}
+                      />
+                    ))
+                  )}
+                </div>
               </div>
+            )}
+            
+            {/* 日历节点的特殊提示 */}
+            {isCalendarView && isDayView && (
+              <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                <p className="text-sm text-green-800 dark:text-green-200">
+                  ✨ 这是今天的日记页面，开始记录您的想法吧！
+                </p>
+              </div>
+            )}
+          </div>
 
-              {/* 末尾常驻空节点输入框 */}
-              {canAddNode && (
-                <QuickInputNode 
-                  parentId={hoistedNodeId} 
-                  placeholder="输入新笔记..."
+          {/* 节点列表 */}
+          <div className="space-y-1">
+            {displayedNodeIds.length > 0 ? (
+              displayedNodeIds.map((nodeId) => (
+                <NodeComponent
+                  key={nodeId}
+                  nodeId={nodeId}
+                  depth={0}
                 />
-              )}
-            </div>
-          </main>
-
-          {/* 底部状态栏 */}
-          <footer className="h-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 relative z-50">
-            <div className="h-full px-6 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-              <div className="flex items-center gap-4">
-                <span>共 {stats.nodeCount} 个节点</span>
-                {pendingNodeCount > 0 && (
-                  <span className="text-amber-600 dark:text-amber-400">
-                    {pendingNodeCount} 个节点待同步
-                  </span>
+              ))
+            ) : (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                  {isCalendarView ? (
+                    <Calendar size={32} className="text-green-400" />
+                  ) : (
+                    <Book size={32} className="text-blue-400" />
+                  )}
+                </div>
+                <p className="text-gray-500 dark:text-gray-400 mb-2">
+                  {hoistedNodeId ? '这里还没有内容' : '暂无内容'}
+                </p>
+                <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">
+                  {canAddNode 
+                    ? '点击下方按钮添加第一条内容' 
+                    : '展开子节点查看更多内容'}
+                </p>
+                {canAddNode && (
+                  <Button onClick={handleAddNode} variant="outline">
+                    <Plus size={16} className="mr-2" />
+                    开始记录
+                  </Button>
                 )}
               </div>
-              <div className="flex items-center gap-4">
-                <span>
-                  最后同步: {lastSyncAt ? formatDate(lastSyncAt) : stats.lastModified}
-                </span>
-              </div>
-            </div>
-          </footer>
+            )}
+          </div>
 
-          {/* 离线提示 Toast */}
-          <OfflineToast />
+          {/* 末尾常驻空节点输入框 */}
+          {canAddNode && (
+            <QuickInputNode 
+              parentId={hoistedNodeId} 
+              placeholder="输入新笔记..."
+            />
+          )}
+        </div>
+      </main>
 
-          {/* 底部多模态快速捕获栏 - 在中间主视图内部定位 */}
-          <CaptureBar />
-        </SplitPaneProvider>
+      {/* 底部状态栏 */}
+      <footer className="h-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 relative z-50">
+        <div className="h-full px-6 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+          <div className="flex items-center gap-4">
+            <span>共 {stats.nodeCount} 个节点</span>
+            {pendingNodeCount > 0 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {pendingNodeCount} 个节点待同步
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-4">
+            <span>
+              最后同步: {lastSyncAt ? formatDate(lastSyncAt) : stats.lastModified}
+            </span>
+          </div>
+        </div>
+      </footer>
 
-        {/* 全局指令中心 */}
-        <CommandCenter
-          open={showCommandCenter}
-          onOpenChange={setShowCommandCenter}
-        />
-      </div>
-    </TooltipProvider>
+      {/* 离线提示 Toast */}
+      <OfflineToast />
+
+      {/* 底部多模态快速捕获栏 */}
+      <CaptureBar />
+    </>
   );
 };
 

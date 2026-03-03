@@ -23,9 +23,11 @@ interface NodeComponentProps {
   depth: number;
   onFocusPrevious?: () => void;
   onFocusNext?: () => void;
+  /** 自定义 bullet 点击行为（用于查询面板场景，点击跳转到主页面） */
+  onBulletClick?: (nodeId: string) => void;
 }
 
-const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFocusPrevious, onFocusNext }) => {
+const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFocusPrevious, onFocusNext, onBulletClick }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [showTagSelector, setShowTagSelector] = useState(false);
   const [tagSelectorPosition, setTagSelectorPosition] = useState({ x: 0, y: 0 });  // 标签选择器位置
@@ -628,11 +630,16 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const commandConfig = isCommandNode ? (node.payload as CommandConfig) : null;
   const commandTemplate = commandConfig?.templateId ? getTemplateById(commandConfig.templateId) : null;
 
-  // 点击圆点进入聚焦模式（Deep Focus）
+  // 点击圆点进入聚焦模式（Deep Focus）或触发自定义回调
   const handleBulletClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // 任何节点都可以聚焦进入
-    setHoistedNode(nodeId);
+    // 如果传入了自定义回调（查询面板场景），优先使用
+    if (onBulletClick) {
+      onBulletClick(nodeId);
+    } else {
+      // 默认行为：聚焦进入
+      setHoistedNode(nodeId);
+    }
   };
 
   // 折叠/展开按钮点击 - 优化：无子节点时自动创建空子节点
@@ -792,6 +799,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
                 key={childId}
                 nodeId={childId}
                 depth={depth + 1}
+                onBulletClick={onBulletClick}
               />
             ))}
           </div>
@@ -806,6 +814,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
               key={childId}
               nodeId={childId}
               depth={depth + 1}
+              onBulletClick={onBulletClick}
             />
           ))}
         </div>

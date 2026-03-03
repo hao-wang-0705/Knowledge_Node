@@ -1,6 +1,9 @@
 // 导出同步相关类型
 export * from './sync';
 
+// 导出查询面板相关类型
+export * from './query';
+
 // 节点类型
 // - text: 普通文本节点
 // - heading: 标题节点

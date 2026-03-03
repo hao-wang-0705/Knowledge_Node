@@ -7,6 +7,10 @@ import { useSupertagStore } from '@/stores/supertagStore';
 import TagListPanel from './TagListPanel';
 import TagEditorCanvas from './TagEditorCanvas';
 
+/**
+ * 标签库页面组件
+ * 已适配全局布局框架，移除独立的全屏布局
+ */
 const TagLibraryPage: React.FC = () => {
   const router = useRouter();
   
@@ -68,23 +72,19 @@ const TagLibraryPage: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
-      {/* 返回按钮悬浮区域 */}
-      <div className="fixed top-4 left-4 z-50">
-        <button
-          onClick={handleBack}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-lg transition-all border border-gray-200 dark:border-gray-700"
-        >
-          <ArrowLeft size={16} />
-          <span>返回</span>
-        </button>
-      </div>
-      
+    <div className="flex h-full flex-1 bg-white dark:bg-slate-900 rounded-tl-xl overflow-hidden">
       {/* 左侧列表栏 */}
-      <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col">
-        {/* 标题 */}
-        <div className="p-6 pt-16 border-b border-gray-200 dark:border-gray-700">
+      <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 bg-slate-50/50 dark:bg-gray-800/50 flex flex-col">
+        {/* 标题区域 */}
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleBack}
+              className="flex items-center justify-center w-10 h-10 rounded-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="返回笔记"
+            >
+              <ArrowLeft size={20} />
+            </button>
             <div
               className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg"
               style={{
@@ -94,11 +94,11 @@ const TagLibraryPage: React.FC = () => {
               <Hash size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+              <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">
                 标签库
               </h1>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                管理超级标签和字段定义
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                管理超级标签
               </p>
             </div>
           </div>
