@@ -9,6 +9,7 @@ const publicPaths = [
   '/login',
   '/register',
   '/api/auth',  // NextAuth 内置路由
+  '/api/health',
 ];
 
 /**

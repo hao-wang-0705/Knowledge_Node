@@ -90,33 +90,36 @@ async function request<T>(
 
 // HTTP 方法封装
 export const apiClient = {
-  get<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
-    return request<T>(path, { method: 'GET', params });
+  get<T>(path: string, params?: Record<string, string | number | boolean | undefined>, config?: RequestConfig): Promise<T> {
+    return request<T>(path, { method: 'GET', params, ...(config || {}) });
   },
 
-  post<T>(path: string, data?: unknown): Promise<T> {
+  post<T>(path: string, data?: unknown, config?: RequestConfig): Promise<T> {
     return request<T>(path, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
+      ...(config || {}),
     });
   },
 
-  patch<T>(path: string, data?: unknown): Promise<T> {
+  patch<T>(path: string, data?: unknown, config?: RequestConfig): Promise<T> {
     return request<T>(path, {
       method: 'PATCH',
       body: data ? JSON.stringify(data) : undefined,
+      ...(config || {}),
     });
   },
 
-  put<T>(path: string, data?: unknown): Promise<T> {
+  put<T>(path: string, data?: unknown, config?: RequestConfig): Promise<T> {
     return request<T>(path, {
       method: 'PUT',
       body: data ? JSON.stringify(data) : undefined,
+      ...(config || {}),
     });
   },
 
-  delete<T>(path: string): Promise<T> {
-    return request<T>(path, { method: 'DELETE' });
+  delete<T>(path: string, config?: RequestConfig): Promise<T> {
+    return request<T>(path, { method: 'DELETE', ...(config || {}) });
   },
 };
 

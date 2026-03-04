@@ -2,9 +2,38 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { randomUUID } from 'crypto';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  app.use((req: any, res: any, next: () => void) => {
+    const requestId = req.headers['x-request-id'] || randomUUID();
+    const traceId = req.headers['x-trace-id'] || requestId;
+    const opId = req.headers['x-op-id'] || null;
+    const userId = req.headers['x-user-id'] || null;
+    const startedAt = Date.now();
+
+    req.requestId = requestId;
+    res.setHeader('x-request-id', requestId);
+
+    res.on('finish', () => {
+      const payload = {
+        level: 'info',
+        message: 'http_request',
+        requestId,
+        traceId,
+        opId,
+        userId,
+        method: req.method,
+        path: req.originalUrl || req.url,
+        statusCode: res.statusCode,
+        durationMs: Date.now() - startedAt,
+      };
+      console.log(JSON.stringify(payload));
+    });
+    next();
+  });
 
   // 全局验证管道
   app.useGlobalPipes(

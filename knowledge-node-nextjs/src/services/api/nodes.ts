@@ -7,9 +7,13 @@ import type { Node, NodeReference } from '@/types';
 // API 响应类型
 export interface NodeResponse {
   id: string;
+  serverId?: string;
   content: string;
   type: string;
   parentId?: string;
+  appliedParentId?: string;
+  appliedSortOrder?: number;
+  sortOrder?: number;
   nodeRole?: string;
   childrenIds: string[];
   isCollapsed: boolean;
@@ -100,8 +104,10 @@ export const nodesApi = {
   },
 
   // 创建节点
-  async create(params: CreateNodeParams): Promise<Node> {
-    const response = await apiClient.post<NodeResponse>('/api/nodes', params);
+  async create(params: CreateNodeParams, options?: { opId?: string }): Promise<Node> {
+    const response = await apiClient.post<NodeResponse>('/api/nodes', params, {
+      headers: options?.opId ? { 'x-op-id': options.opId } : undefined,
+    });
     return toNode(response);
   },
 
@@ -111,13 +117,15 @@ export const nodesApi = {
   },
 
   // 更新节点（将 type 映射为 nodeType 以符合后端 DTO）
-  async update(id: string, params: UpdateNodeParams): Promise<Node> {
+  async update(id: string, params: UpdateNodeParams, options?: { opId?: string }): Promise<Node> {
     const body: Record<string, unknown> = { ...params };
     if (params.type !== undefined && body.nodeType === undefined) {
       body.nodeType = params.type;
       delete body.type;
     }
-    const response = await apiClient.patch<NodeResponse>(`/api/nodes/${id}`, body);
+    const response = await apiClient.patch<NodeResponse>(`/api/nodes/${id}`, body, {
+      headers: options?.opId ? { 'x-op-id': options.opId } : undefined,
+    });
     return toNode(response);
   },
 
@@ -152,8 +160,10 @@ export const nodesApi = {
   },
 
   // 删除节点
-  async delete(id: string): Promise<void> {
-    await apiClient.delete(`/api/nodes/${id}`);
+  async delete(id: string, options?: { opId?: string }): Promise<void> {
+    await apiClient.delete(`/api/nodes/${id}`, {
+      headers: options?.opId ? { 'x-op-id': options.opId } : undefined,
+    });
   },
 
   // 批量删除节点

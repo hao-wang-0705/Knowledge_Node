@@ -79,7 +79,7 @@ export interface CommandTemplate {
 /**
  * 每日笔记层级类型
  */
-export type DailyNoteLevel = 'year' | 'month' | 'week' | 'day';
+export type DailyNoteLevel = 'year' | 'week' | 'day';
 
 /**
  * 每日笔记节点 payload

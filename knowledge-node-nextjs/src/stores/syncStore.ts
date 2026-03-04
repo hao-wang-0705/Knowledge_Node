@@ -30,9 +30,12 @@ import { getUserStorageKey } from '@/utils/userStorage';
 // =============================================================================
 
 const OFFLINE_QUEUE_BASE_KEY = DEFAULT_SYNC_CONFIG.queue.storageKey;
+const COMPLETED_OPS_BASE_KEY = `${DEFAULT_SYNC_CONFIG.queue.storageKey}:completed`;
 const MAX_QUEUE_SIZE = DEFAULT_SYNC_CONFIG.queue.maxSize;
 const PERSIST_DEBOUNCE = DEFAULT_SYNC_CONFIG.queue.persistDebounce;
+const BLOCKED_WATCHDOG_TTL_MS = 120000;
 const getOfflineQueueKey = () => getUserStorageKey(OFFLINE_QUEUE_BASE_KEY);
+const getCompletedOpsKey = () => getUserStorageKey(COMPLETED_OPS_BASE_KEY);
 
 // =============================================================================
 // 初始状态
@@ -96,7 +99,7 @@ function sortByParentDependency(ops: SyncOperation[]): SyncOperation[] {
 // =============================================================================
 
 /**
- * 已完成的操作 entityId 集合（用于判断依赖是否满足）
+ * 已完成的操作 opId 集合（用于判断依赖是否满足）
  * 注意：这是一个会话级别的缓存，页面刷新后会清空
  */
 const completedOperations = new Set<string>();
@@ -124,9 +127,12 @@ function computeReadyState(op: SyncOperation): DependencyReadyState {
 /**
  * 标记操作完成并通知依赖
  */
-function markOperationComplete(entityId: string): void {
-  completedOperations.add(entityId);
-  console.log(`[SyncStore] 操作完成，标记 entityId: ${entityId}`);
+function markOperationComplete(opId: string): void {
+  completedOperations.add(opId);
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(getCompletedOpsKey(), JSON.stringify(Array.from(completedOperations)));
+  }
+  console.log(`[SyncStore] 操作完成，标记 opId: ${opId}`);
 }
 
 /**
@@ -134,6 +140,25 @@ function markOperationComplete(entityId: string): void {
  */
 function clearCompletedOperations(): void {
   completedOperations.clear();
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(getCompletedOpsKey());
+  }
+}
+
+function loadCompletedOperations(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(getCompletedOpsKey());
+    if (!raw) return;
+    const ids = JSON.parse(raw) as string[];
+    if (!Array.isArray(ids)) return;
+    completedOperations.clear();
+    ids.forEach((id) => {
+      if (typeof id === 'string' && id.trim()) completedOperations.add(id);
+    });
+  } catch (error) {
+    console.warn('[SyncStore] 加载 completedOperations 失败，已忽略:', error);
+  }
 }
 
 // =============================================================================
@@ -318,6 +343,19 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         return;
       }
 
+      // 先做操作归约，降低重试风暴（create+delete=>no-op 等）
+      const { mergeOperations } = await import('@/lib/syncEngine');
+      const mergedOps = mergeOperations(rawPendingOps);
+      if (mergedOps.length !== rawPendingOps.length) {
+        const mergedIds = new Set(mergedOps.map((op) => op.id));
+        set((s) => ({
+          pendingOperations: s.pendingOperations.filter(
+            (op) => !(rawPendingOps.some((raw) => raw.id === op.id) && !mergedIds.has(op.id))
+          ),
+        }));
+      }
+      rawPendingOps = mergedOps;
+
       // 更新所有操作的就绪状态
       rawPendingOps = rawPendingOps.map((op) => ({
         ...op,
@@ -327,6 +365,27 @@ export const useSyncStore = create<SyncStore>((set, get) => {
       // 筛选就绪的操作（无依赖或依赖已满足）
       const readyOps = rawPendingOps.filter((op) => op.readyState === 'ready');
       const blockedOps = rawPendingOps.filter((op) => op.readyState === 'blocked');
+
+      // blocked 看门狗：超过 TTL 进入 dead-letter（failed）
+      const now = Date.now();
+      const deadLetterOps = blockedOps.filter(
+        (op) => now - (op.lastAttemptAt ?? op.timestamp) > BLOCKED_WATCHDOG_TTL_MS
+      );
+      if (deadLetterOps.length > 0) {
+        const deadIds = new Set(deadLetterOps.map((op) => op.id));
+        set((s) => ({
+          pendingOperations: s.pendingOperations.map((op) =>
+            deadIds.has(op.id)
+              ? {
+                  ...op,
+                  status: 'failed',
+                  error: 'blocked watchdog timeout',
+                  lastAttemptAt: now,
+                }
+              : op
+          ),
+        }));
+      }
 
       if (blockedOps.length > 0) {
         console.log(`[SyncStore] ${blockedOps.length} 个操作因依赖未满足而阻塞`);
@@ -350,7 +409,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
       let failCount = 0;
 
       // 动态导入同步引擎，避免循环依赖
-      const { executeOperation } = await import('@/lib/syncEngine');
+      const { executeWithRetry } = await import('@/lib/syncEngine');
       // 动态导入节点同步通知函数
       const { notifyNodeSyncComplete } = await import('@/utils/nodeCreationGuard');
 
@@ -363,7 +422,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         }));
 
         try {
-          await executeOperation(op);
+          await executeWithRetry(op, DEFAULT_SYNC_CONFIG.retry.maxRetries);
 
           // 成功：从队列移除
           set((state) => ({
@@ -372,7 +431,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
           successCount++;
           
           // 标记操作完成（用于依赖追踪）
-          markOperationComplete(op.entityId);
+          markOperationComplete(op.id);
           
           // 通知等待该节点同步完成的 Promise
           if (op.entityType === 'node' && op.type === 'create') {
@@ -591,6 +650,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
 
       // 加载离线队列
       get().loadQueue();
+      loadCompletedOperations();
 
       // 设置网络状态
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true;

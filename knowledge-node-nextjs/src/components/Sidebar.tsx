@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useCallback, useMemo, useRef, useEffect, useState, useLayoutEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Calendar, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles } from 'lucide-react';
+import { Calendar, CalendarDays, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles, Clock, Pin } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,7 @@ interface AdjustedPosition {
 
 const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => {
   const router = useRouter();
+  const pathname = usePathname();
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
@@ -43,7 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
 
   const nodes = useNodeStore((state) => state.nodes);
   const hoistedNodeId = useNodeStore((state) => state.hoistedNodeId);
-  const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
+  const navigateToNode = useNodeStore((state) => state.navigateToNode);
   const addNode = useNodeStore((state) => state.addNode);
   const updateNode = useNodeStore((state) => state.updateNode);
   const deleteNode = useNodeStore((state) => state.deleteNode);
@@ -101,39 +102,52 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
 
   const greeting = useMemo(() => getGreeting(), []);
 
+  // 路由高亮状态判断
+  const isTagsPage = pathname === '/library/tags';
+
   const isTodayActive = useMemo(() => {
     if (!isCalendarView) return false;
     const todayId = getTodayId();
     return hoistedNodeId === todayId;
   }, [isCalendarView, hoistedNodeId]);
 
+  // 快捷功能区导航
+  const handleGoToTags = useCallback(() => {
+    router.push('/library/tags');
+  }, [router]);
+
   const handleGoToAllNotes = useCallback(() => {
     if (!userRootId) return;
-    setHoistedNode(userRootId);
+    navigateToNode(userRootId);
     router.push('/');  // 确保从其他页面能正确切换回笔记主页
-  }, [userRootId, setHoistedNode, router]);
+  }, [userRootId, navigateToNode, router]);
 
-  const handleGoToToday = useCallback(() => {
-    goToToday();
-    router.push('/');  // 确保从其他页面能正确切换回笔记主页
+  const handleGoToToday = useCallback(async () => {
+    try {
+      await goToToday();
+      router.push('/');  // 确保从其他页面能正确切换回笔记主页
+    } catch (error) {
+      console.error('[Sidebar] 跳转今日笔记失败:', error);
+      alert('今日笔记初始化失败，请稍后重试');
+    }
   }, [goToToday, router]);
 
   const handleCreateNotebook = useCallback(() => {
     if (!userRootId) return;
     const newId = addNode(userRootId);
     updateNode(newId, { content: '无标题笔记本' });
-    setHoistedNode(newId);
+    navigateToNode(newId);
     setEditingNodeId(newId);
     setEditingName('无标题笔记本');
-  }, [userRootId, addNode, updateNode, setHoistedNode]);
+  }, [userRootId, addNode, updateNode, navigateToNode]);
 
   const handleSelectNotebook = useCallback(
     (nodeId: string) => {
       if (editingNodeId === nodeId) return;
-      setHoistedNode(nodeId);
+      navigateToNode(nodeId);
       router.push('/');  // 确保从其他页面能正确切换回笔记主页
     },
-    [setHoistedNode, editingNodeId, router]
+    [navigateToNode, editingNodeId, router]
   );
 
   const handleDoubleClick = useCallback((nodeId: string, currentName: string) => {
@@ -239,7 +253,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
           while (cur) { if (cur === contextMenu.nodeId) return true; cur = nodes[cur]?.parentId ?? null; }
           return false;
         })())) {
-          goToToday();
+          void goToToday();
         }
       } catch (error) {
         console.error('[Sidebar] 删除失败:', error);
@@ -255,43 +269,133 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         className
       )}
     >
-      <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center shadow-md"
-            style={{
-              background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
-            }}
+      {/* ============ 第一部分：顶部快捷功能区 ============ */}
+      <div className="px-2 pt-3 pb-2">
+        <div className="space-y-0.5">
+          {/* 今日笔记 - 纯快捷入口，无高亮 */}
+          <button
+            type="button"
+            onClick={handleGoToToday}
+            className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
           >
-            <User size={20} className="text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{greeting}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">欢迎回来</p>
-          </div>
+            <div className="flex items-center justify-center w-5 h-5 text-gray-400">
+              <CalendarDays size={18} />
+            </div>
+            <span className="flex-1 text-sm font-medium text-left">今日笔记</span>
+          </button>
+
+          {/* 超级标签 */}
+          <button
+            type="button"
+            onClick={handleGoToTags}
+            className={cn(
+              'group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150',
+              isTagsPage
+                ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+            )}
+          >
+            <div className={cn(
+              'flex items-center justify-center w-5 h-5',
+              isTagsPage ? 'text-[var(--brand-primary)]' : 'text-gray-400'
+            )}>
+              <Hash size={18} />
+            </div>
+            <span className="flex-1 text-sm font-medium text-left">超级标签</span>
+          </button>
+
+          {/* 笔记历史 - 置灰 */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                disabled
+                className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 dark:text-gray-500 opacity-50 cursor-not-allowed"
+              >
+                <div className="flex items-center justify-center w-5 h-5">
+                  <Clock size={18} />
+                </div>
+                <span className="flex-1 text-sm font-medium text-left">笔记历史</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">功能开发中，敬请期待</TooltipContent>
+          </Tooltip>
+
+          {/* AI 助手 - 置灰 */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                disabled
+                className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 dark:text-gray-500 opacity-50 cursor-not-allowed"
+              >
+                <div className="flex items-center justify-center w-5 h-5">
+                  <Sparkles size={18} />
+                </div>
+                <span className="flex-1 text-sm font-medium text-left">AI 助手</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">功能开发中，敬请期待</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200 dark:border-gray-800">
+      {/* ============ 第二部分：搜索功能区 ============ */}
+      <div className="px-3 py-2">
+        <button
+          onClick={onOpenCommandCenter}
+          className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 hover:border-gray-300 dark:hover:border-gray-600 rounded-lg border border-gray-200 dark:border-gray-700/50 transition-all duration-150"
+        >
+          <Search size={16} className="text-gray-400" />
+          <span className="flex-1 text-left">搜索笔记...</span>
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-gray-400 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+            <Command size={10} />
+            <span>K</span>
+          </kbd>
+        </button>
+      </div>
+
+      {/* ============ 第三部分：聚焦区（置灰） ============ */}
+      <div className="px-3 py-2 border-t border-gray-200/60 dark:border-gray-800/60">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="opacity-50 cursor-not-allowed">
+              <div className="flex items-center gap-2 px-2 py-1.5 mb-1">
+                <Pin size={14} className="text-gray-400" />
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">聚焦</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500">Pinned</span>
+              </div>
+              <div className="px-2 py-3 text-center">
+                <p className="text-xs text-gray-400 dark:text-gray-500">即将推出</p>
+              </div>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">功能开发中，敬请期待</TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* ============ 第四部分：笔记本区 ============ */}
+      <div className="flex-1 flex flex-col min-h-0 border-t border-gray-200/60 dark:border-gray-800/60">
+        {/* 用户信息栏 + 新建按钮 */}
+        <div className="flex items-center gap-2 px-3 py-2.5">
           <button
             type="button"
             onClick={handleGoToAllNotes}
             disabled={!userRootId}
             className={cn(
-              'flex flex-1 items-center gap-2 min-w-0 rounded-lg transition-all',
-              hoistedNodeId === userRootId
+              'flex flex-1 items-center gap-2 min-w-0 px-2 py-1.5 rounded-lg transition-all',
+              hoistedNodeId === userRootId && !isTagsPage
                 ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
                 : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200'
             )}
           >
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+              className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
               style={{
                 background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
               }}
             >
-              <User size={16} className="text-white" />
+              <User size={14} className="text-white" />
             </div>
             <span className="flex-1 text-sm font-medium truncate text-left">{userRootDisplayName}</span>
           </button>
@@ -310,13 +414,15 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
           </Tooltip>
         </div>
 
-        <div className="overflow-y-auto px-2 py-2">
+        {/* 笔记本列表（可滚动） */}
+        <div className="overflow-y-auto px-2 pb-2 flex-1">
           <div className="space-y-0.5 pl-1">
+            {/* Daily Notes */}
             <div
               onClick={handleGoToToday}
               className={cn(
                 'group flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg cursor-pointer transition-all',
-                isCalendarView
+                isCalendarView && !isTagsPage
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               )}
@@ -325,22 +431,23 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
                 size={16}
                 className={cn(
                   'flex-shrink-0',
-                  isCalendarView ? 'text-green-600 dark:text-green-400' : 'text-gray-400'
+                  isCalendarView && !isTagsPage ? 'text-green-600 dark:text-green-400' : 'text-gray-400'
                 )}
               />
               <span className="flex-1 text-sm">Daily notes</span>
-              {isTodayActive && (
+              {isTodayActive && !isTagsPage && (
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
               )}
-              {isCalendarView && !isTodayActive && (
+              {isCalendarView && !isTodayActive && !isTagsPage && (
                 <ChevronRight size={14} className="text-green-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
               )}
             </div>
 
+            {/* 笔记本列表 */}
             {notebookEntryIds.map((nodeId) => {
               const node = nodes[nodeId];
               if (!node) return null;
-              const isActive = activeNotebookNodeId === nodeId;
+              const isActive = activeNotebookNodeId === nodeId && !isTagsPage;
               const isEditing = editingNodeId === nodeId;
               const displayName = node.content?.trim() || '无标题笔记本';
 
@@ -388,65 +495,28 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         </div>
       </div>
 
-      <div className="p-3 border-t border-gray-200 dark:border-gray-800">
-        <button
-          onClick={onOpenCommandCenter}
-          className="w-full flex items-center gap-2 px-3 py-2.5 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-[var(--brand-primary)] bg-gray-100 dark:bg-gray-800 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 rounded-lg transition-colors"
-        >
-          <Search size={16} />
-          <span className="flex-1 text-left">🔍 搜索笔记...</span>
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-gray-400 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
-            <Command size={10} />
-            <span>K</span>
-          </kbd>
-        </button>
-        <button
-          onClick={() => router.push('/library/tags')}
-          className="w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm text-gray-600 dark:text-gray-400 hover:text-[var(--brand-primary)] hover:bg-gray-200/80 dark:hover:bg-gray-700/80 rounded-lg transition-colors"
-        >
-          <Hash size={16} />
-          <span>🏷️ 标签库</span>
-        </button>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => FEATURE_FLAGS.AI_COMMAND_NODE && setShowCommandManager(true)}
-              disabled={!FEATURE_FLAGS.AI_COMMAND_NODE}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 mb-2 text-sm rounded-lg transition-colors",
-                FEATURE_FLAGS.AI_COMMAND_NODE
-                  ? "text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-                  : "text-gray-400 dark:text-gray-500 cursor-not-allowed opacity-50"
-              )}
-            >
-              <Sparkles size={16} />
-              <span>🤖 AI 指令</span>
-              <kbd className="ml-auto hidden sm:inline-flex items-center px-1.5 py-0.5 text-xs text-gray-400 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
-                /ai
-              </kbd>
-            </button>
-          </TooltipTrigger>
-          {!FEATURE_FLAGS.AI_COMMAND_NODE && (
-            <TooltipContent side="right">{getDisabledMessage('AI_COMMAND_NODE')}</TooltipContent>
-          )}
-        </Tooltip>
-        <div className="flex items-center gap-2">
+      {/* ============ 底部工具栏 ============ */}
+      <div className="p-2 border-t border-gray-200 dark:border-gray-800">
+        <div className="flex items-center justify-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="sm"
-                className="flex-1 justify-start text-gray-500 hover:text-gray-700 dark:hover:text-gray-400 dark:hover:text-gray-300"
+                size="icon"
+                className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
-                <Settings size={16} className="mr-2" />
-                <span className="text-xs">设置</span>
+                <Settings size={16} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top">应用设置</TooltipContent>
+            <TooltipContent side="top">设置</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
                 <Trash2 size={16} />
               </Button>
             </TooltipTrigger>

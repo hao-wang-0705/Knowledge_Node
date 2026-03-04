@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useNodeStore } from '@/stores/nodeStore';
+import { getCalendarPath } from '@/utils/date-helpers';
 
 const queueOperationMock = vi.fn();
 
@@ -7,7 +8,7 @@ vi.mock('@/stores/syncStore', () => ({
   useSyncStore: {
     getState: () => ({
       queueOperation: queueOperationMock,
-      pendingOperations: [], // nodeCreationGuard 需要此字段
+      pendingOperations: [],
       initialize: vi.fn(),
       isInitialized: true,
       isOnline: false,
@@ -174,5 +175,182 @@ describe('nodeStore', () => {
     expect(latestCreate.payload.parentId).toBe('nb-root');
     */
     expect(true).toBe(true); // placeholder assertion
+  });
+
+  describe('Daily Notes 父子关系', () => {
+    it('addNode 父节点不存在时抛出错误且不写入 rootIds', () => {
+      useNodeStore.setState({ nodes: {}, rootIds: [] });
+      const store = useNodeStore.getState();
+      expect(() => store.addNode('non-existent-parent')).toThrow(/父节点未就绪或不存在/);
+      const state = useNodeStore.getState();
+      expect(state.rootIds).toEqual([]);
+      const nodeCount = Object.keys(state.nodes).length;
+      expect(nodeCount).toBe(0);
+    });
+
+    it('addNode(null) 显式根插入仍可创建根节点', () => {
+      useNodeStore.setState({ nodes: {}, rootIds: [] });
+      const store = useNodeStore.getState();
+      const rootId = store.addNode(null);
+      const state = useNodeStore.getState();
+      expect(state.rootIds).toContain(rootId);
+      expect(state.nodes[rootId].parentId).toBeNull();
+    });
+
+    it('setHoistedNode 指向无效节点时保持原状态（严格模式）', () => {
+      const userRootId = 'user-root-test';
+      useNodeStore.setState({
+        nodes: {
+          [userRootId]: {
+            id: userRootId,
+            content: '用户根',
+            parentId: null,
+            childrenIds: [],
+            isCollapsed: false,
+            nodeRole: 'user_root',
+            tags: [],
+            fields: {},
+            createdAt: Date.now(),
+          },
+        },
+        rootIds: [userRootId],
+        focusedNodeId: null,
+        hoistedNodeId: userRootId,
+      });
+      const store = useNodeStore.getState();
+      store.setHoistedNode('missing-node-id');
+      const state = useNodeStore.getState();
+      expect(state.hoistedNodeId).toBe(userRootId);
+      expect(state.focusedNodeId).toBeNull();
+    });
+
+    it('ensureTodayNode 在 daily_root 存在时创建 year->week->day 且不降级为根', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 2, 4)); // 2026-03-04
+      const path = getCalendarPath(new Date());
+      const userRootId = 'user-root-test';
+      const dailyRootId = 'daily-root-test';
+      useNodeStore.setState({
+        nodes: {
+          [userRootId]: {
+            id: userRootId,
+            content: '用户根',
+            parentId: null,
+            childrenIds: [dailyRootId],
+            isCollapsed: false,
+            nodeRole: 'user_root',
+            tags: [],
+            fields: {},
+            createdAt: Date.now(),
+          },
+          [dailyRootId]: {
+            id: dailyRootId,
+            content: 'Daily notes',
+            parentId: userRootId,
+            childrenIds: [],
+            isCollapsed: false,
+            nodeRole: 'daily_root',
+            tags: [],
+            fields: {},
+            createdAt: Date.now(),
+          },
+        },
+        rootIds: [userRootId],
+      });
+      const store = useNodeStore.getState();
+      const dayId = store.ensureTodayNode();
+      const state = useNodeStore.getState();
+      expect(dayId).toBe(path.dayId);
+      const yearNode = state.nodes[path.yearId];
+      const weekNode = state.nodes[path.weekId];
+      const dayNode = state.nodes[path.dayId];
+      expect(yearNode).toBeDefined();
+      expect(yearNode!.parentId).toBe(dailyRootId);
+      expect(weekNode).toBeDefined();
+      expect(weekNode!.parentId).toBe(path.yearId);
+      expect(dayNode).toBeDefined();
+      expect(dayNode!.parentId).toBe(path.weekId);
+      expect(state.rootIds).not.toContain(path.yearId);
+      expect(state.rootIds).not.toContain(path.dayId);
+      expect(store.isInDailyTree(path.dayId)).toBe(true);
+      const nodePath = store.getNodePath(path.dayId);
+      const pathIds = nodePath.map((n) => n.id);
+      expect(pathIds).toContain(dailyRootId);
+      vi.useRealTimers();
+    });
+
+    it('addNode(dayId) 在日节点下添加子节点且不加入 rootIds', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 2, 4));
+      const path = getCalendarPath(new Date());
+      const dailyRootId = 'daily-root-test';
+      useNodeStore.setState({
+        nodes: {
+          [dailyRootId]: {
+            id: dailyRootId,
+            content: 'Daily',
+            parentId: null,
+            childrenIds: [path.yearId],
+            isCollapsed: false,
+            nodeRole: 'daily_root',
+            tags: [],
+            fields: {},
+            createdAt: Date.now(),
+          },
+          [path.yearId]: {
+            id: path.yearId,
+            content: '2026',
+            parentId: dailyRootId,
+            childrenIds: [path.weekId],
+            isCollapsed: false,
+            nodeRole: 'normal',
+            tags: [],
+            fields: {},
+            createdAt: Date.now(),
+          },
+          [path.weekId]: {
+            id: path.weekId,
+            content: 'week',
+            parentId: path.yearId,
+            childrenIds: [path.dayId],
+            isCollapsed: false,
+            nodeRole: 'normal',
+            tags: [],
+            fields: {},
+            createdAt: Date.now(),
+          },
+          [path.dayId]: {
+            id: path.dayId,
+            content: path.dayContent,
+            parentId: path.weekId,
+            childrenIds: [],
+            isCollapsed: false,
+            nodeRole: 'normal',
+            tags: [],
+            fields: {},
+            createdAt: Date.now(),
+          },
+        },
+        rootIds: [dailyRootId],
+      });
+      const store = useNodeStore.getState();
+      const newId = store.addNode(path.dayId);
+      const state = useNodeStore.getState();
+      expect(state.nodes[newId].parentId).toBe(path.dayId);
+      expect(state.nodes[path.dayId].childrenIds).toContain(newId);
+      expect(state.rootIds).not.toContain(newId);
+      vi.useRealTimers();
+    });
+
+    it('ensureTodayNode 在 daily_root 缺失时抛错（禁止错误挂根）', () => {
+      useNodeStore.setState({
+        nodes: {},
+        rootIds: [],
+        focusedNodeId: null,
+        hoistedNodeId: null,
+      });
+      const store = useNodeStore.getState();
+      expect(() => store.ensureTodayNode()).toThrow(/daily_root 缺失/);
+    });
   });
 });

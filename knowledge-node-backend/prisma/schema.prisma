@@ -26,6 +26,7 @@ model User {
 
 model Node {
   id          String       @id @default(cuid())
+  logicalId   String
   userId      String
   parentId    String?
   content     String       @default("")
@@ -46,6 +47,8 @@ model Node {
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@unique([userId, logicalId])
+  @@index([userId, logicalId])
   @@index([parentId])
   @@index([supertagId])
   @@index([nodeType])

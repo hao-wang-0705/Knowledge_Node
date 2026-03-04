@@ -235,6 +235,7 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
       const createdPrefixed = await prisma.node.create({
         data: {
           id: prefixedId,
+          logicalId: body.id ?? prefixedId,
           userId,
           parentId: resolvedPrefixedParent,
           content: body.content ?? '',
@@ -254,6 +255,7 @@ export async function createOrUpsertNode(userId: string, body: CreateNodeRequest
   const node = await prisma.node.create({
     data: {
       ...(body.id && { id: body.id }),
+      logicalId: body.id ?? `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       userId,
       parentId: validParentId,
       content: body.content ?? '',

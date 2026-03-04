@@ -7,6 +7,7 @@ import {
   Query,
   Headers,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiHeader, ApiQuery } from '@nestjs/swagger';
 import { TagsService } from './tags.service';
@@ -14,6 +15,8 @@ import {
   CreateTagTemplateDto,
   TagTemplateResponseDto,
 } from './dto/tag.dto';
+import { InternalAuthGuard } from '../../common/guards/internal-auth.guard';
+import { CurrentUserId } from '../../common/decorators/current-user-id.decorator';
 
 /**
  * 系统预置标签 API - 只读接口
@@ -21,25 +24,23 @@ import {
  */
 @ApiTags('supertags')
 @Controller('api/supertags')
+@UseGuards(InternalAuthGuard)
+@ApiHeader({ name: 'x-user-id', description: '用户ID（由网关注入）', required: true })
+@ApiHeader({ name: 'x-internal-api-key', description: '内部网关密钥', required: true })
 export class SupertagsController {
   constructor(private readonly tagsService: TagsService) {}
 
   @Get()
   @ApiOperation({ summary: '获取所有可用标签（系统预置 + 用户订阅）' })
-  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
   @ApiResponse({ status: 200, description: '返回标签列表', type: [TagTemplateResponseDto] })
-  findAll(@Headers('x-user-id') userId: string) {
+  findAll(@CurrentUserId() userId: string) {
     return this.tagsService.findAllTagTemplates(userId);
   }
 
   @Get(':id')
   @ApiOperation({ summary: '获取单个标签详情' })
-  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
   @ApiResponse({ status: 200, description: '返回标签详情', type: TagTemplateResponseDto })
-  findOne(
-    @Headers('x-user-id') userId: string,
-    @Param('id') id: string,
-  ) {
+  findOne(@CurrentUserId() userId: string, @Param('id') id: string) {
     return this.tagsService.findOneTagTemplate(userId, id);
   }
 }
@@ -49,18 +50,17 @@ export class SupertagsController {
  */
 @ApiTags('tags')
 @Controller('api/tags')
+@UseGuards(InternalAuthGuard)
+@ApiHeader({ name: 'x-user-id', description: '用户ID（由网关注入）', required: true })
+@ApiHeader({ name: 'x-internal-api-key', description: '内部网关密钥', required: true })
 export class TagsController {
   constructor(private readonly tagsService: TagsService) {}
 
   @Get('search')
   @ApiOperation({ summary: '搜索标签' })
-  @ApiHeader({ name: 'x-user-id', description: '用户ID', required: true })
   @ApiQuery({ name: 'q', required: true, description: '搜索关键词' })
   @ApiResponse({ status: 200, description: '返回匹配的标签' })
-  search(
-    @Headers('x-user-id') userId: string,
-    @Query('q') query: string,
-  ) {
+  search(@CurrentUserId() userId: string, @Query('q') query: string) {
     return this.tagsService.searchTags(userId, query);
   }
 }

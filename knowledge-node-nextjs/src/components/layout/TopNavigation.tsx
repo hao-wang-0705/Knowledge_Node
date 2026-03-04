@@ -25,7 +25,9 @@ const TopNavigation: React.FC = memo(() => {
   );
 
   const handleGoToToday = useCallback(() => {
-    goToToday();
+    void goToToday().catch((error) => {
+      console.error('[TopNavigation] 跳转今日笔记失败:', error);
+    });
   }, [goToToday]);
 
   return (

@@ -71,8 +71,8 @@ export function getCalendarPath(date: Date): CalendarPath {
   const weekStr = isoWeek.toString().padStart(2, '0');
 
   return {
-    yearId: `year-${year}`,
-    yearContent: `📅 ${year}年`,
+    yearId: `year-${isoWeekYear}`,
+    yearContent: `📅 ${isoWeekYear}年`,
     weekId: `week-${isoWeekYear}-${weekStr}`,
     weekContent: `${isoWeekYear}年第${weekStr}周`,
     dayId: `day-${year}-${monthStr}-${dayStr}`,

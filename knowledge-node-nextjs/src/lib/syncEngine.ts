@@ -131,7 +131,7 @@ export async function executeOperation(operation: SyncOperation): Promise<void> 
   try {
     switch (entityType) {
       case 'node':
-        await executeNodeOperation(type, entityId, payload);
+        await executeNodeOperation(type, entityId, payload, operation.id);
         break;
       case 'supertag':
         await executeSupertagOperation(type, entityId, payload);
@@ -172,12 +172,13 @@ function isUniqueConstraintError(error: unknown): boolean {
 async function executeNodeOperation(
   type: OperationType,
   entityId: string,
-  payload: unknown
+  payload: unknown,
+  opId: string
 ): Promise<void> {
   switch (type) {
     case 'create': {
       try {
-        await nodesApi.create(payload as Parameters<typeof nodesApi.create>[0]);
+        await nodesApi.create(payload as Parameters<typeof nodesApi.create>[0], { opId });
       } catch (error) {
         if (isUniqueConstraintError(error)) {
           const p = payload as Record<string, unknown>;
@@ -193,7 +194,7 @@ async function executeNodeOperation(
             sortOrder: p.sortOrder as number | undefined,
             tags: p.tags as string[] | undefined,
             references: p.references as unknown[] | undefined,
-          });
+          }, { opId });
         } else {
           throw error;
         }
@@ -201,10 +202,10 @@ async function executeNodeOperation(
       break;
     }
     case 'update':
-      await nodesApi.update(entityId, payload as Parameters<typeof nodesApi.update>[1]);
+      await nodesApi.update(entityId, payload as Parameters<typeof nodesApi.update>[1], { opId });
       break;
     case 'delete':
-      await nodesApi.delete(entityId);
+      await nodesApi.delete(entityId, { opId });
       break;
     default:
       throw new Error(`未知的操作类型: ${type}`);

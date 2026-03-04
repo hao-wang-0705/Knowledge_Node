@@ -1,3 +1,13 @@
+import { describe, expect, it } from 'vitest';
+import { getCalendarPath } from '@/utils/date-helpers';
+
+describe('date-helpers ISO 语义', () => {
+  it('跨年周场景下 yearId 使用 ISO 周年', () => {
+    const path = getCalendarPath(new Date('2021-01-01T12:00:00.000Z'));
+    expect(path.yearId).toBe('year-2020');
+    expect(path.weekId).toBe('week-2020-53');
+  });
+});
 import { describe, it, expect } from 'vitest';
 import {
   getCalendarPath,

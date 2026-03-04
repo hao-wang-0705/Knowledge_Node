@@ -115,7 +115,7 @@ export function findPendingParentOperation(parentId: string): SyncOperation | un
 }
 
 /**
- * 收集所有祖先节点中待处理的 create 操作 entityId 列表
+ * 收集所有祖先节点中待处理的 create 操作 opId 列表
  * @param parentId 直接父节点 ID
  * @param nodes 当前节点状态
  * @returns 依赖的 entityId 数组
@@ -130,7 +130,7 @@ export function collectAncestorDependencies(
   const pendingOp = findPendingParentOperation(parentId);
   
   if (pendingOp) {
-    dependencies.push(parentId);
+    dependencies.push(pendingOp.id);
     // 递归检查父节点的父节点
     const parentNode = nodes[parentId];
     if (parentNode?.parentId) {
@@ -161,7 +161,15 @@ export function validateParentExists(
 
   const resolved = resolveCalendarParentId(parentId, nodes);
   
-  if (resolved === null || resolved === undefined) {
+  if (resolved === undefined) {
+    return {
+      valid: false,
+      resolvedParentId: null,
+      error: `父节点 ${parentId} 无法解析`,
+    };
+  }
+
+  if (resolved === null) {
     return { valid: true, resolvedParentId: null };
   }
 
@@ -202,7 +210,7 @@ export interface NodeCreationResult {
   queued: boolean;
   /** 错误信息 */
   error?: string;
-  /** 依赖的父节点 ID 列表 */
+  /** 依赖的父操作 opId 列表 */
   dependencies: string[];
 }
 
@@ -305,8 +313,7 @@ export function isCalendarHierarchyNode(nodeId: string): boolean {
   return (
     nodeId.includes('year-') ||
     nodeId.includes('week-') ||
-    nodeId.includes('day-') ||
-    nodeId.includes('month-')
+    nodeId.includes('day-')
   );
 }
 

@@ -23,6 +23,17 @@ services:
       retries: 5
     networks:
       - knowledge-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 768m
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
 
   # NestJS 后端服务
   backend:
@@ -36,6 +47,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-knowledge-node-internal-key}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
     ports:
@@ -44,13 +56,24 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/api/docs"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/health/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     networks:
       - knowledge-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 1024m
+    cpus: 1.5
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
 
   # Next.js 前端服务
   frontend:
@@ -69,6 +92,7 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-in-production}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-knowledge-node-internal-key}
       VENUS_API_KEY: ${VENUS_API_KEY:-}
       # 关键：在 Docker 网络内部，使用服务名 postgres 而不是 localhost
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
@@ -80,13 +104,24 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
     networks:
       - knowledge-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 1536m
+    cpus: 2.0
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
 
 volumes:
   postgres_data:

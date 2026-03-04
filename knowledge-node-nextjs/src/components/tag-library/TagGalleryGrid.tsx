@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Search, Hash, Sparkles } from 'lucide-react';
+import { Search, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Supertag } from '@/types';
 import { useSupertagStore } from '@/stores/supertagStore';
@@ -27,88 +27,36 @@ interface TagCardProps {
   tag: Supertag;
   isSelected: boolean;
   onClick: () => void;
-  nodeCount?: number;
 }
 
-const TagCard: React.FC<TagCardProps> = ({ tag, isSelected, onClick, nodeCount }) => {
-  // 计算标签颜色的浅色背景
-  const getBgColor = (color: string) => {
-    // 转换为带透明度的背景色
-    return `${color}15`; // 约 8% 透明度
-  };
-
+const TagCard: React.FC<TagCardProps> = ({ tag, isSelected, onClick }) => {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "group relative flex flex-col items-center justify-center",
-        "w-full aspect-square rounded-xl p-4",
+        "group flex items-center gap-3 w-full h-12 px-4",
+        "bg-gray-100 dark:bg-gray-800 rounded-lg",
         "transition-all duration-200 ease-out",
-        "hover:scale-105 hover:shadow-lg",
-        "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500",
-        isSelected
-          ? "ring-2 ring-indigo-500 shadow-lg scale-105"
-          : "hover:shadow-md"
+        "hover:bg-gray-200 dark:hover:bg-gray-700 hover:scale-[1.02]",
+        "focus:outline-none",
+        isSelected && "ring-2 ring-indigo-500 bg-gray-200 dark:bg-gray-700"
       )}
-      style={{
-        backgroundColor: getBgColor(tag.color),
-        borderColor: tag.color,
-        borderWidth: isSelected ? '2px' : '1px',
-        borderStyle: 'solid',
-      }}
     >
-      {/* 图标或 # 符号 */}
-      <div
-        className="text-3xl mb-2 transition-transform duration-200 group-hover:scale-110"
-      >
-        {tag.icon || (
-          <Hash 
-            size={32} 
-            style={{ color: tag.color }}
-            strokeWidth={2.5}
-          />
-        )}
-      </div>
+      {/* 彩色 # 符号 */}
+      <Hash 
+        size={18} 
+        style={{ color: tag.color }}
+        strokeWidth={2.5}
+        className="flex-shrink-0"
+      />
 
       {/* 标签名称 */}
       <span
-        className={cn(
-          "text-sm font-semibold text-center truncate w-full px-1",
-          "transition-colors duration-200"
-        )}
+        className="text-sm font-medium truncate"
         style={{ color: tag.color }}
       >
-        #{tag.name}
+        {tag.name}
       </span>
-
-      {/* 使用次数徽章 */}
-      {nodeCount !== undefined && nodeCount > 0 && (
-        <span
-          className={cn(
-            "absolute top-2 right-2 px-1.5 py-0.5",
-            "text-[10px] font-medium rounded-full",
-            "bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm",
-            "text-gray-500 dark:text-gray-400"
-          )}
-        >
-          {nodeCount}
-        </span>
-      )}
-
-      {/* 系统标签标记 */}
-      {tag.isGlobalDefault && (
-        <span
-          className={cn(
-            "absolute bottom-2 right-2",
-            "text-[10px] px-1.5 py-0.5 rounded-full",
-            "bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm",
-            "text-indigo-600 dark:text-indigo-400"
-          )}
-        >
-          <Sparkles size={10} className="inline mr-0.5" />
-          系统
-        </span>
-      )}
     </button>
   );
 };
@@ -139,13 +87,13 @@ const TagGalleryGrid: React.FC<TagGalleryGridProps> = ({
   }, [sortedTags, searchQuery]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-900">
       {/* 搜索栏 */}
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700/50">
         <div className="relative max-w-md">
           <Search
-            size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+            size={16}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
           />
           <input
             type="text"
@@ -153,10 +101,11 @@ const TagGalleryGrid: React.FC<TagGalleryGridProps> = ({
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索标签..."
             className={cn(
-              "w-full pl-10 pr-4 py-2.5",
+              "w-full pl-9 pr-4 py-2",
               "text-sm bg-gray-50 dark:bg-gray-800",
-              "border border-gray-200 dark:border-gray-700 rounded-xl",
-              "outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/30",
+              "border border-gray-200 dark:border-gray-700/50 rounded-lg",
+              "text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500",
+              "outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50",
               "transition-all"
             )}
           />
@@ -164,13 +113,13 @@ const TagGalleryGrid: React.FC<TagGalleryGridProps> = ({
       </div>
 
       {/* 内容区域 */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4 px-2">
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-3">
           {searchQuery.trim() ? `搜索结果 (${filteredTags.length})` : `全部标签 (${filteredTags.length})`}
-        </h3>
+        </p>
         
         {filteredTags.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 px-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {filteredTags.map((tag) => (
               <TagCard
                 key={tag.id}

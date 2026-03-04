@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 
 type BackendErrorShape = {
   error?: string;
@@ -35,7 +36,17 @@ export async function proxyToBackend(
 }> {
   const baseUrl = getBackendBaseUrl();
   const headers = new Headers(init.headers || undefined);
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+  if (!internalApiKey) {
+    throw new Error('INTERNAL_API_KEY is required for backend proxy');
+  }
+  const opId = headers.get('x-op-id') || randomUUID();
+  const requestId = headers.get('x-request-id') || randomUUID();
+  headers.set('x-op-id', opId);
+  headers.set('x-request-id', requestId);
+  headers.set('x-trace-id', requestId);
   headers.set('x-user-id', userId);
+  headers.set('x-internal-api-key', internalApiKey);
   if (init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }

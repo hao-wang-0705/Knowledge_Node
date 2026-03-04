@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { initializeDailyNotes, checkNeedsInitialization } from '@/utils/daily-notes-init';
+import { proxyToBackend, toProxyResponse } from '@/lib/backend-proxy';
 
 /**
  * POST /api/nodes/init-daily
  * 首次登录时初始化每日笔记系统
- * 
- * 触发条件：用户首次登录（数据库中无该用户的任何节点）
+ *
+ * 触发条件：checkNeedsInitialization 为 true（未初始化且 daily_root 或今日 day 节点不可达）
  * 行为：
- * 1. 创建年/月/周层级结构
- * 2. 生成当前周内已过去日期的日笔记（包括今天）
+ * 1. 确保 user_root、daily_root 存在
+ * 2. 创建 daily_root -> year -> week -> day 层级（确定性 ID，无 month）
+ * 3. 生成当前周内周一到今天的日笔记
  */
 export async function POST() {
   try {
@@ -23,26 +24,10 @@ export async function POST() {
       );
     }
 
-    const userId = session.user.id;
-
-    // 检查是否需要初始化
-    const needsInit = await checkNeedsInitialization(userId);
-    
-    if (!needsInit) {
-      return NextResponse.json({
-        success: true,
-        initialized: false,
-        message: '用户已有数据，无需初始化',
-      });
-    }
-
-    // 执行初始化
-    const result = await initializeDailyNotes(userId);
-
-    return NextResponse.json({
-      initialized: true,
-      ...result,
+    const result = await proxyToBackend(session.user.id, '/api/nodes/ops/init-daily', {
+      method: 'POST',
     });
+    return toProxyResponse(result);
   } catch (error) {
     console.error('Error initializing daily notes:', error);
     return NextResponse.json(
@@ -67,12 +52,10 @@ export async function GET() {
       );
     }
 
-    const needsInit = await checkNeedsInitialization(session.user.id);
-
-    return NextResponse.json({
-      success: true,
-      needsInitialization: needsInit,
+    const result = await proxyToBackend(session.user.id, '/api/nodes/ops/init-daily/status', {
+      method: 'GET',
     });
+    return toProxyResponse(result);
   } catch (error) {
     console.error('Error checking initialization status:', error);
     return NextResponse.json(

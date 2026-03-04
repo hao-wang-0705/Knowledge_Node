@@ -15,7 +15,8 @@ export class UsersService {
     if (!userRoot) {
       userRoot = await this.prisma.node.create({
         data: {
-          id: `user-root-${userId}`,
+          id: randomUUID(),
+          logicalId: `user-root-${userId}`,
           userId,
           content: '用户根节点',
           nodeType: 'root',
@@ -27,18 +28,24 @@ export class UsersService {
 
     const dailyRoot = await this.prisma.node.findFirst({
       where: { userId, nodeRole: 'daily_root' },
-      select: { id: true },
+      select: { id: true, parentId: true },
     });
     if (!dailyRoot) {
       await this.prisma.node.create({
         data: {
-          id: `daily-root-${userId}`,
+          id: randomUUID(),
+          logicalId: `daily-root-${userId}`,
           userId,
           parentId: userRoot.id,
           content: '每日笔记(Daily Note)',
           nodeType: 'daily',
           nodeRole: 'daily_root',
         },
+      });
+    } else if (dailyRoot.parentId !== userRoot.id) {
+      await this.prisma.node.update({
+        where: { id: dailyRoot.id },
+        data: { parentId: userRoot.id, sortOrder: 0 },
       });
     }
   }

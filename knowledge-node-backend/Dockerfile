@@ -63,7 +63,7 @@ ENV PORT=4000
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget -q --spider http://localhost:4000/api/docs || exit 1
+    CMD wget -q --spider http://localhost:4000/health/ready || exit 1
 
-# Run migrations, seed preset tags (e.g. Task), then start the server
-CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/main"]
+# migrations are executed in deployment pipeline before service startup
+CMD ["node", "dist/main"]

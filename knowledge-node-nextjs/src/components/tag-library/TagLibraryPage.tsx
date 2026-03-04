@@ -10,16 +10,13 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Hash, Library, Sparkles } from 'lucide-react';
+import { Hash, Library } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSupertagStore } from '@/stores/supertagStore';
 import TagGalleryGrid from './TagGalleryGrid';
 import TagDetailPanel from './TagDetailPanel';
 
 const TagLibraryPage: React.FC = () => {
-  const router = useRouter();
-  
   // 选中的标签 ID
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -53,11 +50,6 @@ const TagLibraryPage: React.FC = () => {
     }
   }, [selectedTagId]);
   
-  // 处理返回
-  const handleBack = useCallback(() => {
-    router.push('/');
-  }, [router]);
-  
   // 处理选择标签
   const handleSelectTag = useCallback((tagId: string) => {
     setSelectedTagId(tagId);
@@ -77,41 +69,25 @@ const TagLibraryPage: React.FC = () => {
         showDetailPanel && selectedTag && "mr-0 lg:mr-[400px]"
       )}>
         {/* 顶部标题栏 */}
-        <div className="flex-shrink-0 px-6 py-5 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex-shrink-0 px-6 py-5 border-b border-gray-200 dark:border-gray-700/50">
           <div className="flex items-center justify-between">
-            {/* 左侧：返回按钮 + 标题 */}
-            <div className="flex items-center gap-4">
-              <button
-                onClick={handleBack}
-                className={cn(
-                  "flex items-center justify-center w-10 h-10 rounded-xl",
-                  "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300",
-                  "hover:bg-gray-100 dark:hover:bg-gray-700",
-                  "transition-colors"
-                )}
-                title="返回笔记"
+            {/* 左侧：标题 */}
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg"
+                style={{
+                  background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
+                }}
               >
-                <ArrowLeft size={20} />
-              </button>
-              
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-12 h-12 rounded-xl flex items-center justify-center shadow-lg"
-                  style={{
-                    background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
-                  }}
-                >
-                  <Hash size={24} className="text-white" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
-                    标签图鉴
-                  </h1>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                    <Sparkles size={12} />
-                    系统预置标签库
-                  </p>
-                </div>
+                <Hash size={20} className="text-white" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                  超级标签
+                </h1>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  系统预置标签库
+                </p>
               </div>
             </div>
             
@@ -119,19 +95,16 @@ const TagLibraryPage: React.FC = () => {
             <button
               disabled
               className={cn(
-                "flex items-center gap-2 px-4 py-2.5 rounded-xl",
-                "bg-gray-100 dark:bg-gray-800",
-                "text-gray-400 dark:text-gray-500",
+                "flex items-center gap-2 px-4 py-2 rounded-lg",
+                "bg-gray-800/50",
+                "text-gray-500",
                 "cursor-not-allowed",
-                "border border-gray-200 dark:border-gray-700"
+                "border border-gray-700/50"
               )}
               title="模版市场即将上线"
             >
-              <Library size={18} />
+              <Library size={16} />
               <span className="text-sm font-medium">Browse templates</span>
-              <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                Coming Soon
-              </span>
             </button>
           </div>
         </div>
@@ -158,8 +131,8 @@ const TagLibraryPage: React.FC = () => {
           <div
             className={cn(
               "fixed right-0 top-0 bottom-0 w-full sm:w-[400px]",
-              "bg-white dark:bg-gray-900",
-              "border-l border-gray-200 dark:border-gray-700",
+              "bg-white dark:bg-slate-900",
+              "border-l border-gray-200 dark:border-gray-700/50",
               "shadow-2xl z-50",
               "transform transition-transform duration-300",
               showDetailPanel ? "translate-x-0" : "translate-x-full"

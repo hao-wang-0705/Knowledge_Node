@@ -44,7 +44,7 @@ const OutlineEditor: React.FC = () => {
   const updateNode = useNodeStore((state) => state.updateNode);
   const goToToday = useNodeStore((state) => state.goToToday);
   const getNodePath = useNodeStore((state) => state.getNodePath);
-  const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
+  const navigateToNode = useNodeStore((state) => state.navigateToNode);
   
   const loadSupertagsFromAPI = useSupertagStore((state) => state.loadFromAPI);
   const supertags = useSupertagStore((state) => state.supertags);
@@ -94,7 +94,7 @@ const OutlineEditor: React.FC = () => {
   // 数据加载后，仅在首次加载时自动跳转到今日节点
   useEffect(() => {
     if (isInitialized && Object.keys(nodes).length > 0 && !hasInitialNavigated) {
-      goToToday();
+      void goToToday();
       setHasInitialNavigated(true);
     }
   }, [isInitialized, nodes, hasInitialNavigated, goToToday]);
@@ -127,12 +127,17 @@ const OutlineEditor: React.FC = () => {
     return null;
   }, [hoistedNodeId, userRootId, nodes]);
 
-  // 面包屑导航路径（日历模式：过滤月层，对齐 用户根 -> Daily notes -> 年 -> 周 -> 日）
+  // 面包屑导航路径（严格基于 parent 链，不做本地猜测修正）
   const breadcrumbPath = useMemo(() => {
     if (!hoistedNodeId) return [];
-    const path = getNodePath(hoistedNodeId);
-    return path.filter((node) => !node.id.startsWith('month-'));
+    return getNodePath(hoistedNodeId);
   }, [hoistedNodeId, getNodePath]);
+
+  const hasBrokenCalendarChain = useMemo(() => {
+    if (!hoistedNodeId) return false;
+    const calendarType = getCalendarNodeType(hoistedNodeId);
+    return calendarType !== null && !isInDailyTree(hoistedNodeId);
+  }, [hoistedNodeId, isInDailyTree]);
 
   // 日历/笔记本面包屑展示文案（统一起点：用户昵称(全部笔记)）
   const breadcrumbLabel = useCallback(
@@ -323,7 +328,7 @@ const OutlineEditor: React.FC = () => {
                   </span>
                 ) : (
                   <button
-                    onClick={() => setHoistedNode(item.id)}
+                    onClick={() => navigateToNode(item.id)}
                     className={cn(
                       "hover:underline flex items-center gap-1",
                       item.isUserRoot ? "hover:text-[var(--brand-primary)]" : "hover:text-blue-600"
@@ -457,12 +462,14 @@ const OutlineEditor: React.FC = () => {
                   )}
                 </div>
                 <p className="text-gray-500 dark:text-gray-400 mb-2">
-                  {hoistedNodeId ? '这里还没有内容' : '暂无内容'}
+                  {hasBrokenCalendarChain
+                    ? '检测到日历层级关系异常'
+                    : (hoistedNodeId ? '这里还没有内容' : '暂无内容')}
                 </p>
                 <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">
-                  {canAddNode 
-                    ? '点击下方按钮添加第一条内容' 
-                    : '展开子节点查看更多内容'}
+                  {hasBrokenCalendarChain
+                    ? '请点击「今日笔记」触发结构初始化后重试'
+                    : (canAddNode ? '点击下方按钮添加第一条内容' : '展开子节点查看更多内容')}
                 </p>
                 {canAddNode && (
                   <Button onClick={handleAddNode} variant="outline">

@@ -15,10 +15,11 @@
 #   --clean       完全清理后重建（删除旧镜像和卷）
 #   --dev         使用开发模式启动（不使用 Docker）
 #   --force-kill-ports  强制释放被占用端口（危险）
+#   --reset-nodes 清空 nodes 业务数据（保留用户）
 #   --help        显示帮助信息
 #
 
-set -e
+set -euo pipefail
 
 # 颜色输出
 RED='\033[0;31m'
@@ -39,6 +40,7 @@ NO_CACHE=false
 CLEAN_BUILD=false
 DEV_MODE=false
 FORCE_KILL_PORTS=false
+RESET_NODES=false
 BUILD_TIMESTAMP=$(date +%Y%m%d%H%M%S)
 
 # 显示帮助信息
@@ -53,6 +55,7 @@ show_help() {
     echo "  --clean       完全清理后重建（删除旧镜像）"
     echo "  --dev         使用开发模式启动（不使用 Docker）"
     echo "  --force-kill-ports  强制释放被占用端口（危险）"
+    echo "  --reset-nodes 清空 nodes 业务数据（保留用户）"
     echo "  --help        显示帮助信息"
     echo ""
     echo "示例："
@@ -79,6 +82,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --force-kill-ports)
             FORCE_KILL_PORTS=true
+            shift
+            ;;
+        --reset-nodes)
+            RESET_NODES=true
             shift
             ;;
         --help)
@@ -177,67 +184,85 @@ fi
 echo -e "  ${GREEN}✓ 镜像构建完成${NC}"
 
 # 步骤 6: 启动服务
-echo -e "${YELLOW}[6/7] 启动服务...${NC}"
-docker compose up -d 2>/dev/null || docker-compose up -d
+echo -e "${YELLOW}[6/7] 启动数据库并执行迁移...${NC}"
+docker compose up -d postgres 2>/dev/null || docker-compose up -d postgres
 
-# 等待服务启动
-echo -e "  等待服务启动..."
+echo -n "  等待 PostgreSQL ready: "
+MAX_RETRIES=60
+RETRY_COUNT=0
+until docker exec knowledge-node-postgres pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-knowledge_node}" >/dev/null 2>&1; do
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+      echo -e "${RED}✗ 超时${NC}"
+      exit 1
+    fi
+    sleep 1
+done
+echo -e "${GREEN}✓${NC}"
+
+echo -e "  执行迁移与种子..."
+if ! (docker compose run --rm backend sh -c "npx prisma migrate deploy && npx prisma db seed" 2>/dev/null || docker-compose run --rm backend sh -c "npx prisma migrate deploy && npx prisma db seed"); then
+  echo -e "${RED}✗ 数据库迁移失败，停止部署${NC}"
+  exit 1
+fi
+echo -e "  ${GREEN}✓ 迁移完成${NC}"
+
+echo -e "  启动 backend/frontend..."
+docker compose up -d backend frontend 2>/dev/null || docker-compose up -d backend frontend
 sleep 5
-
 echo -e "  ${GREEN}✓ 服务已启动${NC}"
+
+if [ "$RESET_NODES" = true ]; then
+    echo -e "  ${YELLOW}升级模式：清空 nodes 业务数据（保留用户）...${NC}"
+    DB_USER="${POSTGRES_USER:-postgres}"
+    DB_NAME="${POSTGRES_DB:-knowledge_node}"
+    docker exec knowledge-node-postgres psql -U "$DB_USER" -d "$DB_NAME" -c 'TRUNCATE TABLE "nodes" CASCADE;' >/dev/null
+    echo -e "  ${GREEN}✓ nodes 已清空${NC}"
+fi
 
 # 步骤 7: 健康检查
 echo -e "${YELLOW}[7/7] 执行健康检查...${NC}"
 
-# 检查 PostgreSQL
-echo -n "  PostgreSQL: "
-MAX_RETRIES=30
-RETRY_COUNT=0
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if docker exec knowledge-node-postgres pg_isready -U postgres > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ 正常${NC}"
-        break
-    fi
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    sleep 1
-done
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo -e "${RED}✗ 超时${NC}"
-fi
-
-# 检查后端 API
-echo -n "  Backend API: "
+echo -n "  Backend live: "
 MAX_RETRIES=60
 RETRY_COUNT=0
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -s http://localhost:4000/api/docs > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ 正常${NC}"
-        break
-    fi
+until curl -fsS http://localhost:4000/health/live >/dev/null 2>&1; do
     RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+      echo -e "${RED}✗ 超时${NC}"
+      docker compose logs backend --tail=20 || true
+      exit 1
+    fi
     sleep 2
 done
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo -e "${RED}✗ 超时${NC}"
-    echo -e "  ${YELLOW}查看后端日志:${NC}"
-    docker compose logs backend --tail=20
-fi
+echo -e "${GREEN}✓${NC}"
 
-# 检查前端
-echo -n "  Frontend: "
+echo -n "  Backend ready: "
+RETRY_COUNT=0
+until curl -fsS http://localhost:4000/health/ready >/dev/null 2>&1; do
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+      echo -e "${RED}✗ 超时${NC}"
+      docker compose logs backend --tail=20 || true
+      exit 1
+    fi
+    sleep 2
+done
+echo -e "${GREEN}✓${NC}"
+
+echo -n "  Frontend health: "
 MAX_RETRIES=30
 RETRY_COUNT=0
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -s http://localhost:3000 > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ 正常${NC}"
-        break
-    fi
+until curl -fsS http://localhost:3000/api/health >/dev/null 2>&1; do
     RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+      echo -e "${RED}✗ 超时${NC}"
+      docker compose logs frontend --tail=20 || true
+      exit 1
+    fi
     sleep 1
 done
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo -e "${RED}✗ 超时${NC}"
-fi
+echo -e "${GREEN}✓${NC}"
 
 # 显示容器状态
 echo ""
