@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { BRAND } from '@/lib/brand';
 import { SyncStatusIndicator } from '@/components/SyncStatusIndicator';
+import { logoStyles, topNavStyles, buttonStyles } from '@/styles/visual-tokens';
 
 /**
  * 全局顶部导航组件
@@ -31,20 +32,20 @@ const TopNavigation: React.FC = memo(() => {
   }, [goToToday]);
 
   return (
-    <header className="h-14 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0 z-30">
-      <div className="h-full px-6 flex items-center justify-between">
+    <header className="top-nav">
+      <div className="top-nav-inner">
         {/* 左侧：Logo 和标题 */}
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
-            <FileText size={18} className="text-white" />
+        <div className="top-nav-brand">
+          <div className={cn(logoStyles.container, logoStyles.gradient)}>
+            <FileText size={18} className={logoStyles.icon} />
           </div>
-          <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+          <h1 className="top-nav-title">
             {BRAND.name}
           </h1>
         </div>
 
         {/* 右侧：操作按钮和用户菜单 */}
-        <div className="flex items-center gap-2">
+        <div className={topNavStyles.actions}>
           {/* 今日按钮 */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -52,8 +53,9 @@ const TopNavigation: React.FC = memo(() => {
                 variant="ghost" 
                 size="icon" 
                 className={cn(
-                  "hover:bg-green-50",
-                  isCalendarView ? "text-green-600" : "text-gray-500 hover:text-green-600"
+                  isCalendarView 
+                    ? buttonStyles.brandHighlight
+                    : 'text-gray-500 hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10'
                 )}
                 onClick={handleGoToToday}
               >
@@ -67,7 +69,7 @@ const TopNavigation: React.FC = memo(() => {
           <SyncStatusIndicator />
 
           {/* 分隔线 */}
-          <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-1" />
+          <div className={topNavStyles.divider} />
 
           {/* 用户菜单 */}
           <UserMenu />

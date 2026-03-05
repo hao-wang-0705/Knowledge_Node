@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
-import { FieldDefinition } from '@/types';
+import { FieldDefinition, Node } from '@/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Hash, List, Circle, CalendarDays, X, AlertCircle, CheckCircle2, Link2, Plus } from 'lucide-react';
+import { Hash, List, Circle, CalendarDays, X, AlertCircle, CheckCircle2, Link2, Plus, Sparkles, Loader2, Star, StarHalf, Percent, DollarSign, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import ReferenceFieldPill from './ReferenceFieldPill';
@@ -49,7 +49,46 @@ interface FieldEditorProps {
   nodeId?: string;
   tagId?: string;
   className?: string;
+  /** AI 字段手动触发回调 */
+  onTriggerAI?: (fieldId: string) => Promise<void>;
 }
+
+// 获取数字格式化显示
+const formatNumber = (value: number | string | undefined | null, format?: string): string => {
+  if (value === undefined || value === null || value === '') return '';
+  const num = Number(value);
+  if (isNaN(num)) return String(value);
+  
+  switch (format) {
+    case 'currency':
+      return new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(num);
+    case 'percent':
+      return new Intl.NumberFormat('zh-CN', { style: 'percent', minimumFractionDigits: 0 }).format(num / 100);
+    case 'rating':
+      return String(num); // rating 用星级渲染
+    default:
+      return String(num);
+  }
+};
+
+// 星级评分渲染组件
+const RatingDisplay: React.FC<{ value: number; max?: number }> = ({ value, max = 5 }) => {
+  const fullStars = Math.floor(value);
+  const hasHalf = value % 1 >= 0.5;
+  const emptyStars = max - fullStars - (hasHalf ? 1 : 0);
+  
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {Array(fullStars).fill(null).map((_, i) => (
+        <Star key={`full-${i}`} size={14} className="fill-yellow-400 text-yellow-400" />
+      ))}
+      {hasHalf && <StarHalf size={14} className="fill-yellow-400 text-yellow-400" />}
+      {Array(emptyStars).fill(null).map((_, i) => (
+        <Star key={`empty-${i}`} size={14} className="text-gray-300" />
+      ))}
+    </span>
+  );
+};
 
 // 获取字段类型对应的图标
 const getFieldIcon = (type: string) => {
@@ -60,8 +99,13 @@ const getFieldIcon = (type: string) => {
       return <Hash size={14} className="text-gray-400" />;
     case 'select':
       return <List size={14} className="text-gray-400" />;
+    case 'multi-select':
+      return <ListChecks size={14} className="text-gray-400" />;
     case 'reference':
       return <Link2 size={14} className="text-gray-400" />;
+    case 'ai_text':
+    case 'ai_select':
+      return <Sparkles size={14} className="text-pink-400" />;
     case 'text':
     default:
       return <Circle size={14} className="text-gray-400" />;
@@ -80,12 +124,14 @@ const formatDate = (dateStr: string) => {
   return date.toLocaleDateString('zh-CN', options);
 };
 
-const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, className, nodeId, tagId }) => {
+const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, className, nodeId, tagId, onTriggerAI }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [selectOpen, setSelectOpen] = useState(false);
+  const [multiSelectOpen, setMultiSelectOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [refSearch, setRefSearch] = useState('');
   const [refPopoverOpen, setRefPopoverOpen] = useState(false);
+  const [isAIProcessing, setIsAIProcessing] = useState(false);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const selectMenuRef = useRef<HTMLDivElement>(null);
   const nodes = useNodeStore((s) => s.nodes);
@@ -210,15 +256,33 @@ const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, cl
             />
           );
         }
+        // 格式化显示
+        const numFormat = fieldDef.format;
+        if (numFormat === 'rating' && value !== undefined && value !== '') {
+          return (
+            <span 
+              onClick={() => setIsEditing(true)}
+              className="cursor-text inline-flex items-center gap-1"
+            >
+              <RatingDisplay value={Number(value)} />
+            </span>
+          );
+        }
         return (
           <span 
             onClick={() => setIsEditing(true)}
             className={cn(
-              "cursor-text",
+              "cursor-text inline-flex items-center gap-1",
               value !== undefined && value !== '' ? "text-gray-700" : "text-gray-400"
             )}
           >
-            {value !== undefined && value !== '' ? value : 'Empty'}
+            {numFormat === 'currency' && value !== undefined && value !== '' && (
+              <DollarSign size={12} className="text-green-500" />
+            )}
+            {numFormat === 'percent' && value !== undefined && value !== '' && (
+              <Percent size={12} className="text-blue-500" />
+            )}
+            {value !== undefined && value !== '' ? formatNumber(Number(value), numFormat) : 'Empty'}
           </span>
         );
 
@@ -419,6 +483,207 @@ const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, cl
                 </div>
               </PopoverContent>
             </Popover>
+          </div>
+        );
+      }
+
+      // multi-select: 多选下拉
+      case 'multi-select': {
+        const multiOptions = fieldDef.options || [];
+        const selectedValues: string[] = Array.isArray(value) ? value : value ? [value] : [];
+        
+        return (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* 已选择的标签 */}
+            {selectedValues.map((v, index) => (
+              <span
+                key={index}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
+              >
+                {v}
+                <button
+                  onClick={() => {
+                    const next = selectedValues.filter((_, i) => i !== index);
+                    handleChange(next);
+                  }}
+                  className="hover:text-red-500 transition-colors"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+            
+            {/* 添加选项按钮 */}
+            <Popover open={multiSelectOpen} onOpenChange={setMultiSelectOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs cursor-pointer",
+                    "border border-dashed transition-colors",
+                    selectedValues.length > 0
+                      ? "border-violet-300 dark:border-violet-600 text-violet-400 dark:text-violet-500 hover:border-violet-500 hover:text-violet-600"
+                      : "border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500 hover:bg-gray-50"
+                  )}
+                >
+                  <Plus size={10} />
+                  <span>{selectedValues.length > 0 ? '添加' : '选择选项'}</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-1" align="start">
+                <div className="space-y-0.5">
+                  {multiOptions.map((option) => {
+                    const isChecked = selectedValues.includes(option);
+                    return (
+                      <button
+                        key={option}
+                        onClick={() => {
+                          if (isChecked) {
+                            handleChange(selectedValues.filter((v) => v !== option));
+                          } else {
+                            handleChange([...selectedValues, option]);
+                          }
+                        }}
+                        className={cn(
+                          "w-full text-left px-2 py-1.5 text-sm rounded transition-colors flex items-center gap-2",
+                          isChecked ? "bg-violet-100 text-violet-800" : "hover:bg-gray-50 text-gray-700"
+                        )}
+                      >
+                        <span className="flex-1">{option}</span>
+                        {isChecked && <CheckCircle2 size={14} className="text-violet-600" />}
+                      </button>
+                    );
+                  })}
+                  {selectedValues.length > 0 && (
+                    <>
+                      <div className="border-t my-1" />
+                      <button
+                        onClick={() => handleChange([])}
+                        className="w-full text-left px-2 py-1.5 text-sm rounded transition-colors text-gray-500 hover:bg-gray-100"
+                      >
+                        <X size={12} className="inline mr-2" />
+                        清除所有
+                      </button>
+                    </>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        );
+      }
+
+      // ai_text: AI 文本字段
+      case 'ai_text': {
+        const handleTriggerAI = async () => {
+          if (!onTriggerAI || isAIProcessing) return;
+          setIsAIProcessing(true);
+          try {
+            await onTriggerAI(fieldDef.id);
+          } finally {
+            setIsAIProcessing(false);
+          }
+        };
+
+        return (
+          <div className="flex items-center gap-2 group/ai">
+            {/* 显示值或占位符 */}
+            <span className={cn(
+              "flex-1 text-sm",
+              value ? "text-gray-700" : "text-gray-400 italic"
+            )}>
+              {value || '等待 AI 生成...'}
+            </span>
+            
+            {/* AI 触发按钮 */}
+            <button
+              onClick={handleTriggerAI}
+              disabled={isAIProcessing || !onTriggerAI}
+              className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-all",
+                isAIProcessing 
+                  ? "bg-pink-100 text-pink-600 cursor-wait"
+                  : "bg-pink-50 text-pink-500 hover:bg-pink-100 hover:text-pink-600",
+                "opacity-0 group-hover/ai:opacity-100",
+                value && "opacity-50 group-hover/ai:opacity-100"
+              )}
+              title="点击触发 AI 生成"
+            >
+              {isAIProcessing ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>生成中</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={12} />
+                  <span>{value ? '重新生成' : '生成'}</span>
+                </>
+              )}
+            </button>
+          </div>
+        );
+      }
+
+      // ai_select: AI 选项字段
+      case 'ai_select': {
+        const aiOptions = fieldDef.aiConfig?.options || fieldDef.options || [];
+        
+        const handleTriggerAI = async () => {
+          if (!onTriggerAI || isAIProcessing) return;
+          setIsAIProcessing(true);
+          try {
+            await onTriggerAI(fieldDef.id);
+          } finally {
+            setIsAIProcessing(false);
+          }
+        };
+
+        return (
+          <div className="flex items-center gap-2 group/ai">
+            {/* 显示当前值 */}
+            <span className={cn(
+              "px-2 py-0.5 rounded-full text-xs",
+              value 
+                ? "bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300"
+                : "text-gray-400 italic"
+            )}>
+              {value || '等待 AI 判定...'}
+            </span>
+            
+            {/* 可选值预览 */}
+            {aiOptions.length > 0 && !value && (
+              <span className="text-[10px] text-gray-400">
+                ({aiOptions.join(' / ')})
+              </span>
+            )}
+            
+            {/* AI 触发按钮 */}
+            <button
+              onClick={handleTriggerAI}
+              disabled={isAIProcessing || !onTriggerAI}
+              className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-all",
+                isAIProcessing 
+                  ? "bg-pink-100 text-pink-600 cursor-wait"
+                  : "bg-pink-50 text-pink-500 hover:bg-pink-100 hover:text-pink-600",
+                "opacity-0 group-hover/ai:opacity-100",
+                value && "opacity-50 group-hover/ai:opacity-100"
+              )}
+              title="点击触发 AI 判定"
+            >
+              {isAIProcessing ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>判定中</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={12} />
+                  <span>{value ? '重新判定' : '判定'}</span>
+                </>
+              )}
+            </button>
           </div>
         );
       }

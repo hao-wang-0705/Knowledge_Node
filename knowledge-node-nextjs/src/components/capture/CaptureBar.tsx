@@ -7,7 +7,7 @@
  * - 文本输入（支持 @ 引用、# 标签）
  * - 图片上传（拖拽、粘贴、选择）
  * - 语音录制
- * - AI 智能结构化
+ * - AI 格式化（v3.5 新增）
  * - 预览确认
  */
 
@@ -20,19 +20,20 @@ import {
   X, 
   Loader2, 
   Hash, 
-  Sparkles,
   ChevronUp,
   ChevronDown,
+  Wand2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { useCaptureStore, useCaptureHasContent, type CaptureImage } from '@/stores/captureStore';
+import { useCaptureStore, type CaptureImage } from '@/stores/captureStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { generateId } from '@/utils/helpers';
 import PreviewBubble from './PreviewBubble';
+import FormattingIndicator from './FormattingIndicator';
 
 interface CaptureBarProps {
   className?: string;
@@ -63,6 +64,7 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
     manualTagId,
     error,
     isFocused,
+    formattingProgress,
     setTextInput,
     addImage,
     removeImage,
@@ -70,14 +72,12 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
     startRecording,
     stopRecording,
     setManualTagId,
-    setStatus,
     setError,
     setFocused,
-    setTargetParentId,
-    processCapture,
     cancelPreview,
     confirmPreview,
-    reset,
+    startFormatting,
+    cancelFormatting,
   } = useCaptureStore();
   
   const supertags = useSupertagStore((s) => s.supertags);
@@ -87,8 +87,6 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   const updateNode = useNodeStore((s) => s.updateNode);
   const ensureTodayNode = useNodeStore((s) => s.ensureTodayNode);
   const hoistedNodeId = useNodeStore((s) => s.hoistedNodeId);
-  
-  const hasContent = useCaptureHasContent();
   
   // 获取可用标签（排除已废弃标签）
   const availableTags = Object.values(supertags).filter((t) => t.status !== 'deprecated');
@@ -160,14 +158,15 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   }, [setTextInput, showTagSelector]);
   
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter 提交（无修饰键）
+    // Enter 触发 AI 格式化（无修饰键）
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       if (preview) {
         e.preventDefault();
         handleConfirm();
-      } else if (hasContent && status === 'idle') {
+      } else if (textInput.trim() && status === 'idle') {
         e.preventDefault();
-        handleProcess();
+        // 触发 AI 格式化
+        handleStartFormatting();
       }
     }
     
@@ -195,7 +194,8 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
       e.preventDefault();
       handleSelectTag(filteredTags[0].id);
     }
-  }, [preview, hasContent, status, showTagSelector, filteredTags]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview, textInput, status, showTagSelector, filteredTags, cancelPreview]);
   
   // ============================================
   // 标签选择
@@ -376,17 +376,8 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   }, [stopRecording]);
   
   // ============================================
-  // AI 处理与确认
+  // 确认处理
   // ============================================
-  
-  const handleProcess = useCallback(async () => {
-    // 设置目标父节点（当前视图或今日笔记）
-    const targetId = hoistedNodeId || ensureTodayNode();
-    setTargetParentId(targetId);
-    
-    // 调用 AI 处理
-    await processCapture(supertags);
-  }, [hoistedNodeId, ensureTodayNode, setTargetParentId, processCapture, supertags]);
   
   const handleConfirm = useCallback((keepInput = false) => {
     const newNode = confirmPreview();
@@ -422,11 +413,34 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   }, [cancelPreview]);
   
   // ============================================
+  // AI 格式化（v3.5 新增）
+  // ============================================
+  
+  const handleStartFormatting = useCallback(async () => {
+    if (!textInput.trim()) return;
+    
+    // 获取目标父节点
+    const targetId = hoistedNodeId || ensureTodayNode();
+    
+    // 调用流式格式化
+    await startFormatting(textInput.trim(), targetId, addNode, updateNode);
+    
+    // 格式化完成后聚焦输入框
+    inputRef.current?.focus();
+  }, [textInput, hoistedNodeId, ensureTodayNode, startFormatting, addNode, updateNode]);
+  
+  const handleCancelFormatting = useCallback(() => {
+    cancelFormatting();
+    inputRef.current?.focus();
+  }, [cancelFormatting]);
+  
+  // ============================================
   // 渲染
   // ============================================
   
   const isProcessing = status === 'processing';
   const isRecording = status === 'recording';
+  const isFormatting = status === 'formatting';
   const showPreview = status === 'preview' && preview;
   
   return (
@@ -603,41 +617,50 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
               
               {/* 文本输入区 */}
               <div className="flex items-end gap-2 p-3">
-                <textarea
-                  ref={inputRef}
-                  value={textInput}
-                  onChange={handleTextChange}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
-                  onPaste={handlePaste}
-                  placeholder="快速记录... 输入 # 选择标签，@ 引用节点"
-                  disabled={isProcessing}
-                  className={cn(
-                    'flex-1 resize-none bg-transparent border-none outline-none',
-                    'text-gray-800 dark:text-gray-200 placeholder-gray-400',
-                    'min-h-[44px] max-h-[200px] py-2 px-1',
-                    'text-base leading-relaxed',
-                  )}
-                  rows={1}
-                />
+                {/* 格式化进度指示器 - 格式化时显示 */}
+                {isFormatting && formattingProgress ? (
+                  <FormattingIndicator
+                    nodeCount={formattingProgress.nodeCount}
+                    onCancel={handleCancelFormatting}
+                    className="flex-1"
+                  />
+                ) : (
+                  <textarea
+                    ref={inputRef}
+                    value={textInput}
+                    onChange={handleTextChange}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
+                    onPaste={handlePaste}
+                    placeholder="输入你想记录的事情，自动进行格式化记录"
+                    disabled={isProcessing}
+                    className={cn(
+                      'flex-1 resize-none bg-transparent border-none outline-none',
+                      'text-gray-800 dark:text-gray-200 placeholder-gray-400',
+                      'min-h-[44px] max-h-[200px] py-2 px-1',
+                      'text-base leading-relaxed',
+                    )}
+                    rows={1}
+                  />
+                )}
                 
-                {/* 操作按钮 */}
+                {/* 操作按钮 - 格式化时隐藏 */}
+                {!isFormatting && (
                 <div className="flex items-center gap-1">
-                  {/* 图片上传 */}
+                  {/* 图片上传 - 暂时禁用 */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isProcessing}
-                        className="h-9 w-9 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                        disabled={true}
+                        className="h-9 w-9 text-gray-400 opacity-50 cursor-not-allowed"
                       >
                         <ImageIcon className="w-5 h-5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>添加图片</TooltipContent>
+                    <TooltipContent>图片上传功能暂未开放</TooltipContent>
                   </Tooltip>
                   
                   {/* 语音录制 - MVP 版本禁用 */}
@@ -688,35 +711,55 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                     <TooltipContent>选择标签</TooltipContent>
                   </Tooltip>
                   
-                  {/* 发送/处理按钮 */}
+                  {/* 分隔线 */}
+                  <div className="h-5 w-px bg-gray-200 dark:bg-gray-600 mx-1" />
+                  
+                  {/* AI 格式化按钮 */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleStartFormatting}
+                        disabled={!textInput.trim() || isProcessing}
+                        className={cn(
+                          'h-9 w-9',
+                          textInput.trim()
+                            ? 'text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20'
+                            : 'text-gray-400 opacity-50'
+                        )}
+                      >
+                        <Wand2 className="w-5 h-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>AI 格式化笔记</TooltipContent>
+                  </Tooltip>
+                  
+                  {/* 发送按钮 - 仅在预览模式下显示 */}
+                  {showPreview && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="default"
                         size="icon"
-                        onClick={showPreview ? () => handleConfirm() : handleProcess}
-                        disabled={(!hasContent && !showPreview) || isProcessing}
-                        className={cn(
-                          'h-9 w-9 rounded-xl',
-                          hasContent || showPreview
-                            ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                            : 'bg-gray-100 text-gray-400 dark:bg-gray-700'
-                        )}
+                        onClick={() => handleConfirm()}
+                        disabled={isProcessing}
+                        className="h-9 w-9 rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
                       >
                         {isProcessing ? (
                           <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : showPreview ? (
-                          <Send className="w-5 h-5" />
                         ) : (
-                          <Sparkles className="w-5 h-5" />
+                          <Send className="w-5 h-5" />
                         )}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {isProcessing ? '处理中...' : showPreview ? '确认添加 (Enter)' : 'AI 智能结构化'}
+                      {isProcessing ? '处理中...' : '确认添加 (Enter)'}
                     </TooltipContent>
                   </Tooltip>
+                  )}
                 </div>
+                )}
               </div>
               
               {/* 标签选择器下拉 */}
@@ -786,7 +829,7 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
               </span>
               <span className="px-2">
                 <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-mono">Enter</kbd>
-                {' '}{showPreview ? '确认' : '处理'}
+                {' '}{showPreview ? '确认' : 'AI 格式化'}
               </span>
               <span className="px-2">
                 <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-mono">Esc</kbd>

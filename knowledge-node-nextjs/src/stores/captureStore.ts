@@ -1,11 +1,13 @@
 /**
  * 快速捕获状态管理 (Capture Store)
  * 管理多模态输入、AI 结构化预览和确认流程
+ * v3.5: 新增 AI 格式化功能（流式写入）
  */
 
 import { create } from 'zustand';
 import type { Node, Supertag, FieldDefinition } from '@/types';
 import { generateId } from '@/utils/helpers';
+import type { FormatNode } from '@/utils/format-parser';
 
 // ============================================================================
 // 类型定义
@@ -20,7 +22,8 @@ export type CaptureStatus =
   | 'recording'      // 录音中
   | 'processing'     // AI 处理中
   | 'preview'        // 预览确认
-  | 'submitting';    // 提交中
+  | 'submitting'     // 提交中
+  | 'formatting';    // AI 格式化中（v3.5 新增）
 
 /** 图片附件 */
 export interface CaptureImage {
@@ -61,6 +64,20 @@ export interface CapturePreview {
   isAutoExtracted: boolean;
 }
 
+/** 格式化进度状态（v3.5 新增） */
+export interface FormattingProgress {
+  /** 已创建节点数 */
+  nodeCount: number;
+  /** tempId → realId 映射 */
+  tempIdMap: Map<string, string>;
+  /** 目标父节点 ID */
+  targetParentId: string;
+  /** 是否正在进行 */
+  isActive: boolean;
+  /** AbortController 用于取消 */
+  abortController: AbortController | null;
+}
+
 /** 捕获 Store 状态 */
 interface CaptureStoreState {
   /** 当前状态 */
@@ -81,6 +98,8 @@ interface CaptureStoreState {
   isFocused: boolean;
   /** 目标父节点 ID (默认写入今日笔记) */
   targetParentId: string | null;
+  /** 格式化进度（v3.5 新增） */
+  formattingProgress: FormattingProgress | null;
 }
 
 /** 捕获 Store 操作 */
@@ -122,8 +141,19 @@ interface CaptureStoreActions {
   // AI 处理
   processCapture: (supertags: Record<string, Supertag>) => Promise<void>;
   
-  // AI 语音转写（新增）
+  // AI 语音转写
   transcribeAudio: (audio: string, format?: string, language?: string) => Promise<string>;
+  
+  // v3.5: AI 格式化
+  /** 开始 AI 格式化，流式写入节点到 targetParentId */
+  startFormatting: (
+    text: string,
+    targetParentId: string,
+    addNode: (parentId: string) => string,
+    updateNode: (id: string, updates: Partial<Node>) => void
+  ) => Promise<void>;
+  /** 取消正在进行的格式化 */
+  cancelFormatting: () => void;
 }
 
 type CaptureStore = CaptureStoreState & CaptureStoreActions;
@@ -142,6 +172,7 @@ const initialState: CaptureStoreState = {
   error: null,
   isFocused: false,
   targetParentId: null,
+  formattingProgress: null,
 };
 
 // ============================================================================
@@ -401,6 +432,174 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
       setStatus('idle');
       throw error;
     }
+  },
+
+  /**
+   * v3.5: AI 格式化 - 流式写入
+   * 将大段文字格式化为树形节点，直接写入到指定父节点下
+   */
+  startFormatting: async (text, targetParentId, addNode, updateNode) => {
+    const { setStatus, setError } = get();
+    
+    // 创建 AbortController 用于取消
+    const abortController = new AbortController();
+    
+    // 初始化格式化进度
+    const formattingProgress: FormattingProgress = {
+      nodeCount: 0,
+      tempIdMap: new Map(),
+      targetParentId,
+      isActive: true,
+      abortController,
+    };
+    
+    set({ 
+      status: 'formatting',
+      error: null,
+      formattingProgress,
+    });
+    
+    try {
+      // 发起流式请求
+      const response = await fetch('/api/ai/format-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: abortController.signal,
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '格式化请求失败');
+      }
+      
+      if (!response.body) {
+        throw new Error('无法获取响应流');
+      }
+      
+      // 读取 SSE 流
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        // 按行处理 SSE 事件
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // 保留未完成的行
+        
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            // 解析事件类型
+            const eventType = line.slice(7).trim();
+            continue;
+          }
+          
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            
+            try {
+              const data = JSON.parse(dataStr);
+              
+              // 获取最新的 progress 状态
+              const currentProgress = get().formattingProgress;
+              if (!currentProgress?.isActive) {
+                // 已被取消
+                reader.cancel();
+                return;
+              }
+              
+              // 处理节点事件
+              if (data.tempId && data.content !== undefined) {
+                const node = data as FormatNode;
+                
+                // 确定真实父节点 ID
+                let realParentId = targetParentId;
+                if (node.parentTempId) {
+                  const mappedParentId = currentProgress.tempIdMap.get(node.parentTempId);
+                  if (mappedParentId) {
+                    realParentId = mappedParentId;
+                  }
+                }
+                
+                // 创建节点
+                const realId = addNode(realParentId);
+                
+                // 更新节点内容
+                updateNode(realId, { content: node.content });
+                
+                // 记录映射
+                currentProgress.tempIdMap.set(node.tempId, realId);
+                currentProgress.nodeCount++;
+                
+                // 更新状态触发 UI 更新
+                set({ formattingProgress: { ...currentProgress } });
+              }
+              
+              // 处理完成事件
+              if (data.success !== undefined && data.nodeCount !== undefined) {
+                // done 事件，格式化完成
+                console.log(`[Format] 完成，共创建 ${data.nodeCount} 个节点`);
+              }
+              
+              // 处理错误事件
+              if (data.error) {
+                throw new Error(data.error);
+              }
+              
+            } catch (parseError) {
+              console.warn('[Format] 解析 SSE 数据失败:', parseError);
+            }
+          }
+        }
+      }
+      
+      // 格式化完成，重置状态
+      set({ 
+        status: 'idle',
+        textInput: '', // 清空输入
+        formattingProgress: null,
+      });
+      
+    } catch (error) {
+      // 检查是否是取消操作
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[Format] 用户取消格式化');
+        set({ 
+          status: 'idle',
+          formattingProgress: null,
+        });
+        return;
+      }
+      
+      const message = error instanceof Error ? error.message : '格式化失败';
+      setError(message);
+      set({ 
+        status: 'idle',
+        formattingProgress: null,
+      });
+    }
+  },
+
+  /**
+   * v3.5: 取消正在进行的格式化
+   */
+  cancelFormatting: () => {
+    const { formattingProgress } = get();
+    
+    if (formattingProgress?.abortController) {
+      formattingProgress.abortController.abort();
+    }
+    
+    set({
+      status: 'idle',
+      formattingProgress: null,
+    });
   },
 }));
 

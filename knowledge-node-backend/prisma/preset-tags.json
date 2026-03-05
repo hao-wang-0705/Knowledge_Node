@@ -1,0 +1,342 @@
+{
+  "$schema": "./preset-tags.schema.json",
+  "description": "预置标签配置文件 v3.5 - 通过 /api/internal/tags/batch 导入",
+  "tags": [
+    {
+      "name": "任务",
+      "color": "#3B82F6",
+      "icon": "✅",
+      "description": "任务管理标签，包含状态、优先级、截止日期和 AI 进度追踪",
+      "order": 1,
+      "fieldDefinitions": [
+        {
+          "id": "task_status_v2",
+          "key": "task_status",
+          "name": "任务状态",
+          "type": "select",
+          "options": ["待启动", "进行中", "已完成", "已取消"]
+        },
+        {
+          "id": "task_priority_v2",
+          "key": "task_priority",
+          "name": "任务优先级",
+          "type": "select",
+          "options": ["P0", "P1", "P2", "Nice To Have"]
+        },
+        {
+          "id": "task_due_date_v2",
+          "key": "due_date",
+          "name": "截止日期",
+          "type": "date"
+        },
+        {
+          "id": "task_progress_ai",
+          "key": "task_progress",
+          "name": "任务进度",
+          "type": "ai_text",
+          "aiConfig": {
+            "aiType": "extraction",
+            "prompt": "分析当前节点的所有子节点，统计打上[任务]标签的子节点中，任务状态为[已完成]的数量和总任务数量，计算完成百分比。输出格式：X/Y (Z%)，其中 X 是已完成数量，Y 是总任务数量，Z 是完成百分比。如果没有子任务，返回[暂无子任务]",
+            "triggerOn": "manual",
+            "outputFormat": "text",
+            "includeChildren": true,
+            "contextDepth": 1
+          }
+        }
+      ],
+      "templateContent": {
+        "content": "",
+        "children": [
+          { 
+            "content": "子任务1",
+            "tags": ["任务"]
+          }
+        ]
+      },
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "运动记录",
+      "color": "#EF4444",
+      "icon": "🏃",
+      "description": "运动记录标签，追踪运动类型、地点、卡路里消耗及 AI 消耗总结",
+      "order": 2,
+      "fieldDefinitions": [
+        {
+          "id": "exercise_type",
+          "key": "exercise_type",
+          "name": "运动类型",
+          "type": "select",
+          "options": ["有氧", "无氧", "力量"]
+        },
+        {
+          "id": "exercise_location",
+          "key": "exercise_location",
+          "name": "运动地点",
+          "type": "select",
+          "options": ["室内", "户外"]
+        },
+        {
+          "id": "exercise_calories",
+          "key": "calories",
+          "name": "消耗卡路里",
+          "type": "number",
+          "format": "千卡"
+        },
+        {
+          "id": "exercise_summary_ai",
+          "key": "calorie_summary",
+          "name": "消耗总结",
+          "type": "ai_text",
+          "aiConfig": {
+            "aiType": "summarization",
+            "prompt": "根据消耗的卡路里数值，将其转换为等价的食物热量。例如：消耗 300 千卡约等于 1 碗米饭（约 230 千卡）+ 1 个苹果（约 70 千卡），或约等于 1 个汉堡（约 300 千卡）。请给出 2-3 种常见食物的等价换算，让用户直观理解运动消耗。如果卡路里字段为空，返回[请先填写消耗卡路里]",
+            "triggerOn": "manual",
+            "outputFormat": "text",
+            "inputFields": ["calories"],
+            "includeChildren": false
+          }
+        }
+      ],
+      "templateContent": {
+        "content": "",
+        "children": [
+          { "content": "运动内容：" },
+          { "content": "运动时长：" },
+          { "content": "运动感受：" }
+        ]
+      },
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "Task",
+      "color": "#6366F1",
+      "icon": "☑️",
+      "description": "任务管理标签（英文版），包含 AI 智能字段",
+      "order": 3,
+      "fieldDefinitions": [
+        {
+          "id": "task_status",
+          "key": "status",
+          "name": "状态",
+          "type": "select",
+          "options": ["Todo", "Doing", "Done"]
+        },
+        {
+          "id": "task_due_date",
+          "key": "due_date",
+          "name": "截止日期",
+          "type": "date"
+        },
+        {
+          "id": "task_assignee",
+          "key": "assignee",
+          "name": "负责人",
+          "type": "text"
+        },
+        {
+          "id": "task_priority",
+          "key": "priority",
+          "name": "优先级",
+          "type": "ai_select",
+          "options": ["P0", "P1", "P2", "P3"],
+          "aiConfig": {
+            "aiType": "classification",
+            "prompt": "根据任务描述、截止日期和当前状态，判断任务的优先级。P0=紧急且重要，P1=重要但不紧急，P2=紧急但不重要，P3=不紧急不重要",
+            "triggerOn": "manual",
+            "outputFormat": "select",
+            "options": ["P0", "P1", "P2", "P3"],
+            "inputFields": ["status", "due_date"],
+            "includeChildren": false
+          }
+        },
+        {
+          "id": "task_ai_summary",
+          "key": "ai_summary",
+          "name": "AI 摘要",
+          "type": "ai_text",
+          "aiConfig": {
+            "aiType": "summarization",
+            "prompt": "用一句话概括这个任务的核心目标和关键交付物",
+            "triggerOn": "manual",
+            "outputFormat": "text",
+            "includeChildren": true,
+            "contextDepth": 2
+          }
+        }
+      ],
+      "templateContent": {
+        "content": "",
+        "children": [
+          { "content": "任务描述：" },
+          { "content": "验收标准：" }
+        ]
+      },
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "Meeting",
+      "color": "#8B5CF6",
+      "icon": "📅",
+      "description": "会议记录标签，包含 AI 信息抽取字段",
+      "order": 4,
+      "fieldDefinitions": [
+        {
+          "id": "meeting_date",
+          "key": "date",
+          "name": "会议日期",
+          "type": "date"
+        },
+        {
+          "id": "meeting_time",
+          "key": "time",
+          "name": "会议时间",
+          "type": "text"
+        },
+        {
+          "id": "meeting_participants",
+          "key": "participants",
+          "name": "参会人员",
+          "type": "text"
+        },
+        {
+          "id": "meeting_agenda",
+          "key": "agenda",
+          "name": "议程",
+          "type": "text"
+        },
+        {
+          "id": "meeting_ai_actions",
+          "key": "ai_actions",
+          "name": "AI 行动点",
+          "type": "ai_text",
+          "aiConfig": {
+            "aiType": "extraction",
+            "prompt": "从会议记录中提取所有待办事项和行动点，格式为：- [负责人] 行动内容 (截止日期，如有)",
+            "triggerOn": "manual",
+            "outputFormat": "list",
+            "includeChildren": true,
+            "contextDepth": 3
+          }
+        },
+        {
+          "id": "meeting_ai_decisions",
+          "key": "ai_decisions",
+          "name": "AI 决策摘要",
+          "type": "ai_text",
+          "aiConfig": {
+            "aiType": "extraction",
+            "prompt": "提取会议中达成的关键决策和结论，每条一行",
+            "triggerOn": "manual",
+            "outputFormat": "list",
+            "includeChildren": true,
+            "contextDepth": 3
+          }
+        }
+      ],
+      "templateContent": {
+        "content": "",
+        "children": [
+          { "content": "议程：" },
+          { "content": "讨论要点：" },
+          { "content": "待办事项：" }
+        ]
+      },
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "Idea",
+      "color": "#F59E0B",
+      "icon": "💡",
+      "description": "灵感记录标签",
+      "order": 5,
+      "fieldDefinitions": [
+        {
+          "id": "idea_source",
+          "key": "source",
+          "name": "来源",
+          "type": "text"
+        },
+        {
+          "id": "idea_status",
+          "key": "status",
+          "name": "状态",
+          "type": "select",
+          "options": ["待整理", "已归档", "已实现"]
+        },
+        {
+          "id": "idea_tags",
+          "key": "tags",
+          "name": "标签",
+          "type": "multi-select",
+          "options": ["产品", "技术", "设计", "商业", "生活"]
+        }
+      ],
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "Book",
+      "color": "#10B981",
+      "icon": "📚",
+      "description": "书籍阅读记录",
+      "order": 6,
+      "fieldDefinitions": [
+        {
+          "id": "book_author",
+          "key": "author",
+          "name": "作者",
+          "type": "text"
+        },
+        {
+          "id": "book_rating",
+          "key": "rating",
+          "name": "评分",
+          "type": "number",
+          "format": "rating"
+        },
+        {
+          "id": "book_status",
+          "key": "status",
+          "name": "阅读状态",
+          "type": "select",
+          "options": ["想读", "在读", "已读"]
+        },
+        {
+          "id": "book_start_date",
+          "key": "start_date",
+          "name": "开始日期",
+          "type": "date"
+        },
+        {
+          "id": "book_ai_summary",
+          "key": "ai_summary",
+          "name": "AI 书评摘要",
+          "type": "ai_text",
+          "aiConfig": {
+            "aiType": "summarization",
+            "prompt": "根据我的阅读笔记，生成一段 100 字以内的书评摘要，包含核心观点和个人收获",
+            "triggerOn": "manual",
+            "outputFormat": "text",
+            "includeChildren": true,
+            "contextDepth": 5
+          }
+        }
+      ],
+      "templateContent": {
+        "content": "",
+        "children": [
+          { "content": "核心观点：" },
+          { "content": "个人收获：" },
+          { "content": "摘录：" }
+        ]
+      },
+      "isGlobalDefault": true,
+      "status": "active"
+    }
+  ]
+}

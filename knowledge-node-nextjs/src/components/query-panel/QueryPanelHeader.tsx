@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { QUERY_PANEL_CONSTANTS } from '@/stores/queryPanelStore';
+import { AlertBanner } from '@/components/ui/alert-banner';
+import { logoStyles } from '@/styles/visual-tokens';
 
 interface QueryPanelHeaderProps {
   /** 当前查询块数量 */
@@ -28,12 +30,12 @@ const QueryPanelHeader: React.FC<QueryPanelHeaderProps> = memo(({
   const isAtLimit = queryCount >= QUERY_PANEL_CONSTANTS.MAX_QUERY_BLOCKS;
 
   return (
-    <header className="h-14 flex-shrink-0 border-b border-gray-200/60 dark:border-gray-700/60 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
-      <div className="h-full px-4 flex items-center justify-between">
+    <header className="flex-shrink-0 border-b border-gray-200/60 dark:border-gray-700/60 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+      <div className="h-14 px-4 flex items-center justify-between">
         {/* 左侧：标题和图标 */}
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm">
-            <Search size={14} className="text-white" />
+          <div className={cn(logoStyles.container, logoStyles.gradient, 'w-7 h-7')}>
+            <Search size={14} className={logoStyles.icon} />
           </div>
           <div>
             <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
@@ -58,7 +60,7 @@ const QueryPanelHeader: React.FC<QueryPanelHeaderProps> = memo(({
                   'transition-all duration-150',
                   isAtLimit
                     ? 'opacity-40 cursor-not-allowed'
-                    : 'hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/50'
+                    : 'hover:bg-[var(--brand-primary)]/10 hover:text-[var(--brand-primary)]'
                 )}
               >
                 <Plus size={16} />
@@ -75,11 +77,9 @@ const QueryPanelHeader: React.FC<QueryPanelHeaderProps> = memo(({
 
       {/* 上限提示条 */}
       {showLimitWarning && (
-        <div className="px-4 py-1.5 bg-amber-50 dark:bg-amber-950/30 border-t border-amber-200/50 dark:border-amber-800/50">
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            ⚠️ 已达到查询块上限，请删除现有查询块后再新建
-          </p>
-        </div>
+        <AlertBanner variant="warning" className="mx-4 mb-2 animate-fade-in-scale">
+          已达到查询块上限，请删除现有查询块后再新建
+        </AlertBanner>
       )}
     </header>
   );

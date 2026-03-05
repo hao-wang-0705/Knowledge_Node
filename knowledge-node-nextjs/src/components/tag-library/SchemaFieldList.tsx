@@ -576,8 +576,9 @@ const SortableFieldRow: React.FC<SortableFieldRowProps> = ({
         )}
         {isAIField && field.aiConfig && (
           <span className="text-xs text-pink-500">
-            {field.aiConfig.aiType === 'urgency_score' ? '紧急度评分' : 
-             field.aiConfig.aiType === 'subtask_split' ? '子任务拆解' : '自定义'}
+            {field.aiConfig.aiType === 'extraction' ? '信息提取' : 
+             field.aiConfig.aiType === 'summarization' ? '内容摘要' : 
+             field.aiConfig.aiType === 'classification' ? '分类识别' : '自定义'}
           </span>
         )}
         {field.type !== 'reference' && field.type !== 'select' && field.type !== 'ai_select' && !isAIField && (

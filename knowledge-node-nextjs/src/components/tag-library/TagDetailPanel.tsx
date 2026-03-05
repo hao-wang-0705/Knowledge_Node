@@ -25,10 +25,12 @@ import {
   Settings,
   Sparkles,
   Cpu,
+  ListChecks,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Supertag, FieldDefinition, FieldType } from '@/types';
 import { useSupertagStore } from '@/stores/supertagStore';
+import AIFieldConfigPanel from './AIFieldConfigPanel';
 
 interface TagDetailPanelProps {
   tag: Supertag;
@@ -41,6 +43,7 @@ const FIELD_TYPE_ICONS: Record<FieldType, React.ReactNode> = {
   number: <Hash size={14} />,
   date: <Calendar size={14} />,
   select: <List size={14} />,
+  'multi-select': <ListChecks size={14} />,
   reference: <Link2 size={14} />,
   ai_text: <Cpu size={14} />,
   ai_select: <Cpu size={14} />,
@@ -52,6 +55,7 @@ const FIELD_TYPE_COLORS: Record<FieldType, string> = {
   number: 'bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400',
   date: 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400',
   select: 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400',
+  'multi-select': 'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400',
   reference: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400',
   ai_text: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400',
   ai_select: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400',
@@ -63,6 +67,7 @@ const FIELD_TYPE_NAMES: Record<FieldType, string> = {
   number: '数字',
   date: '日期',
   select: '单选',
+  'multi-select': '多选',
   reference: '引用',
   ai_text: 'AI 文本',
   ai_select: 'AI 选项',
@@ -121,62 +126,97 @@ interface FieldRowProps {
 }
 
 const FieldRow: React.FC<FieldRowProps> = ({ field, supertags }) => {
+  const [isAIConfigExpanded, setIsAIConfigExpanded] = useState(false);
   const targetTag = field.targetTagId ? supertags[field.targetTagId] : null;
   const isAIField = field.type === 'ai_text' || field.type === 'ai_select';
+  const hasAIConfig = isAIField && field.aiConfig;
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-3 px-3 py-2.5 rounded-lg",
-        isAIField
-          ? "bg-pink-50/50 dark:bg-pink-900/10"
-          : "bg-gray-50 dark:bg-gray-800/50"
-      )}
-    >
-      {/* 字段类型图标 */}
-      <span
+    <div className="space-y-2">
+      <div
         className={cn(
-          "flex items-center justify-center w-7 h-7 rounded-md",
-          FIELD_TYPE_COLORS[field.type]
+          "flex items-center gap-3 px-3 py-2.5 rounded-lg",
+          isAIField
+            ? "bg-pink-50/50 dark:bg-pink-900/10"
+            : "bg-gray-50 dark:bg-gray-800/50",
+          hasAIConfig && "cursor-pointer hover:bg-pink-50/70 dark:hover:bg-pink-900/20"
         )}
+        onClick={() => hasAIConfig && setIsAIConfigExpanded(!isAIConfigExpanded)}
       >
-        {FIELD_TYPE_ICONS[field.type]}
-      </span>
+        {/* 字段类型图标 */}
+        <span
+          className={cn(
+            "flex items-center justify-center w-7 h-7 rounded-md",
+            FIELD_TYPE_COLORS[field.type]
+          )}
+        >
+          {FIELD_TYPE_ICONS[field.type]}
+        </span>
 
-      {/* 字段名称 */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate text-gray-700 dark:text-gray-300">
-            {field.name}
+        {/* 字段名称 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium truncate text-gray-700 dark:text-gray-300">
+              {field.name}
+            </span>
+            {isAIField && (
+              <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300">
+                AI
+              </span>
+            )}
+          </div>
+
+          {/* 字段配置详情 */}
+          <div className="text-xs text-gray-400 mt-0.5">
+            <span>{FIELD_TYPE_NAMES[field.type]}</span>
+            {field.type === 'select' && field.options && (
+              <span className="ml-2">
+                ({field.options.length} 个选项)
+              </span>
+            )}
+            {field.type === 'multi-select' && field.options && (
+              <span className="ml-2">
+                ({field.options.length} 个可选项)
+              </span>
+            )}
+            {field.type === 'reference' && targetTag && (
+              <span className="ml-2">
+                → #{targetTag.name}
+                {field.multiple && ' (多选)'}
+              </span>
+            )}
+            {isAIField && field.aiConfig && (
+              <span className="ml-2">
+                {field.aiConfig.aiType === 'extraction' && '信息抽取'}
+                {field.aiConfig.aiType === 'summarization' && '总结重写'}
+                {field.aiConfig.aiType === 'classification' && '自动分类'}
+                {' · '}
+                {field.aiConfig.triggerOn === 'create' ? '创建时触发' : field.aiConfig.triggerOn === 'update' ? '更新时触发' : '手动触发'}
+              </span>
+            )}
+            {/* 数字格式化显示 */}
+            {field.type === 'number' && field.format && field.format !== 'default' && (
+              <span className="ml-2">
+                ({field.format === 'currency' ? '货币' : field.format === 'percent' ? '百分比' : '星级评分'})
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* AI 字段展开/收起指示 */}
+        {hasAIConfig && (
+          <span className="text-gray-400 flex-shrink-0">
+            {isAIConfigExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </span>
-          {isAIField && (
-            <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300">
-              AI
-            </span>
-          )}
-        </div>
-
-        {/* 字段配置详情 */}
-        <div className="text-xs text-gray-400 mt-0.5">
-          <span>{FIELD_TYPE_NAMES[field.type]}</span>
-          {field.type === 'select' && field.options && (
-            <span className="ml-2">
-              ({field.options.length} 个选项)
-            </span>
-          )}
-          {field.type === 'reference' && targetTag && (
-            <span className="ml-2">
-              → #{targetTag.name}
-              {field.multiple && ' (多选)'}
-            </span>
-          )}
-          {isAIField && field.aiConfig && (
-            <span className="ml-2">
-              触发: {field.aiConfig.triggerOn === 'create' ? '创建时' : field.aiConfig.triggerOn === 'update' ? '更新时' : '手动'}
-            </span>
-          )}
-        </div>
+        )}
       </div>
+
+      {/* AI 字段配置详情展开 */}
+      {hasAIConfig && isAIConfigExpanded && field.aiConfig && (
+        <div className="ml-10 pb-2">
+          <AIFieldConfigPanel aiConfig={field.aiConfig} />
+        </div>
+      )}
     </div>
   );
 };

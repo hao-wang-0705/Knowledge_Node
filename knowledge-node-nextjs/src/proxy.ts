@@ -10,6 +10,8 @@ const publicPaths = [
   '/register',
   '/api/auth',  // NextAuth 内置路由
   '/api/health',
+  '/api/ai/test',  // AI 服务连通性测试
+  '/api/ai/status',  // AI 服务状态检查
 ];
 
 /**

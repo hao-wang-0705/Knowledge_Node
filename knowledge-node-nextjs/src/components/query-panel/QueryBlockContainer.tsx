@@ -1,9 +1,11 @@
 'use client';
 
 import React, { memo } from 'react';
+import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QueryBlock as QueryBlockType } from '@/types/query';
 import QueryBlock from './QueryBlock';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface QueryBlockContainerProps {
   /** 查询块列表 */
@@ -18,17 +20,12 @@ const QueryBlockContainer: React.FC<QueryBlockContainerProps> = memo(({ queries 
   if (queries.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-800 dark:to-gray-850 flex items-center justify-center">
-            <span className="text-2xl">🔍</span>
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-            暂无查询块
-          </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            点击上方「+」按钮创建查询
-          </p>
-        </div>
+        <EmptyState
+          icon={<Search className="w-8 h-8" />}
+          title="暂无查询块"
+          description="点击上方「+」按钮创建查询"
+          variant="default"
+        />
       </div>
     );
   }
@@ -40,7 +37,7 @@ const QueryBlockContainer: React.FC<QueryBlockContainerProps> = memo(({ queries 
         'min-h-0' // 重要：允许子元素收缩
       )}
     >
-      {queries.map((query, index) => (
+      {queries.map((query) => (
         <QueryBlock
           key={query.id}
           query={query}

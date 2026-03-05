@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Put,
+  Delete,
   Body,
   Param,
   Query,
@@ -13,6 +15,9 @@ import { ApiTags, ApiOperation, ApiResponse, ApiHeader, ApiQuery } from '@nestjs
 import { TagsService } from './tags.service';
 import {
   CreateTagTemplateDto,
+  UpdateTagTemplateDto,
+  BatchImportTagsDto,
+  BatchImportResultDto,
   TagTemplateResponseDto,
 } from './dto/tag.dto';
 import { InternalAuthGuard } from '../../common/guards/internal-auth.guard';
@@ -67,6 +72,7 @@ export class TagsController {
 
 /**
  * 内部管理 API - 仅供管理员/系统调用
+ * v3.5: 新增批量导入、更新、删除功能
  */
 @ApiTags('internal-tags')
 @Controller('api/internal/tags')
@@ -95,6 +101,18 @@ export class InternalTagsController {
     return this.tagsService.createTagTemplate(createDto);
   }
 
+  @Post('batch')
+  @ApiOperation({ summary: '批量导入系统预置标签（管理员专用）' })
+  @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
+  @ApiResponse({ status: 201, description: '批量导入结果', type: BatchImportResultDto })
+  batchImport(
+    @Headers('x-admin-key') adminKey: string,
+    @Body() batchDto: BatchImportTagsDto,
+  ) {
+    this.assertAdminKey(adminKey);
+    return this.tagsService.batchImportTags(batchDto);
+  }
+
   @Get()
   @ApiOperation({ summary: '获取所有标签模版（管理员专用）' })
   @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
@@ -102,5 +120,52 @@ export class InternalTagsController {
   findAll(@Headers('x-admin-key') adminKey: string) {
     this.assertAdminKey(adminKey);
     return this.tagsService.findAllTagTemplatesAdmin();
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: '获取单个标签详情（管理员专用）' })
+  @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
+  @ApiResponse({ status: 200, description: '返回标签详情', type: TagTemplateResponseDto })
+  findOne(
+    @Headers('x-admin-key') adminKey: string,
+    @Param('id') id: string,
+  ) {
+    this.assertAdminKey(adminKey);
+    // 复用管理员查询方法，不限制 userId
+    return this.tagsService.findAllTagTemplatesAdmin().then(tags => {
+      const tag = tags.find(t => t.id === id);
+      if (!tag) {
+        throw new UnauthorizedException(`TagTemplate with ID ${id} not found`);
+      }
+      return tag;
+    });
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: '更新系统预置标签（管理员专用）' })
+  @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
+  @ApiResponse({ status: 200, description: '标签更新成功', type: TagTemplateResponseDto })
+  update(
+    @Headers('x-admin-key') adminKey: string,
+    @Param('id') id: string,
+    @Body() updateDto: UpdateTagTemplateDto,
+  ) {
+    this.assertAdminKey(adminKey);
+    return this.tagsService.updateTagTemplate(id, updateDto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: '删除系统预置标签（管理员专用，默认软删除）' })
+  @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
+  @ApiQuery({ name: 'hard', required: false, description: '是否硬删除（需无关联节点）' })
+  @ApiResponse({ status: 200, description: '标签删除/禁用成功' })
+  delete(
+    @Headers('x-admin-key') adminKey: string,
+    @Param('id') id: string,
+    @Query('hard') hard?: string,
+  ) {
+    this.assertAdminKey(adminKey);
+    const hardDelete = hard === 'true';
+    return this.tagsService.deleteTagTemplate(id, hardDelete);
   }
 }

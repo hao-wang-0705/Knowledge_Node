@@ -26,7 +26,7 @@ export interface GatewayConfig {
 }
 
 const defaultConfig: GatewayConfig = {
-  enableLogging: process.env.NODE_ENV === 'development',
+  enableLogging: true, // 始终启用日志以便追踪 AI 请求
   enableRateLimit: true,
   maxRequestsPerMinute: 60,
   maxRetries: 2,
@@ -228,7 +228,7 @@ export class AIGateway {
       this.log('info', '开始 AI 请求', {
         requestId,
         promptLength: params.prompt.length,
-        model: params.model,
+        model: params.model || 'default',
         category: params.category,
       });
 
@@ -250,6 +250,7 @@ export class AIGateway {
 
       this.log('info', 'AI 请求成功', {
         requestId,
+        model: response.model,
         duration: metrics.duration,
         tokens: metrics.tokenUsage,
         finishReason: response.finishReason,

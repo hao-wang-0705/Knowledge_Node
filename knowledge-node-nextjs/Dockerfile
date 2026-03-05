@@ -26,6 +26,8 @@ RUN npx prisma generate
 FROM base AS builder
 ARG BUILD_TIMESTAMP=default
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000
+ARG NEXT_PUBLIC_VENUS_API_URL=http://v2.open.venus.oa.com/llmproxy
+ARG NEXT_PUBLIC_VENUS_MODEL=gemini-2.5-flash
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 
@@ -36,6 +38,8 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_VENUS_API_URL=$NEXT_PUBLIC_VENUS_API_URL
+ENV NEXT_PUBLIC_VENUS_MODEL=$NEXT_PUBLIC_VENUS_MODEL
 
 # 写入构建信息
 RUN echo "BUILD_TIMESTAMP=$BUILD_TIMESTAMP" > public/build-info.txt && \

@@ -46,6 +46,12 @@ const FIELD_TYPE_CONFIG: Record<FieldType, FieldTypeConfig> = {
     bgColor: 'bg-purple-50',
     placeholder: 'Select option'
   },
+  'multi-select': { 
+    icon: <List size={14} />, 
+    color: 'text-pink-500',
+    bgColor: 'bg-pink-50',
+    placeholder: 'Select options'
+  },
   reference: {
     icon: <Link2 size={14} />,
     color: 'text-cyan-500',

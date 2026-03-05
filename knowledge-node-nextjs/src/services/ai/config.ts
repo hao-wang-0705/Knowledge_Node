@@ -15,12 +15,17 @@ export type AIModel =
   | 'claude-3-haiku'
   | 'hunyuan-turbo'
   | 'hunyuan-pro'
-  | 'deepseek-chat';
+  | 'deepseek-chat'
+  | 'gemini-3.1-flash-lite'
+  | 'gemini-2.5-flash'
+  | 'gemini-2.0-flash'
+  | 'gemini-1.5-pro'
+  | 'gemini-1.5-flash';
 
 /**
  * AI 提供商类型
  */
-export type AIProvider = 'openai' | 'anthropic' | 'venus' | 'custom';
+export type AIProvider = 'openai' | 'anthropic' | 'venus' | 'gemini' | 'custom';
 
 /**
  * AI 服务配置接口
@@ -55,6 +60,10 @@ const ENV_KEYS = {
   VENUS_API_URL: 'NEXT_PUBLIC_VENUS_API_URL',
   VENUS_MODEL: 'NEXT_PUBLIC_VENUS_MODEL',
 
+  // Gemini 配置
+  GEMINI_API_KEY: 'GEMINI_API_KEY',
+  GEMINI_MODEL: 'NEXT_PUBLIC_GEMINI_MODEL',
+
   // 通用 AI 配置
   AI_API_KEY: 'AI_API_KEY',
   AI_API_URL: 'NEXT_PUBLIC_AI_API_URL',
@@ -82,8 +91,13 @@ const DEFAULT_CONFIG: Partial<AIServiceConfig> = {
 const OPENAI_API_URL = 'https://api.openai.com/v1';
 
 /**
+ * Gemini API 默认端点
+ */
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta';
+
+/**
  * 加载 AI 服务配置
- * 优先级：通用 AI 配置 > Venus 配置 > OpenAI 配置
+ * 优先级：通用 AI 配置 > Gemini 配置 > Venus 配置 > OpenAI 配置
  */
 export function loadAIConfig(): AIServiceConfig | null {
   // 尝试加载通用 AI 配置
@@ -99,6 +113,21 @@ export function loadAIConfig(): AIServiceConfig | null {
       timeout: parseInt(process.env[ENV_KEYS.AI_TIMEOUT] || '', 10) || DEFAULT_CONFIG.timeout!,
       maxRetries: parseInt(process.env[ENV_KEYS.AI_MAX_RETRIES] || '', 10) || DEFAULT_CONFIG.maxRetries!,
       enableStreaming: process.env[ENV_KEYS.AI_ENABLE_STREAMING] !== 'false',
+    };
+  }
+
+  // 尝试加载 Gemini 配置
+  const geminiApiKey = process.env[ENV_KEYS.GEMINI_API_KEY];
+
+  if (geminiApiKey) {
+    return {
+      apiKey: geminiApiKey,
+      apiUrl: GEMINI_API_URL,
+      defaultModel: (process.env[ENV_KEYS.GEMINI_MODEL] as AIModel) || 'gemini-2.5-flash',
+      provider: 'gemini',
+      timeout: DEFAULT_CONFIG.timeout!,
+      maxRetries: DEFAULT_CONFIG.maxRetries!,
+      enableStreaming: true,
     };
   }
 
@@ -147,7 +176,7 @@ export function validateConfig(config: AIServiceConfig | null): {
   const errors: string[] = [];
 
   if (!config) {
-    errors.push('未配置任何 AI 服务。请设置 OPENAI_API_KEY、VENUS_API_KEY 或 AI_API_KEY 环境变量。');
+    errors.push('未配置任何 AI 服务。请设置 GEMINI_API_KEY、OPENAI_API_KEY、VENUS_API_KEY 或 AI_API_KEY 环境变量。');
     return { valid: false, errors };
   }
 

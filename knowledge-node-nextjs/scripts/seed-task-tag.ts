@@ -1,4 +1,16 @@
 /**
+ * @deprecated v3.5: 此脚本已废弃
+ * 
+ * 预置标签现通过以下方式管理：
+ * 1. 管理员 API: POST /api/internal/tags/batch - 批量导入
+ * 2. 管理员 API: PUT /api/internal/tags/:id - 更新单个标签  
+ * 3. 管理员 API: DELETE /api/internal/tags/:id - 删除标签
+ * 4. 初始化配置: knowledge-node-backend/prisma/preset-tags.json
+ * 
+ * 不再需要手动运行此脚本创建预置标签
+ * 
+ * ---
+ * 
  * 种子脚本：创建 #Task 预置标签
  * v3.4: 包含 AI 智能字段（urgency_score, subtask_split）
  * 

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateTagTemplateDto } from './dto/tag.dto';
+import { CreateTagTemplateDto, UpdateTagTemplateDto, BatchImportTagsDto, BatchImportResultDto } from './dto/tag.dto';
 
 @Injectable()
 export class TagsService {
@@ -159,6 +159,160 @@ export class TagsService {
     });
 
     return tags.map(tag => this.toCompatibleFormat(tag));
+  }
+
+  /**
+   * 更新系统预置标签（管理员专用）
+   * v3.5: 新增
+   */
+  async updateTagTemplate(id: string, updateDto: UpdateTagTemplateDto) {
+    const existing = await this.prisma.tagTemplate.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw new NotFoundException(`TagTemplate with ID "${id}" not found`);
+    }
+
+    // 如果要更新名称，检查是否与其他标签冲突
+    if (updateDto.name && updateDto.name !== existing.name) {
+      const nameConflict = await this.prisma.tagTemplate.findFirst({
+        where: { name: updateDto.name, id: { not: id } },
+      });
+      if (nameConflict) {
+        throw new ConflictException(`TagTemplate with name "${updateDto.name}" already exists`);
+      }
+    }
+
+    const tag = await this.prisma.tagTemplate.update({
+      where: { id },
+      data: {
+        ...(updateDto.name !== undefined && { name: updateDto.name }),
+        ...(updateDto.color !== undefined && { color: updateDto.color }),
+        ...(updateDto.icon !== undefined && { icon: updateDto.icon }),
+        ...(updateDto.description !== undefined && { description: updateDto.description }),
+        ...(updateDto.fieldDefinitions !== undefined && { fieldDefinitions: updateDto.fieldDefinitions }),
+        ...(updateDto.isGlobalDefault !== undefined && { isGlobalDefault: updateDto.isGlobalDefault }),
+        ...(updateDto.status !== undefined && { status: updateDto.status }),
+        ...(updateDto.templateContent !== undefined && { templateContent: updateDto.templateContent }),
+        ...(updateDto.order !== undefined && { order: updateDto.order }),
+      },
+      include: {
+        _count: { select: { nodes: true } },
+      },
+    });
+
+    return this.toCompatibleFormat(tag);
+  }
+
+  /**
+   * 删除系统预置标签（管理员专用）
+   * v3.5: 新增，软删除（将 status 设为 deprecated）
+   */
+  async deleteTagTemplate(id: string, hardDelete = false) {
+    const existing = await this.prisma.tagTemplate.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { nodes: true } },
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException(`TagTemplate with ID "${id}" not found`);
+    }
+
+    if (hardDelete) {
+      // 硬删除：检查是否有关联节点
+      if (existing._count?.nodes > 0) {
+        throw new ConflictException(
+          `Cannot hard delete TagTemplate "${existing.name}" with ${existing._count.nodes} associated nodes. Use soft delete instead.`
+        );
+      }
+      await this.prisma.tagTemplate.delete({ where: { id } });
+      return { deleted: true, id, name: existing.name };
+    }
+
+    // 软删除：设置为 deprecated
+    const tag = await this.prisma.tagTemplate.update({
+      where: { id },
+      data: { status: 'deprecated' },
+      include: {
+        _count: { select: { nodes: true } },
+      },
+    });
+
+    return this.toCompatibleFormat(tag);
+  }
+
+  /**
+   * 批量导入标签（管理员专用）
+   * v3.5: 新增，支持事务原子性和 overwrite 策略
+   */
+  async batchImportTags(batchDto: BatchImportTagsDto): Promise<BatchImportResultDto> {
+    const result: BatchImportResultDto = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [],
+    };
+
+    // 使用事务保证原子性
+    await this.prisma.$transaction(async (tx) => {
+      for (const tagDto of batchDto.tags) {
+        try {
+          const existing = await tx.tagTemplate.findFirst({
+            where: { name: tagDto.name },
+          });
+
+          if (existing) {
+            if (batchDto.overwrite) {
+              // 覆盖模式：更新现有标签
+              await tx.tagTemplate.update({
+                where: { id: existing.id },
+                data: {
+                  color: tagDto.color ?? existing.color,
+                  icon: tagDto.icon ?? existing.icon,
+                  description: tagDto.description ?? existing.description,
+                  fieldDefinitions: tagDto.fieldDefinitions ?? existing.fieldDefinitions ?? undefined,
+                  isGlobalDefault: tagDto.isGlobalDefault ?? existing.isGlobalDefault,
+                  status: tagDto.status ?? existing.status,
+                  templateContent: tagDto.templateContent ?? existing.templateContent ?? undefined,
+                  order: tagDto.order ?? existing.order,
+                },
+              });
+              result.updated++;
+            } else {
+              // 非覆盖模式：跳过
+              result.skipped++;
+            }
+          } else {
+            // 创建新标签
+            await tx.tagTemplate.create({
+              data: {
+                name: tagDto.name,
+                color: tagDto.color ?? '#6366F1',
+                icon: tagDto.icon,
+                description: tagDto.description,
+                fieldDefinitions: tagDto.fieldDefinitions ?? [],
+                isGlobalDefault: tagDto.isGlobalDefault ?? true,
+                status: tagDto.status ?? 'active',
+                order: tagDto.order ?? 0,
+                templateContent: tagDto.templateContent,
+                creatorId: tagDto.creatorId,
+              },
+            });
+            result.created++;
+          }
+        } catch (error) {
+          result.errors.push({
+            name: tagDto.name,
+            reason: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+    });
+
+    return result;
   }
 
   // =============== 工具方法 ===============

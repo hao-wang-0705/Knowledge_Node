@@ -104,18 +104,28 @@ export interface DailyNotePayload {
 // 超级标签体系 (Supertag System)
 // =============================================================================
 
-// 字段类型 - v3.4 增加 AI 字段类型（ai_text, ai_select）
-export type FieldType = 'text' | 'number' | 'date' | 'select' | 'reference' | 'ai_text' | 'ai_select';
+// 字段类型 - v3.5 新增 multi-select 多选类型
+export type FieldType = 'text' | 'number' | 'date' | 'select' | 'multi-select' | 'reference' | 'ai_text' | 'ai_select';
 
 /**
  * AI 字段预设类型
+ * v3.5: 简化为 3 种预设类型
+ * - extraction: 信息抽取型（从内容中提取关键信息）
+ * - summarization: 总结重写型（生成 TL;DR 或格式化重写）
+ * - classification: 自动分类/判定型（根据内容特征自动分类）
+ * 
+ * 保留旧类型用于向后兼容：
+ * - urgency_score: (deprecated) 使用 classification
+ * - subtask_split: (deprecated) 使用 extraction
+ * - custom: (deprecated) 使用 extraction/summarization/classification
  */
-export type AIFieldPresetType = 'urgency_score' | 'subtask_split' | 'custom';
+export type AIFieldPresetType = 'extraction' | 'summarization' | 'classification' | 'urgency_score' | 'subtask_split' | 'custom';
 
 /**
  * AI 字段触发时机
+ * v3.5: 保留字段用于未来扩展，当前版本仅实现 manual
  */
-export type AIFieldTrigger = 'create' | 'update' | 'manual';
+export type AIFieldTrigger = 'manual' | 'create' | 'update';
 
 /**
  * AI 字段输出格式
@@ -124,14 +134,14 @@ export type AIFieldOutputFormat = 'text' | 'select' | 'list';
 
 /**
  * AI 字段配置
- * v3.4: 新增 AI 智能字段配置结构
+ * v3.5: 扩展支持子节点上下文收集
  */
 export interface AIFieldConfig {
-  /** AI 字段预设类型 */
+  /** AI 字段预设类型（决定使用哪个系统 Prompt） */
   aiType: AIFieldPresetType;
-  /** 自定义 Prompt（aiType=custom 时必填） */
-  prompt?: string;
-  /** 触发时机 */
+  /** 用户自定义 Prompt（必填，与系统 Prompt 组合使用） */
+  prompt: string;
+  /** 触发时机（当前版本仅 manual 有效，create/update 为预留接口） */
   triggerOn: AIFieldTrigger;
   /** 依赖的输入字段（从节点 content 或其他字段获取） */
   inputFields?: string[];
@@ -139,12 +149,23 @@ export interface AIFieldConfig {
   outputFormat: AIFieldOutputFormat;
   /** select 类型的选项列表 */
   options?: string[];
+  /** v3.5: 是否包含子节点内容作为上下文 */
+  includeChildren?: boolean;
+  /** v3.5: 子节点遍历深度（默认 1） */
+  contextDepth?: number;
 }
 
-/** v2.1 默认内容模版节点树（用于 Supertag.templateContent） */
+/**
+ * v2.1 默认内容模版节点树（用于 Supertag.templateContent）
+ * v3.5: 新增嵌套标签和预设字段值支持
+ */
 export interface TemplateNode {
   content: string;
   children?: TemplateNode[];
+  /** v3.5: 预设子节点自带的超级标签 ID（递归应用） */
+  supertagId?: string;
+  /** v3.5: 预设字段初始值 */
+  fields?: Record<string, unknown>;
 }
 
 // 字段定义
@@ -153,13 +174,15 @@ export interface FieldDefinition {
   key: string;           // 例如 "author", "due_date"
   name: string;          // 字段显示名称 (中文)，例如 "作者", "截止日期"
   type: FieldType;
-  options?: string[];    // 用于 'select' 类型的选项列表
+  options?: string[];    // 用于 'select' / 'multi-select' 类型的选项列表
   /** v2.1: reference 类型时的目标 Supertag ID */
   targetTagId?: string;
   /** v2.1: reference 是否允许多选 */
   multiple?: boolean;
   /** v3.4: AI 字段配置（仅 ai_text/ai_select 类型） */
   aiConfig?: AIFieldConfig;
+  /** v3.5: 数字字段格式化显示 */
+  format?: 'currency' | 'percent' | 'rating' | 'default';
   displayConfig?: Record<string, unknown>;
 }
 

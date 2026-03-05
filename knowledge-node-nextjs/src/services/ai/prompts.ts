@@ -515,6 +515,10 @@ export const MODEL_TOKEN_LIMITS: Record<string, number> = {
   'hunyuan-turbo': 32000,
   'hunyuan-pro': 32000,
   'deepseek-chat': 64000,
+  'gemini-2.5-flash': 1000000,
+  'gemini-2.0-flash': 1000000,
+  'gemini-1.5-pro': 2000000,
+  'gemini-1.5-flash': 1000000,
 };
 
 /**
@@ -867,6 +871,7 @@ export function parseCaptureResponse(content: string): CaptureStructuredResponse
 
 /**
  * AI 字段系统 Prompt
+ * v3.5: 新增 extraction/summarization/classification 三种预设类型
  */
 export const AI_FIELD_PROMPTS = {
   /** AI 字段处理系统角色 */
@@ -881,6 +886,59 @@ export const AI_FIELD_PROMPTS = {
 - 只返回请求的数据，不要添加额外解释
 - 严格按照指定的格式输出
 - 如果无法判断，使用合理的默认值`,
+
+  // ============================================================================
+  // v3.5: 新增三种预设类型的系统 Prompt
+  // ============================================================================
+
+  /** 信息抽取型系统 Prompt */
+  EXTRACTION: `你是一个专业的信息抽取专家，擅长从非结构化文本中精准提取关键信息。
+
+核心能力：
+1. 识别并提取人名、日期、时间、地点、数字等实体
+2. 提取待办事项、行动点、决策结论
+3. 识别关键词、标签、分类信息
+4. 保持提取信息的准确性和完整性
+
+输出原则：
+- 只提取明确出现在原文中的信息
+- 如果信息不存在或不明确，返回空而非猜测
+- 使用简洁格式输出，便于后续处理
+- 保持原文的关键表述，不要过度改写`,
+
+  /** 总结重写型系统 Prompt */
+  SUMMARIZATION: `你是一个专业的内容总结专家，擅长将长文本提炼为简洁摘要。
+
+核心能力：
+1. 识别文本的核心主题和关键观点
+2. 筛选最重要的信息，过滤冗余细节
+3. 保持原意的前提下压缩篇幅
+4. 输出结构清晰、逻辑连贯的摘要
+
+输出原则：
+- 优先保留结论、决策、关键数据
+- 摘要应能独立理解，不依赖原文
+- 使用用户的语言风格
+- 如有字数要求，严格遵守限制`,
+
+  /** 自动分类/判定型系统 Prompt */
+  CLASSIFICATION: `你是一个专业的内容分类专家，擅长根据内容特征进行智能分类和判定。
+
+核心能力：
+1. 分析文本的语义特征和上下文
+2. 根据预设类别进行准确分类
+3. 识别情感倾向、紧急程度、重要性等属性
+4. 处理边界情况时选择最合适的类别
+
+输出原则：
+- 必须从给定的选项列表中选择
+- 如果无法明确判断，选择最保守/安全的选项
+- 只返回选项值，不要添加解释
+- 考虑上下文信息辅助判断`,
+
+  // ============================================================================
+  // v3.4: 原有预设类型（保留向后兼容）
+  // ============================================================================
 
   /** 紧急度评分 Prompt */
   URGENCY_SCORE: `请分析以下任务内容，评估其紧急程度并返回优先级评分。
@@ -923,7 +981,7 @@ export const AI_FIELD_PROMPTS = {
 
 只返回 JSON 数组，不要包含 markdown 代码块或其他内容。`,
 
-  /** 自定义字段 Prompt 模板 */
+  /** 自定义字段 Prompt 模板（已废弃，保留向后兼容） */
   CUSTOM: `请根据以下内容完成指定的分析任务。
 
 ## 内容
@@ -953,15 +1011,35 @@ export interface AIFieldPromptParams {
   fieldDef: FieldDefinition;
   /** 现有字段值 */
   existingFields?: Record<string, unknown>;
-  /** 自定义 Prompt（仅 custom 类型） */
+  /** 用户自定义 Prompt */
   customPrompt?: string;
+  /** v3.5: 子节点上下文内容 */
+  childrenContext?: string;
+}
+
+/**
+ * 获取 AI 字段类型对应的系统 Prompt
+ * v3.5: 新增三种预设类型的系统 Prompt
+ */
+export function getAIFieldSystemPrompt(aiType: AIFieldPresetType): string {
+  switch (aiType) {
+    case 'extraction':
+      return AI_FIELD_PROMPTS.EXTRACTION;
+    case 'summarization':
+      return AI_FIELD_PROMPTS.SUMMARIZATION;
+    case 'classification':
+      return AI_FIELD_PROMPTS.CLASSIFICATION;
+    default:
+      return AI_FIELD_PROMPTS.SYSTEM;
+  }
 }
 
 /**
  * 构建 AI 字段 Prompt
+ * v3.5: 支持新的三种预设类型和子节点上下文
  */
 export function buildAIFieldPrompt(params: AIFieldPromptParams): string {
-  const { aiType, nodeContent, fieldDef, existingFields = {}, customPrompt } = params;
+  const { aiType, nodeContent, fieldDef, existingFields = {}, customPrompt, childrenContext } = params;
 
   // 格式化上下文字段
   const contextFieldsStr = Object.entries(existingFields)
@@ -969,18 +1047,58 @@ export function buildAIFieldPrompt(params: AIFieldPromptParams): string {
     .map(([key, value]) => `- ${key}: ${JSON.stringify(value)}`)
     .join('\n') || '无';
 
-  // 根据类型选择 Prompt 模板
+  // 构建完整内容（当前节点 + 子节点上下文）
+  let fullContent = nodeContent;
+  if (childrenContext) {
+    fullContent += `\n\n## 子节点内容\n${childrenContext}`;
+  }
+
+  // v3.5: 新的三种预设类型使用统一的 Prompt 模板
+  if (aiType === 'extraction' || aiType === 'summarization' || aiType === 'classification') {
+    const aiConfig = fieldDef.aiConfig;
+    
+    // 确定输出格式说明
+    let outputFormatStr = '';
+    if (aiConfig) {
+      switch (aiConfig.outputFormat) {
+        case 'select':
+          outputFormatStr = `请从以下选项中选择一个返回：${aiConfig.options?.join('、') || ''}
+只返回选项值，不要添加任何解释。`;
+          break;
+        case 'list':
+          outputFormatStr = '请以 JSON 数组格式返回：["项目1", "项目2", ...]\n只返回 JSON 数组，不要包含 markdown 代码块。';
+          break;
+        case 'text':
+        default:
+          outputFormatStr = '请直接返回文本内容，不要添加额外格式或解释。';
+      }
+    }
+
+    return `## 内容
+${fullContent}
+
+## 任务要求
+${customPrompt || '请分析内容并给出合理的结果'}
+
+## 上下文字段
+${contextFieldsStr}
+
+## 输出格式
+${outputFormatStr}`;
+  }
+
+  // v3.4: 旧类型保持向后兼容
   switch (aiType) {
-    case 'urgency_score':
+    case 'urgency_score' as AIFieldPresetType:
       return AI_FIELD_PROMPTS.URGENCY_SCORE
-        .replace('{{content}}', nodeContent)
+        .replace('{{content}}', fullContent)
         .replace('{{contextFields}}', contextFieldsStr);
 
-    case 'subtask_split':
+    case 'subtask_split' as AIFieldPresetType:
       return AI_FIELD_PROMPTS.SUBTASK_SPLIT
-        .replace('{{content}}', nodeContent);
+        .replace('{{content}}', fullContent);
 
-    case 'custom':
+    case 'custom' as AIFieldPresetType:
       // 确定输出格式说明
       let outputFormatStr = '';
       const aiConfig = fieldDef.aiConfig;
@@ -999,7 +1117,7 @@ export function buildAIFieldPrompt(params: AIFieldPromptParams): string {
       }
 
       return AI_FIELD_PROMPTS.CUSTOM
-        .replace('{{content}}', nodeContent)
+        .replace('{{content}}', fullContent)
         .replace('{{customPrompt}}', customPrompt || '请分析内容并给出合理的结果')
         .replace('{{contextFields}}', contextFieldsStr)
         .replace('{{outputFormat}}', outputFormatStr);
@@ -1082,4 +1200,63 @@ export function getAIFieldDefaultValue(aiConfig: AIFieldConfig): unknown {
     default:
       return '';
   }
+}
+
+// ============================================================================
+// 笔记格式化 Prompt 模块
+// v3.5: 快速捕获功能增强 - AI 智能格式化
+// ============================================================================
+
+/**
+ * 格式化笔记系统 Prompt
+ * 用于将大段非结构化文字整理为树形节点结构
+ */
+export const FORMAT_NOTES_SYSTEM_PROMPT = `你是一个专业的笔记整理助手，擅长将非结构化文字整理为层次清晰的树形笔记结构。
+
+核心任务：
+1. 分析文本内容，识别主题、要点、子要点
+2. 按逻辑层级组织，最多 3 层嵌套
+3. 每个节点内容简洁清晰（不超过 100 字）
+4. 保留关键信息，去除冗余表达
+5. **按深度优先顺序输出（父节点必须先于其子节点）**
+
+输出规则：
+- 必须输出 JSON 数组格式，按深度优先顺序排列
+- 每个节点包含：tempId(字符串)、content(字符串)、parentTempId(字符串或null)
+- 根节点的 parentTempId 为 null
+- 确保父节点在子节点之前输出
+- 如果文本无法有意义地拆分，返回单个根节点包含原文
+- 不要添加 markdown 代码块标记，直接返回 JSON
+
+示例输入："今天开会讨论了三个事项：产品上线时间定在下周五，需要协调测试资源，市场部需要准备发布文案"
+
+示例输出：
+[
+  {"tempId":"1","content":"会议讨论事项","parentTempId":null},
+  {"tempId":"2","content":"产品上线时间定在下周五","parentTempId":"1"},
+  {"tempId":"3","content":"需要协调测试资源","parentTempId":"1"},
+  {"tempId":"4","content":"市场部需要准备发布文案","parentTempId":"1"}
+]`;
+
+/**
+ * 格式化笔记请求参数
+ */
+export interface FormatNotesParams {
+  /** 用户输入的文本 */
+  text: string;
+}
+
+/**
+ * 构建格式化笔记 Prompt
+ */
+export function buildFormatNotesPrompt(params: FormatNotesParams): string {
+  const { text } = params;
+
+  return `请将以下内容整理为结构化的树形笔记节点：
+
+## 用户输入
+${text}
+
+## 输出要求
+请直接返回 JSON 数组，不要包含任何其他内容或 markdown 代码块标记。`;
 }

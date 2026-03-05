@@ -8,10 +8,18 @@ import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { NavItem } from '@/components/ui/nav-item';
 import { useNodeStore } from '@/stores/nodeStore';
 import { getGreeting } from '@/utils/helpers';
 import { getTodayId } from '@/utils/date-helpers';
 import CommandTemplateManager from './CommandTemplateManager';
+import {
+  sidebarContainerStyles,
+  avatarStyles,
+  notebookItemStyles,
+  getNotebookItemClass,
+  getNotebookIconClass,
+} from '@/styles/visual-tokens';
 
 interface SidebarProps {
   className?: string;
@@ -265,58 +273,38 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   return (
     <aside
       className={cn(
-        'flex flex-col h-full bg-slate-50 dark:bg-slate-900 border-r border-gray-200 dark:border-gray-800',
+        'sidebar-container',
         className
       )}
     >
       {/* ============ 第一部分：顶部快捷功能区 ============ */}
       <div className="px-2 pt-3 pb-2">
         <div className="space-y-0.5">
-          {/* 今日笔记 - 纯快捷入口，无高亮 */}
-          <button
-            type="button"
+          {/* 今日笔记 - 纯快捷入口 */}
+          <NavItem
+            icon={<CalendarDays size={18} />}
+            label="今日笔记"
             onClick={handleGoToToday}
-            className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <div className="flex items-center justify-center w-5 h-5 text-gray-400">
-              <CalendarDays size={18} />
-            </div>
-            <span className="flex-1 text-sm font-medium text-left">今日笔记</span>
-          </button>
+          />
 
           {/* 超级标签 */}
-          <button
-            type="button"
+          <NavItem
+            icon={<Hash size={18} />}
+            label="超级标签"
+            isActive={isTagsPage}
             onClick={handleGoToTags}
-            className={cn(
-              'group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150',
-              isTagsPage
-                ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-            )}
-          >
-            <div className={cn(
-              'flex items-center justify-center w-5 h-5',
-              isTagsPage ? 'text-[var(--brand-primary)]' : 'text-gray-400'
-            )}>
-              <Hash size={18} />
-            </div>
-            <span className="flex-1 text-sm font-medium text-left">超级标签</span>
-          </button>
+          />
 
           {/* 笔记历史 - 置灰 */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                type="button"
-                disabled
-                className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 dark:text-gray-500 opacity-50 cursor-not-allowed"
-              >
-                <div className="flex items-center justify-center w-5 h-5">
-                  <Clock size={18} />
-                </div>
-                <span className="flex-1 text-sm font-medium text-left">笔记历史</span>
-              </button>
+              <div>
+                <NavItem
+                  icon={<Clock size={18} />}
+                  label="笔记历史"
+                  disabled
+                />
+              </div>
             </TooltipTrigger>
             <TooltipContent side="right">功能开发中，敬请期待</TooltipContent>
           </Tooltip>
@@ -324,16 +312,13 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
           {/* AI 助手 - 置灰 */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                type="button"
-                disabled
-                className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 dark:text-gray-500 opacity-50 cursor-not-allowed"
-              >
-                <div className="flex items-center justify-center w-5 h-5">
-                  <Sparkles size={18} />
-                </div>
-                <span className="flex-1 text-sm font-medium text-left">AI 助手</span>
-              </button>
+              <div>
+                <NavItem
+                  icon={<Sparkles size={18} />}
+                  label="AI 助手"
+                  disabled
+                />
+              </div>
             </TooltipTrigger>
             <TooltipContent side="right">功能开发中，敬请期待</TooltipContent>
           </Tooltip>
@@ -344,11 +329,11 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
       <div className="px-3 py-2">
         <button
           onClick={onOpenCommandCenter}
-          className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 hover:border-gray-300 dark:hover:border-gray-600 rounded-lg border border-gray-200 dark:border-gray-700/50 transition-all duration-150"
+          className="search-box"
         >
           <Search size={16} className="text-gray-400" />
           <span className="flex-1 text-left">搜索笔记...</span>
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-gray-400 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+          <kbd className="search-box-shortcut">
             <Command size={10} />
             <span>K</span>
           </kbd>
@@ -356,7 +341,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
       </div>
 
       {/* ============ 第三部分：聚焦区（置灰） ============ */}
-      <div className="px-3 py-2 border-t border-gray-200/60 dark:border-gray-800/60">
+      <div className="px-3 py-2 sidebar-section">
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="opacity-50 cursor-not-allowed">
@@ -375,7 +360,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
       </div>
 
       {/* ============ 第四部分：笔记本区 ============ */}
-      <div className="flex-1 flex flex-col min-h-0 border-t border-gray-200/60 dark:border-gray-800/60">
+      <div className="flex-1 flex flex-col min-h-0 sidebar-section">
         {/* 用户信息栏 + 新建按钮 */}
         <div className="flex items-center gap-2 px-3 py-2.5">
           <button
@@ -385,17 +370,14 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             className={cn(
               'flex flex-1 items-center gap-2 min-w-0 px-2 py-1.5 rounded-lg transition-all',
               hoistedNodeId === userRootId && !isTagsPage
-                ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
+                ? 'sidebar-nav-item-active'
                 : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200'
             )}
           >
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{
-                background: 'linear-gradient(135deg, var(--brand-primary) 0%, oklch(0.45 0.2 265) 100%)',
-              }}
+              className={cn(avatarStyles.container, avatarStyles.gradient)}
             >
-              <User size={14} className="text-white" />
+              <User size={14} className={avatarStyles.icon} />
             </div>
             <span className="flex-1 text-sm font-medium truncate text-left">{userRootDisplayName}</span>
           </button>
@@ -417,33 +399,30 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         {/* 笔记本列表（可滚动） */}
         <div className="overflow-y-auto px-2 pb-2 flex-1">
           <div className="space-y-0.5 pl-1">
-            {/* Daily Notes */}
+            {/* Daily Notes - 统一使用品牌色 */}
             <div
               onClick={handleGoToToday}
               className={cn(
-                'group flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg cursor-pointer transition-all',
-                isCalendarView && !isTagsPage
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                getNotebookItemClass(isCalendarView && !isTagsPage)
               )}
             >
               <Calendar
                 size={16}
                 className={cn(
                   'flex-shrink-0',
-                  isCalendarView && !isTagsPage ? 'text-green-600 dark:text-green-400' : 'text-gray-400'
+                  getNotebookIconClass(isCalendarView && !isTagsPage)
                 )}
               />
               <span className="flex-1 text-sm">Daily notes</span>
               {isTodayActive && !isTagsPage && (
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                <div className="today-indicator" />
               )}
               {isCalendarView && !isTodayActive && !isTagsPage && (
-                <ChevronRight size={14} className="text-green-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                <ChevronRight size={14} className={cn(notebookItemStyles.chevronActive, 'opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0')} />
               )}
             </div>
 
-            {/* 笔记本列表 */}
+            {/* 笔记本列表 - 统一使用品牌色 */}
             {notebookEntryIds.map((nodeId) => {
               const node = nodes[nodeId];
               if (!node) return null;
@@ -457,18 +436,13 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
                   onClick={() => handleSelectNotebook(nodeId)}
                   onDoubleClick={() => handleDoubleClick(nodeId, displayName)}
                   onContextMenu={(e) => handleContextMenu(e, nodeId)}
-                  className={cn(
-                    'group flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg cursor-pointer transition-all',
-                    isActive
-                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-                  )}
+                  className={cn(getNotebookItemClass(isActive))}
                 >
                   <Book
                     size={16}
                     className={cn(
                       'flex-shrink-0',
-                      isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'
+                      getNotebookIconClass(isActive)
                     )}
                   />
                   {isEditing ? (
@@ -479,14 +453,14 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
                       onChange={(e) => setEditingName(e.target.value)}
                       onBlur={handleSaveName}
                       onKeyDown={handleKeyDown}
-                      className="flex-1 bg-white dark:bg-gray-800 px-2 py-0.5 text-sm rounded border border-blue-300 dark:border-blue-600 outline-none min-w-0"
+                      className="inline-edit-input"
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
                     <span className="flex-1 text-sm truncate min-w-0">{displayName}</span>
                   )}
                   {isActive && !isEditing && (
-                    <ChevronRight size={14} className="text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                    <ChevronRight size={14} className={cn(notebookItemStyles.chevronActive, 'opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0')} />
                   )}
                 </div>
               );
@@ -529,31 +503,27 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         <div
           ref={contextMenuRef}
           className={cn(
-            'fixed z-[9999] min-w-[160px]',
-            'bg-white dark:bg-gray-800',
-            'border border-gray-200 dark:border-gray-700',
-            'rounded-xl shadow-xl py-1.5 px-1',
-            'backdrop-blur-sm bg-white/95 dark:bg-gray-800/95',
+            'context-menu',
             'transition-all duration-150 ease-out',
             isMenuVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-1'
           )}
-          style={{ left: menuPosition.x, top: menuPosition.y, boxShadow: 'var(--shadow-dropdown)' }}
+          style={{ left: menuPosition.x, top: menuPosition.y }}
         >
           <button
             onClick={handleRename}
-            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-100 rounded-lg mx-0.5"
+            className="context-menu-item"
           >
-            <span className="flex items-center justify-center w-5 h-5 text-gray-500">
+            <span className="context-menu-icon">
               <Edit2 size={15} />
             </span>
             <span>重命名</span>
           </button>
-          <div className="h-px bg-gray-200 dark:bg-gray-700 my-1.5 mx-2" />
+          <div className="context-menu-divider" />
           <button
             onClick={handleDeleteNotebook}
-            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition-all duration-100 rounded-lg mx-0.5"
+            className="context-menu-item-danger"
           >
-            <span className="flex items-center justify-center w-5 h-5 text-gray-500">
+            <span className="context-menu-icon">
               <Trash2 size={15} />
             </span>
             <span>删除</span>

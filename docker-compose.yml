@@ -48,6 +48,7 @@ services:
       NODE_ENV: production
       PORT: 4000
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-knowledge-node-internal-key}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-knowledge-node-admin-secret}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
     ports:
@@ -84,6 +85,8 @@ services:
         - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-default}
         - BACKEND_API_URL=${BACKEND_API_URL:-http://backend:4000}
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        - NEXT_PUBLIC_VENUS_API_URL=${NEXT_PUBLIC_VENUS_API_URL:-http://v2.open.venus.oa.com/llmproxy/chat/completions}
+        - NEXT_PUBLIC_VENUS_MODEL=${NEXT_PUBLIC_VENUS_MODEL:-gemini-2.5-flash}
     container_name: knowledge-node-frontend
     restart: unless-stopped
     environment:
@@ -93,7 +96,12 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-in-production}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-knowledge-node-internal-key}
+      # AI 服务配置
       VENUS_API_KEY: ${VENUS_API_KEY:-}
+      NEXT_PUBLIC_VENUS_API_URL: ${NEXT_PUBLIC_VENUS_API_URL:-http://v2.open.venus.oa.com/llmproxy}
+      NEXT_PUBLIC_VENUS_MODEL: ${NEXT_PUBLIC_VENUS_MODEL:-gemini-2.5-flash}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      NEXT_PUBLIC_GEMINI_MODEL: ${NEXT_PUBLIC_GEMINI_MODEL:-gemini-2.5-flash}
       # 关键：在 Docker 网络内部，使用服务名 postgres 而不是 localhost
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
     ports:

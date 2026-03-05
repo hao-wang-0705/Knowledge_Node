@@ -1408,6 +1408,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const roots: TemplateNode[] = Array.isArray(templateContent) ? templateContent : [templateContent];
     const newNodes: Record<string, Node> = {};
     const rootIds: string[] = [];
+    
+    // v3.5: 收集需要递归应用嵌套标签的节点
+    // 使用队列迭代而非递归，避免深层递归导致栈溢出
+    const pendingNestedTags: Array<{ nodeId: string; supertagId: string }> = [];
 
     function build(template: TemplateNode, parentId: string): string {
       const id = generateId();
@@ -1416,6 +1420,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       for (const c of childTemplates) {
         childIds.push(build(c, id));
       }
+      
+      // v3.5: 支持预设字段值
+      const presetFields = template.fields ?? {};
+      
       const newNode: Node = {
         id,
         content: template.content,
@@ -1423,9 +1431,17 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         childrenIds: childIds,
         isCollapsed: false,
         tags: [],
-        fields: {},
+        fields: { ...presetFields },
         createdAt: Date.now(),
+        // v3.5: 如果预设子节点有 supertagId，先记录但不立即设置
+        // 在创建完所有节点后，通过队列迭代应用嵌套标签
       };
+      
+      // v3.5: 收集嵌套标签信息
+      if (template.supertagId) {
+        pendingNestedTags.push({ nodeId: id, supertagId: template.supertagId });
+      }
+      
       newNodes[id] = newNode;
       return id;
     }
@@ -1435,5 +1451,91 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }
 
     get().addNodes(newNodes, rootIds, nodeId);
+    
+    // v3.5: 处理嵌套标签应用（队列迭代）
+    // 在所有模板节点创建完成后，递归应用嵌套标签
+    const processQueue = [...pendingNestedTags];
+    const supertagStore = useSupertagStore.getState();
+    
+    while (processQueue.length > 0) {
+      const task = processQueue.shift()!;
+      const nestedSupertag = supertagStore.supertags[task.supertagId];
+      
+      if (!nestedSupertag) {
+        console.warn(`[applySupertag] 嵌套标签不存在: ${task.supertagId}`);
+        continue;
+      }
+      
+      // 更新节点的 supertagId 和 tags
+      set((s) => {
+        const targetNode = s.nodes[task.nodeId];
+        if (!targetNode) return s;
+        
+        const newNodes = {
+          ...s.nodes,
+          [task.nodeId]: {
+            ...targetNode,
+            supertagId: task.supertagId,
+            tags: [...(targetNode.tags ?? []).filter((t) => t !== task.supertagId), task.supertagId],
+          },
+        };
+        debouncedSave(newNodes, s.rootIds);
+        return { nodes: newNodes };
+      });
+      
+      // 同步到数据库
+      const nestedUpdatedNode = get().nodes[task.nodeId];
+      if (nestedUpdatedNode) {
+        queueUpdateNode(task.nodeId, {
+          supertagId: nestedUpdatedNode.supertagId,
+          tags: nestedUpdatedNode.tags,
+        });
+      }
+      
+      // 检查嵌套标签是否有自己的模板内容，如果有且节点无子节点则递归创建
+      const nestedTemplate = nestedSupertag.templateContent;
+      const targetNode = get().nodes[task.nodeId];
+      
+      if (nestedTemplate && targetNode && targetNode.childrenIds.length === 0) {
+        const nestedRoots: TemplateNode[] = Array.isArray(nestedTemplate) ? nestedTemplate : [nestedTemplate];
+        const nestedNewNodes: Record<string, Node> = {};
+        const nestedRootIds: string[] = [];
+        
+        // 递归构建嵌套模板节点
+        function buildNested(template: TemplateNode, parentId: string): string {
+          const id = generateId();
+          const childTemplates = template.children ?? [];
+          const childIds: string[] = [];
+          for (const c of childTemplates) {
+            childIds.push(buildNested(c, id));
+          }
+          
+          const newNode: Node = {
+            id,
+            content: template.content,
+            parentId,
+            childrenIds: childIds,
+            isCollapsed: false,
+            tags: [],
+            fields: { ...(template.fields ?? {}) },
+            createdAt: Date.now(),
+          };
+          
+          // 收集更深层的嵌套标签
+          if (template.supertagId) {
+            processQueue.push({ nodeId: id, supertagId: template.supertagId });
+          }
+          
+          nestedNewNodes[id] = newNode;
+          return id;
+        }
+        
+        for (const r of nestedRoots) {
+          nestedRootIds.push(buildNested(r, task.nodeId));
+        }
+        
+        get().addNodes(nestedNewNodes, nestedRootIds, task.nodeId);
+      }
+    }
   },
 }));

@@ -160,8 +160,18 @@ export class AIClient {
   /**
    * 构建 API 请求 URL
    */
-  private buildUrl(config: AIServiceConfig, endpoint: string = '/chat/completions'): string {
+  private buildUrl(config: AIServiceConfig, endpoint: string = '/chat/completions', stream: boolean = false): string {
     const baseUrl = config.apiUrl.replace(/\/$/, '');
+    
+    // Gemini 使用不同的 URL 格式
+    if (config.provider === 'gemini') {
+      const model = config.defaultModel;
+      // 流式使用 streamGenerateContent，非流式使用 generateContent
+      const action = stream ? 'streamGenerateContent' : 'generateContent';
+      const altParam = stream ? '&alt=sse' : '';
+      return `${baseUrl}/models/${model}:${action}?key=${config.apiKey}${altParam}`;
+    }
+    
     return `${baseUrl}${endpoint}`;
   }
 
@@ -184,6 +194,9 @@ export class AIClient {
         headers['x-api-key'] = config.apiKey;
         headers['anthropic-version'] = '2024-01-01';
         break;
+      case 'gemini':
+        // Gemini 使用 URL 参数传递 API key，不需要额外 header
+        break;
     }
 
     return headers;
@@ -205,6 +218,23 @@ export class AIClient {
 
     const model = params.model || config.defaultModel;
     const maxTokens = params.maxTokens || Math.min(4000, getModelTokenLimit(model));
+
+    // Gemini 格式
+    if (config.provider === 'gemini') {
+      return {
+        contents: [
+          {
+            parts: [
+              { text: system ? `${system}\n\n${user}` : user }
+            ]
+          }
+        ],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: params.temperature ?? 0.7,
+        },
+      };
+    }
 
     // OpenAI/Venus 格式
     if (config.provider === 'openai' || config.provider === 'venus' || config.provider === 'custom') {
@@ -257,7 +287,7 @@ export class AIClient {
       throw createAIError(AIErrorCode.CONFIG_MISSING_PROMPT, { requestId });
     }
 
-    const url = this.buildUrl(config);
+    const url = this.buildUrl(config, '/chat/completions', false);
     const headers = this.buildHeaders(config);
     const body = this.buildRequestBody({ ...params, stream: false }, config);
 
@@ -332,7 +362,7 @@ export class AIClient {
       throw createAIError(AIErrorCode.CONFIG_MISSING_PROMPT, { requestId });
     }
 
-    const url = this.buildUrl(config);
+    const url = this.buildUrl(config, '/chat/completions', true);
     const headers = this.buildHeaders(config);
     const body = this.buildRequestBody({ ...params, stream: true }, config);
 
@@ -365,20 +395,37 @@ export class AIClient {
       let finishReason: AIResponse['finishReason'];
 
       try {
+        // 处理缓冲区以正确处理跨越多个 chunk 的行
+        let buffer = '';
+        
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
+          buffer += chunk;
+          
+          // 按行分割处理
+          const lines = buffer.split('\n');
+          // 保留最后一个可能不完整的行
+          buffer = lines.pop() || '';
 
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim();
-              if (data === '[DONE]') continue;
-
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            
+            // 提取 SSE data 内容 - 兼容多种格式
+            // 1. "data: {...}" (OpenAI 标准格式，冒号后有空格)
+            // 2. "data:{...}" (Venus 格式，冒号后无空格)
+            // 3. "data: [DONE]" 或 "data:[DONE]" (结束标记)
+            const sseData = this.extractSSEData(trimmedLine);
+            
+            if (sseData !== null) {
+              // 处理结束标记
+              if (sseData === '[DONE]') continue;
+              
               try {
-                const parsed = JSON.parse(data);
+                const parsed = JSON.parse(sseData);
                 const content = this.extractStreamContent(parsed, config.provider);
                 
                 if (content) {
@@ -386,14 +433,64 @@ export class AIClient {
                   yield content;
                 }
 
-                // 检查完成原因
+                // 检查完成原因 - 兼容 OpenAI/Venus 格式
                 const reason = parsed.choices?.[0]?.finish_reason;
                 if (reason) {
-                  finishReason = reason;
+                  finishReason = reason === 'STOP' ? 'stop' : reason.toLowerCase() as AIResponse['finishReason'];
                 }
               } catch {
                 // 忽略解析错误，继续处理下一行
               }
+            }
+            // Gemini SSE 格式: 直接是 JSON 对象（不带 data: 前缀）
+            else if (config.provider === 'gemini' && trimmedLine.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(trimmedLine);
+                const content = this.extractStreamContent(parsed, config.provider);
+                
+                if (content) {
+                  fullContent += content;
+                  yield content;
+                }
+                
+                // Gemini 的完成标志在 finishReason 字段
+                const reason = parsed.candidates?.[0]?.finishReason;
+                if (reason) {
+                  finishReason = reason === 'STOP' ? 'stop' : reason.toLowerCase() as AIResponse['finishReason'];
+                }
+              } catch {
+                // 忽略解析错误
+              }
+            }
+          }
+        }
+        
+        // 处理缓冲区中剩余的内容
+        if (buffer.trim()) {
+          const trimmedBuffer = buffer.trim();
+          const bufferSSEData = this.extractSSEData(trimmedBuffer);
+          
+          if (bufferSSEData !== null && bufferSSEData !== '[DONE]') {
+            try {
+              const parsed = JSON.parse(bufferSSEData);
+              const content = this.extractStreamContent(parsed, config.provider);
+              if (content) {
+                fullContent += content;
+                yield content;
+              }
+            } catch {
+              // 忽略
+            }
+          } else if (config.provider === 'gemini' && trimmedBuffer.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(trimmedBuffer);
+              const content = this.extractStreamContent(parsed, config.provider);
+              if (content) {
+                fullContent += content;
+                yield content;
+              }
+            } catch {
+              // 忽略
             }
           }
         }
@@ -467,6 +564,8 @@ export class AIClient {
     switch (provider) {
       case 'anthropic':
         return data.content?.[0]?.text || '';
+      case 'gemini':
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       case 'openai':
       case 'venus':
       case 'custom':
@@ -482,12 +581,39 @@ export class AIClient {
     switch (provider) {
       case 'anthropic':
         return data.delta?.text || '';
+      case 'gemini':
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       case 'openai':
       case 'venus':
       case 'custom':
       default:
         return data.choices?.[0]?.delta?.content || '';
     }
+  }
+
+  /**
+   * 提取 SSE 数据内容
+   * 兼容多种格式：
+   * - "data: {...}" (OpenAI 标准格式，冒号后有空格)
+   * - "data:{...}" (Venus 格式，冒号后无空格)
+   * - "data: [DONE]" 或 "data:[DONE]" (结束标记)
+   */
+  private extractSSEData(line: string): string | null {
+    // 检查是否是 SSE data 行
+    if (!line.startsWith('data:')) {
+      return null;
+    }
+    
+    // 提取 data: 后面的内容
+    // 支持 "data: xxx" 和 "data:xxx" 两种格式
+    let content = line.slice(5); // 去掉 "data:"
+    
+    // 如果第一个字符是空格，去掉它
+    if (content.startsWith(' ')) {
+      content = content.slice(1);
+    }
+    
+    return content.trim();
   }
 }
 

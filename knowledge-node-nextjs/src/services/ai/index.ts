@@ -138,6 +138,9 @@ export {
   buildAIFieldPrompt,
   parseAIFieldResponse,
   getAIFieldDefaultValue,
+  // v3.5: 笔记格式化 Prompt 相关
+  FORMAT_NOTES_SYSTEM_PROMPT,
+  buildFormatNotesPrompt,
   type PromptVariables,
   type SupertagSchema,
   type CapturePromptParams,
@@ -145,6 +148,7 @@ export {
   type SchemaGenerateParams,
   type SchemaGenerateResponse,
   type AIFieldPromptParams,
+  type FormatNotesParams,
 } from './prompts';
 
 // v3.4: AI 字段处理器

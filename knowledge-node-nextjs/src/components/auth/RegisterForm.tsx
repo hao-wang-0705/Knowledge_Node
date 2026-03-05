@@ -4,8 +4,11 @@ import { useState } from 'react';
 import { BRAND } from '@/lib/brand';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Mail, Lock, User, Eye, EyeOff, FileText } from 'lucide-react';
 import Link from 'next/link';
+import { AlertBanner } from '@/components/ui/alert-banner';
+import { logoStyles } from '@/styles/visual-tokens';
+import { cn } from '@/lib/utils';
 
 export function RegisterForm() {
   const router = useRouter();
@@ -72,9 +75,15 @@ export function RegisterForm() {
   };
 
   return (
-    <div className="w-full max-w-md mx-auto">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl p-8 border border-zinc-200 dark:border-zinc-800">
+    <div className="w-full max-w-md mx-auto animate-fade-in-scale-up">
+      <div className="nexus-card p-8">
+        {/* Logo 和标题 */}
         <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <div className={cn(logoStyles.container, logoStyles.gradient, 'w-12 h-12 rounded-xl')}>
+              <FileText size={24} className={logoStyles.icon} />
+            </div>
+          </div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white mb-2">
             创建账户
           </h1>
@@ -85,9 +94,9 @@ export function RegisterForm() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
-            <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+            <AlertBanner variant="error" className="animate-fade-in-scale">
               {error}
-            </div>
+            </AlertBanner>
           )}
 
           <div className="space-y-2">
@@ -191,8 +200,7 @@ export function RegisterForm() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 px-4 text-white font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:opacity-90"
-            style={{ backgroundColor: 'var(--brand-primary)' }}
+            className="w-full py-3 px-4 text-white font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-gradient-brand shadow-brand hover:shadow-brand-lg btn-shimmer"
           >
             {isLoading ? (
               <>
@@ -210,8 +218,7 @@ export function RegisterForm() {
             已有账户？{' '}
             <Link
               href="/login"
-              className="font-medium transition-colors hover:opacity-80"
-              style={{ color: 'var(--brand-primary)' }}
+              className="font-medium text-[var(--brand-primary)] hover:opacity-80 transition-colors"
             >
               立即登录
             </Link>
