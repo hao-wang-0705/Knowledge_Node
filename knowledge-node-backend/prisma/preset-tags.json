@@ -111,78 +111,11 @@
       "status": "active"
     },
     {
-      "name": "Task",
-      "color": "#6366F1",
-      "icon": "☑️",
-      "description": "任务管理标签（英文版），包含 AI 智能字段",
-      "order": 3,
-      "fieldDefinitions": [
-        {
-          "id": "task_status",
-          "key": "status",
-          "name": "状态",
-          "type": "select",
-          "options": ["Todo", "Doing", "Done"]
-        },
-        {
-          "id": "task_due_date",
-          "key": "due_date",
-          "name": "截止日期",
-          "type": "date"
-        },
-        {
-          "id": "task_assignee",
-          "key": "assignee",
-          "name": "负责人",
-          "type": "text"
-        },
-        {
-          "id": "task_priority",
-          "key": "priority",
-          "name": "优先级",
-          "type": "ai_select",
-          "options": ["P0", "P1", "P2", "P3"],
-          "aiConfig": {
-            "aiType": "classification",
-            "prompt": "根据任务描述、截止日期和当前状态，判断任务的优先级。P0=紧急且重要，P1=重要但不紧急，P2=紧急但不重要，P3=不紧急不重要",
-            "triggerOn": "manual",
-            "outputFormat": "select",
-            "options": ["P0", "P1", "P2", "P3"],
-            "inputFields": ["status", "due_date"],
-            "includeChildren": false
-          }
-        },
-        {
-          "id": "task_ai_summary",
-          "key": "ai_summary",
-          "name": "AI 摘要",
-          "type": "ai_text",
-          "aiConfig": {
-            "aiType": "summarization",
-            "prompt": "用一句话概括这个任务的核心目标和关键交付物",
-            "triggerOn": "manual",
-            "outputFormat": "text",
-            "includeChildren": true,
-            "contextDepth": 2
-          }
-        }
-      ],
-      "templateContent": {
-        "content": "",
-        "children": [
-          { "content": "任务描述：" },
-          { "content": "验收标准：" }
-        ]
-      },
-      "isGlobalDefault": true,
-      "status": "active"
-    },
-    {
       "name": "Meeting",
       "color": "#8B5CF6",
       "icon": "📅",
       "description": "会议记录标签，包含 AI 信息抽取字段",
-      "order": 4,
+      "order": 3,
       "fieldDefinitions": [
         {
           "id": "meeting_date",
@@ -253,7 +186,7 @@
       "color": "#F59E0B",
       "icon": "💡",
       "description": "灵感记录标签",
-      "order": 5,
+      "order": 4,
       "fieldDefinitions": [
         {
           "id": "idea_source",
@@ -284,7 +217,7 @@
       "color": "#10B981",
       "icon": "📚",
       "description": "书籍阅读记录",
-      "order": 6,
+      "order": 5,
       "fieldDefinitions": [
         {
           "id": "book_author",

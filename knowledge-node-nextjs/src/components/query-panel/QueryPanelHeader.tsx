@@ -27,7 +27,7 @@ const QueryPanelHeader: React.FC<QueryPanelHeaderProps> = memo(({
   onAddQuery,
   showLimitWarning = false,
 }) => {
-  const isAtLimit = queryCount >= QUERY_PANEL_CONSTANTS.MAX_QUERY_BLOCKS;
+  const isAtLimit = queryCount >= QUERY_PANEL_CONSTANTS.MAX_SEARCH_NODES;
 
   return (
     <header className="flex-shrink-0 border-b border-gray-200/60 dark:border-gray-700/60 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
@@ -42,7 +42,7 @@ const QueryPanelHeader: React.FC<QueryPanelHeaderProps> = memo(({
               智能查询
             </h2>
             <p className="text-[10px] text-gray-400 dark:text-gray-500">
-              {queryCount}/{QUERY_PANEL_CONSTANTS.MAX_QUERY_BLOCKS} 个查询块
+              {queryCount}/{QUERY_PANEL_CONSTANTS.MAX_SEARCH_NODES} 个搜索节点
             </p>
           </div>
         </div>
@@ -68,8 +68,8 @@ const QueryPanelHeader: React.FC<QueryPanelHeaderProps> = memo(({
             </TooltipTrigger>
             <TooltipContent side="bottom">
               {isAtLimit
-                ? `已达上限（最多 ${QUERY_PANEL_CONSTANTS.MAX_QUERY_BLOCKS} 个）`
-                : '新建查询块'}
+                ? `已达上限（最多 ${QUERY_PANEL_CONSTANTS.MAX_SEARCH_NODES} 个）`
+                : '新建搜索节点'}
             </TooltipContent>
           </Tooltip>
         </div>
@@ -78,7 +78,7 @@ const QueryPanelHeader: React.FC<QueryPanelHeaderProps> = memo(({
       {/* 上限提示条 */}
       {showLimitWarning && (
         <AlertBanner variant="warning" className="mx-4 mb-2 animate-fade-in-scale">
-          已达到查询块上限，请删除现有查询块后再新建
+          已达到搜索节点上限，请删除现有节点后再新建
         </AlertBanner>
       )}
     </header>

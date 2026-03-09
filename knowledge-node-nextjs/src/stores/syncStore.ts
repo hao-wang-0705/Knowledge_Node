@@ -43,7 +43,7 @@ const getCompletedOpsKey = () => getUserStorageKey(COMPLETED_OPS_BASE_KEY);
 
 const initialState: SyncStoreState = {
   status: 'idle',
-  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  isOnline: true,  // 固定初始值，避免 SSR/CSR hydration 不一致，客户端挂载后由 useNetworkStatus 更新
   pendingOperations: [],
   lastSyncAt: null,
   error: null,
@@ -168,6 +168,7 @@ function loadCompletedOperations(): void {
 export const useSyncStore = create<SyncStore>((set, get) => {
   // 防抖持久化函数（在 store 创建时初始化）
   const debouncedPersist = debounce(() => {
+    if (typeof window === 'undefined') return;
     const { pendingOperations } = get();
     try {
       localStorage.setItem(getOfflineQueueKey(), JSON.stringify(pendingOperations));
@@ -589,6 +590,7 @@ export const useSyncStore = create<SyncStore>((set, get) => {
     },
 
     loadQueue: () => {
+      if (typeof window === 'undefined') return;
       try {
         const stored = localStorage.getItem(getOfflineQueueKey());
         if (stored) {

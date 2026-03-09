@@ -169,7 +169,7 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
     }
     
     // 有标签的节点权重提升
-    if (node.tags.length > 0 && !node.tags.some(t => t.startsWith('sys_'))) {
+    if ((node.tags ?? []).length > 0 && !(node.tags ?? []).some(t => t.startsWith('sys_'))) {
       score += 5;
     }
     

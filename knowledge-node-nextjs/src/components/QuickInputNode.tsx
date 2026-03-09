@@ -4,8 +4,6 @@ import React, { useState, useRef, useCallback, useEffect, KeyboardEvent } from '
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
-import { useSupertagStore } from '@/stores/supertagStore';
-import UnifiedTagSelector from './UnifiedTagSelector';
 import MentionPopover from './MentionPopover';
 
 interface QuickInputNodeProps {
@@ -19,10 +17,12 @@ interface QuickInputNodeProps {
  * 
  * 优化后的交互逻辑：
  * - 点击后在原地进入编辑模式，不会跳转到上方
- * - 支持 # 标签、@ 引用等功能
+ * - 支持 @ 引用功能
  * - 按 Enter 创建节点并保留在编辑状态（继续添加下一个）
  * - 按 Escape 或点击外部退出编辑模式
  * - 空内容失焦时自动退出，不创建空节点
+ * 
+ * v3.5: 移除 # 标签选择功能
  */
 const QuickInputNode: React.FC<QuickInputNodeProps> = ({
   parentId,
@@ -31,14 +31,8 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [content, setContent] = useState('');
-  const [pendingTags, setPendingTags] = useState<string[]>([]);
   const [isComposing, setIsComposing] = useState(false);
   const inputRef = useRef<HTMLDivElement>(null);
-  
-  // 标签选择器状态
-  const [showTagSelector, setShowTagSelector] = useState(false);
-  const [tagSelectorPosition, setTagSelectorPosition] = useState({ x: 0, y: 0 });
-  const [tagSearchTerm, setTagSearchTerm] = useState('');
   
   // 引用弹窗状态
   const [showMentionPopover, setShowMentionPopover] = useState(false);
@@ -46,9 +40,6 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
   
   const addNode = useNodeStore((state) => state.addNode);
   const updateNode = useNodeStore((state) => state.updateNode);
-  const supertags = useSupertagStore((state) => state.supertags);
-  const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
-  const trackTagUsage = useSupertagStore((state) => state.trackTagUsage);
 
   // 进入编辑模式时自动聚焦
   useEffect(() => {
@@ -78,28 +69,12 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
     const newContent = inputRef.current?.textContent || '';
     setContent(newContent);
     
-    // 检测 # 触发标签选择器
+    // @ 触发引用选择
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
       const textBeforeCursor = newContent.substring(0, range.startOffset);
       
-      // # 触发标签选择器
-      const hashMatch = textBeforeCursor.match(/#([^\s#]*)$/);
-      if (hashMatch) {
-        const rect = range.getBoundingClientRect();
-        setTagSelectorPosition({
-          x: rect.left - (hashMatch[1]?.length || 0) * 8,
-          y: rect.bottom + 4,
-        });
-        setTagSearchTerm(hashMatch[1] || '');
-        setShowTagSelector(true);
-      } else if (showTagSelector) {
-        setShowTagSelector(false);
-        setTagSearchTerm('');
-      }
-      
-      // @ 触发引用选择
       if (textBeforeCursor.endsWith('@')) {
         const mentionRect = range.getBoundingClientRect();
         setMentionPosition({
@@ -109,44 +84,25 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
         setShowMentionPopover(true);
       }
     }
-  }, [isComposing, showTagSelector]);
+  }, [isComposing]);
 
   // 创建节点
   const createNode = useCallback(() => {
     const trimmedContent = content.trim();
-    // 移除标签前缀（#xxx）如果有的话
-    const cleanContent = trimmedContent.replace(/#[^\s#]*$/, '').trim();
     
-    if (cleanContent || pendingTags.length > 0) {
+    if (trimmedContent) {
       const newNodeId = addNode(parentId);
       if (newNodeId) {
-        const updates: { content: string; tags?: string[]; supertagId?: string; fields?: Record<string, any> } = {
-          content: cleanContent,
-        };
-        
-        if (pendingTags.length > 0) {
-          updates.tags = pendingTags;
-          updates.supertagId = pendingTags[0];
-          
-          // 检查是否需要设置默认状态
-          const firstTag = supertags[pendingTags[0]];
-          const defs = firstTag ? getFieldDefinitions(firstTag.id) ?? [] : [];
-          if (defs.some((f) => f.key === 'status')) {
-            updates.fields = { status: 'Todo' };
-          }
-        }
-        
-        updateNode(newNodeId, updates);
+        updateNode(newNodeId, { content: trimmedContent });
       }
     }
     
     // 重置状态，准备下一次输入
     setContent('');
-    setPendingTags([]);
     if (inputRef.current) {
       inputRef.current.textContent = '';
     }
-  }, [content, pendingTags, parentId, addNode, updateNode, supertags, getFieldDefinitions]);
+  }, [content, parentId, addNode, updateNode]);
 
   // 标记是否正在通过 Enter 键创建节点，防止 blur 重复触发
   const isCreatingRef = useRef(false);
@@ -155,11 +111,10 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
     if (isComposing) return;
     
-    // 标签选择器打开时的键盘处理由 UnifiedTagSelector 负责
-    if (showTagSelector || showMentionPopover) {
+    // 引用弹窗打开时的键盘处理
+    if (showMentionPopover) {
       if (e.key === 'Escape') {
         e.preventDefault();
-        setShowTagSelector(false);
         setShowMentionPopover(false);
       }
       return;
@@ -172,33 +127,17 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
       
       // 直接从 DOM 读取最新内容（解决状态同步问题）
       const currentContent = inputRef.current?.textContent || '';
-      const trimmedContent = currentContent.trim().replace(/#[^\s#]*$/, '').trim();
+      const trimmedContent = currentContent.trim();
       
-      if (trimmedContent || pendingTags.length > 0) {
+      if (trimmedContent) {
         const newNodeId = addNode(parentId);
         if (newNodeId) {
-          const updates: { content: string; tags?: string[]; supertagId?: string; fields?: Record<string, any> } = {
-            content: trimmedContent,
-          };
-          
-          if (pendingTags.length > 0) {
-            updates.tags = pendingTags;
-            updates.supertagId = pendingTags[0];
-            
-            const firstTag = supertags[pendingTags[0]];
-            const defs = firstTag ? getFieldDefinitions(firstTag.id) ?? [] : [];
-            if (defs.some((f) => f.key === 'status')) {
-              updates.fields = { status: 'Todo' };
-            }
-          }
-          
-          updateNode(newNodeId, updates);
+          updateNode(newNodeId, { content: trimmedContent });
         }
       }
       
       // 重置状态，准备下一次输入
       setContent('');
-      setPendingTags([]);
       if (inputRef.current) {
         inputRef.current.textContent = '';
       }
@@ -215,35 +154,33 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
       // 退出编辑模式
       setIsEditing(false);
       setContent('');
-      setPendingTags([]);
       if (inputRef.current) {
         inputRef.current.textContent = '';
       }
     }
-  }, [isComposing, showTagSelector, showMentionPopover, pendingTags, parentId, addNode, updateNode, supertags, getFieldDefinitions]);
+  }, [isComposing, showMentionPopover, parentId, addNode, updateNode]);
 
   // 失焦处理
   const handleBlur = useCallback((e: React.FocusEvent) => {
     // 如果正在通过 Enter 创建节点，不处理 blur
     if (isCreatingRef.current) return;
     
-    // 如果焦点移到标签选择器或引用弹窗，不退出编辑模式
+    // 如果焦点移到引用弹窗，不退出编辑模式
     const relatedTarget = e.relatedTarget as HTMLElement;
-    if (relatedTarget?.closest('.tag-selector-popover') || 
-        relatedTarget?.closest('.mention-popover')) {
+    if (relatedTarget?.closest('.mention-popover')) {
       return;
     }
     
-    // 延迟检查，避免点击标签选择器时误退出
+    // 延迟检查，避免点击弹窗时误退出
     setTimeout(() => {
       if (isCreatingRef.current) return;
-      if (showTagSelector || showMentionPopover) return;
+      if (showMentionPopover) return;
       
       // 从 DOM 读取最新内容
       const currentContent = inputRef.current?.textContent || '';
       const trimmedContent = currentContent.trim();
       
-      if (!trimmedContent && pendingTags.length === 0) {
+      if (!trimmedContent) {
         // 空内容，退出编辑模式
         setIsEditing(false);
       } else {
@@ -252,29 +189,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
         setIsEditing(false);
       }
     }, 150);
-  }, [pendingTags, showTagSelector, showMentionPopover, createNode]);
-
-  // 标签选择回调
-  const handleTagSelect = useCallback((tagId: string) => {
-    // 移除内容中的 # 搜索词
-    const newContent = content.replace(/#[^\s#]*$/, '').trim();
-    setContent(newContent);
-    if (inputRef.current) {
-      inputRef.current.textContent = newContent;
-    }
-    
-    // 添加到待创建标签列表
-    if (!pendingTags.includes(tagId)) {
-      setPendingTags([...pendingTags, tagId]);
-      trackTagUsage(tagId);
-    }
-    
-    setShowTagSelector(false);
-    setTagSearchTerm('');
-    
-    // 恢复焦点
-    setTimeout(() => inputRef.current?.focus(), 50);
-  }, [content, pendingTags, trackTagUsage]);
+  }, [showMentionPopover, createNode]);
 
   // 引用选择回调
   const handleMentionSelect = useCallback((nodeId: string, nodeTitle: string) => {
@@ -351,33 +266,6 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
         {/* 输入区域 */}
         {isEditing ? (
           <div className="flex-1 min-w-0">
-            {/* 已选标签显示 */}
-            {pendingTags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mb-1">
-                {pendingTags.map(tagId => {
-                  const tag = supertags[tagId];
-                  return tag ? (
-                    <span 
-                      key={tagId}
-                      className="inline-flex items-center px-1.5 py-0.5 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-                    >
-                      {tag.icon} {tag.name}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingTags(pendingTags.filter(id => id !== tagId));
-                        }}
-                        className="ml-1 hover:text-red-500"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ) : null;
-                })}
-              </div>
-            )}
-            
             {/* 可编辑输入框 */}
             <div
               ref={inputRef}
@@ -402,9 +290,6 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
                 <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-[10px]">Enter</kbd> 创建
               </span>
               <span>
-                <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-[10px]">#</kbd> 标签
-              </span>
-              <span>
                 <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-[10px]">@</kbd> 引用
               </span>
               <span>
@@ -422,36 +307,12 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
             {/* 快捷键提示（非编辑状态） */}
             <div className="hidden group-hover:flex items-center gap-1 text-xs text-gray-400">
               <span>支持</span>
-              <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-gray-500 text-[10px]">#</kbd>
-              <span>标签</span>
               <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-gray-500 text-[10px]">@</kbd>
               <span>引用</span>
             </div>
           </>
         )}
       </div>
-
-      {/* 标签选择器 */}
-      {showTagSelector && (
-        <div className="tag-selector-popover">
-          <UnifiedTagSelector
-            open={showTagSelector}
-            onClose={() => {
-              setShowTagSelector(false);
-              setTagSearchTerm('');
-              setTimeout(() => inputRef.current?.focus(), 50);
-            }}
-            onSelectTag={(tagId) => handleTagSelect(tagId)}
-            onCreateTag={(_name: string, _tagType: 'type') => {
-              setShowTagSelector(false);
-              setTagSearchTerm('');
-            }}
-            position={tagSelectorPosition}
-            initialSearchTerm={tagSearchTerm}
-            excludeTagIds={pendingTags}
-          />
-        </div>
-      )}
 
       {/* 引用弹窗 */}
       {showMentionPopover && (

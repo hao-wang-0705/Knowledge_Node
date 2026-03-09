@@ -19,6 +19,7 @@ import {
   MoveNodeDto,
   NodeResponseDto,
 } from './dto/node.dto';
+import { SearchQueryDto } from './dto/search-query.dto';
 import { InternalAuthGuard } from '../../common/guards/internal-auth.guard';
 import { CurrentUserId } from '../../common/decorators/current-user-id.decorator';
 
@@ -77,6 +78,13 @@ export class NodesController {
   @ApiResponse({ status: 200, description: '返回匹配的节点列表', type: [NodeResponseDto] })
   search(@CurrentUserId() userId: string, @Query('q') query: string) {
     return this.nodesService.search(userId, query);
+  }
+
+  @Post('search/query')
+  @ApiOperation({ summary: '结构化搜索节点' })
+  @ApiResponse({ status: 200, description: '返回匹配的节点列表', type: [NodeResponseDto] })
+  advancedSearch(@CurrentUserId() userId: string, @Body() query: SearchQueryDto) {
+    return this.nodesService.advancedSearch(userId, query);
   }
 
   @Get('supertag/:supertagId')

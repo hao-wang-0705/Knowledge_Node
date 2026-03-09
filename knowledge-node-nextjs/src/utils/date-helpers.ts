@@ -140,8 +140,6 @@ export function isSameDay(date1: Date, date2: Date): boolean {
 
 /**
  * 获取一周的所有日期（周一到周日）
- * 注意：此函数返回完整的一周，包括未来日期
- * 如果需要只获取今天及之前的日期，请使用 getWeekDaysUntilToday
  * @param date 周内的任意一天
  * @returns 该周的 7 个日期数组（周一到周日）
  */
@@ -159,41 +157,6 @@ export function getWeekDays(date: Date): Date[] {
     const weekDay = new Date(monday);
     weekDay.setDate(monday.getDate() + i);
     weekDays.push(weekDay);
-  }
-  
-  return weekDays;
-}
-
-/**
- * 获取指定日期所在周从周一到今天的所有日期（不包括未来日期）
- * 用于日历节点初始化，确保不会提前创建未来日期的节点
- * @param date 周内的任意一天（通常是今天）
- * @returns 从周一到今天的日期数组
- */
-export function getWeekDaysUntilToday(date: Date): Date[] {
-  const d = new Date(date);
-  const day = d.getDay();
-  // 计算到周一的偏移（周日为 0，需要特殊处理）
-  const diff = day === 0 ? -6 : 1 - day;
-  
-  const monday = new Date(d);
-  monday.setDate(d.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
-  
-  // 获取今天的日期（不含时间）
-  const today = new Date(date);
-  today.setHours(0, 0, 0, 0);
-  
-  const weekDays: Date[] = [];
-  for (let i = 0; i < 7; i++) {
-    const weekDay = new Date(monday);
-    weekDay.setDate(monday.getDate() + i);
-    weekDay.setHours(0, 0, 0, 0);
-    
-    // 只添加今天及之前的日期
-    if (weekDay <= today) {
-      weekDays.push(weekDay);
-    }
   }
   
   return weekDays;

@@ -1151,3 +1151,39 @@
 .animate-count-pop {
   animation: count-pop 0.3s ease-out;
 }
+
+/* ============================================
+ * 智能查询面板紧凑模式
+ * v3.7: 搜索结果使用完整 NodeComponent 时的紧凑样式
+ * ============================================ */
+
+.query-panel-compact .node-row {
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+  min-height: 28px;
+}
+
+.query-panel-compact .children-container {
+  margin-top: 0.125rem;
+  padding-left: 1rem;
+}
+
+/* 紧凑模式下隐藏部分不常用 UI */
+.query-panel-compact .node-field-section {
+  font-size: 0.75rem;
+}
+
+.query-panel-compact .backlinks-badge {
+  transform: scale(0.9);
+}
+
+/* 紧凑模式下的 bullet 大小 */
+.query-panel-compact .node-bullet {
+  width: 6px;
+  height: 6px;
+}
+
+/* 紧凑模式下的缩进线 */
+.query-panel-compact .indent-guide {
+  margin-left: 0.25rem;
+}

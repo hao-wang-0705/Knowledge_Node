@@ -58,7 +58,7 @@ const TypeDropdown: React.FC<TypeDropdownProps> = ({ currentType, onTypeChange }
   
   // 计算菜单位置
   const calculatePosition = useCallback(() => {
-    if (!buttonRef.current) return;
+    if (!buttonRef.current || typeof window === 'undefined') return;
     
     const rect = buttonRef.current.getBoundingClientRect();
     const menuWidth = 128;
@@ -170,7 +170,7 @@ const SelectOptionsEditor: React.FC<SelectOptionsEditorProps> = ({ options, onOp
   const inputRef = useRef<HTMLInputElement>(null);
 
   const calculatePosition = useCallback(() => {
-    if (!buttonRef.current) return;
+    if (!buttonRef.current || typeof window === 'undefined') return;
     
     const rect = buttonRef.current.getBoundingClientRect();
     const menuWidth = 256;
@@ -362,7 +362,7 @@ const ReferenceTargetSelector: React.FC<ReferenceTargetSelectorProps> = ({
   const needsTarget = !targetTagId;
 
   const calculatePosition = useCallback(() => {
-    if (!buttonRef.current) return;
+    if (!buttonRef.current || typeof window === 'undefined') return;
     
     const rect = buttonRef.current.getBoundingClientRect();
     const menuWidth = 192;

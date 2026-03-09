@@ -1,17 +1,21 @@
 import { create } from 'zustand';
-import { 
-  QueryPanelStore, 
-  QueryBlock, 
-  QUERY_PANEL_CONSTANTS 
-} from '@/types/query';
 import { useNodeStore } from '@/stores/nodeStore';
+import type { SearchConfig } from '@/types/search';
+import type { Node } from '@/types';
 
 /**
- * 生成唯一 ID
+ * 查询面板常量
  */
-const generateId = (): string => {
-  return `query_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-};
+export const QUERY_PANEL_CONSTANTS = {
+  /** 默认面板宽度 */
+  DEFAULT_WIDTH: 380,
+  /** 最小面板宽度 */
+  MIN_WIDTH: 320,
+  /** 最大面板宽度 */
+  MAX_WIDTH: 600,
+  /** 最大搜索节点数量 */
+  MAX_SEARCH_NODES: 3,
+} as const;
 
 /**
  * 从 localStorage 读取面板宽度
@@ -30,175 +34,133 @@ const getStoredPanelWidth = (): number => {
 };
 
 /**
- * Mock 查询逻辑 - 从 nodeStore 筛选真实节点
- * 根据查询条件从真实节点中筛选，返回节点 ID 列表
+ * 查询面板状态
  */
-const mockQueryNodes = (queryText: string): string[] => {
-  const nodeStore = useNodeStore.getState();
-  const allNodes = nodeStore.nodes;
-  
-  // 将查询文本转为小写进行匹配
-  const queryLower = queryText.toLowerCase();
-  
-  // 筛选匹配的节点 ID
-  const matchedIds: string[] = [];
-  
-  Object.entries(allNodes).forEach(([nodeId, node]) => {
-    if (!node) return;
-    
-    // 跳过系统节点（日历根节点、用户根节点等）
-    if (node.nodeRole && node.nodeRole !== 'normal') return;
-    
-    // 内容匹配
-    const contentMatch = node.content?.toLowerCase().includes(queryLower);
-    
-    // 标签匹配 - 检查节点的标签 ID 是否包含查询词
-    const tagMatch = node.tags?.some(tagId => 
-      tagId.toLowerCase().includes(queryLower)
-    );
-    
-    if (contentMatch || tagMatch) {
-      matchedIds.push(nodeId);
-    }
-  });
-  
-  // 限制返回数量，避免过多
-  return matchedIds.slice(0, 10);
-};
+interface QueryPanelState {
+  /** search_root 下的搜索节点 ID 列表 */
+  searchNodeIds: string[];
+  /** 面板宽度（像素） */
+  panelWidth: number;
+  /** 是否已从 localStorage 同步面板宽度 */
+  _hydrated: boolean;
+  /** 是否正在加载 */
+  isLoading: boolean;
+}
 
 /**
- * 初始化 Mock 查询块 - 使用真实节点数据
+ * 查询面板操作
  */
-const createMockQueries = (): QueryBlock[] => {
-  const nodeStore = useNodeStore.getState();
-  const allNodes = nodeStore.nodes;
-  
-  // 找到一些有内容的真实节点作为示例
-  const sampleNodeIds: string[] = [];
-  
-  Object.entries(allNodes).forEach(([nodeId, node]) => {
-    if (!node) return;
-    // 跳过系统节点和空内容节点
-    if (node.nodeRole && node.nodeRole !== 'normal') return;
-    if (!node.content || node.content.trim() === '') return;
-    // 跳过根节点
-    if (nodeId === 'user_root' || nodeId === 'daily_root') return;
-    
-    if (sampleNodeIds.length < 6) {
-      sampleNodeIds.push(nodeId);
-    }
-  });
-  
-  // 如果找不到真实节点，返回空查询块
-  if (sampleNodeIds.length === 0) {
-    return [{
-      id: 'q1',
-      queryText: '示例查询',
-      status: 'done',
-      createdAt: Date.now(),
-      nodes: [],
-    }];
-  }
-  
-  // 分成两组创建示例查询块
-  const firstGroup = sampleNodeIds.slice(0, 3);
-  const secondGroup = sampleNodeIds.slice(3, 6);
-  
-  const queries: QueryBlock[] = [];
-  
-  if (firstGroup.length > 0) {
-    queries.push({
-      id: 'q1',
-      queryText: '最近的笔记',
-      status: 'done',
-      createdAt: Date.now() - 3600000,
-      nodes: firstGroup,
-    });
-  }
-  
-  if (secondGroup.length > 0) {
-    queries.push({
-      id: 'q2',
-      queryText: '相关内容',
-      status: 'done',
-      createdAt: Date.now() - 7200000,
-      nodes: secondGroup,
-    });
-  }
-  
-  return queries;
-};
+interface QueryPanelActions {
+  /** 从 nodeStore 加载 search_root 下的搜索节点 */
+  loadSearchNodes: () => void;
+  /** 添加搜索节点（返回节点 ID，达到上限返回 null） */
+  addSearchNode: (config?: SearchConfig) => string | null;
+  /** 删除搜索节点 */
+  removeSearchNode: (id: string) => void;
+  /** 设置面板宽度 */
+  setPanelWidth: (width: number) => void;
+  /** 从 localStorage 同步面板宽度（客户端挂载时调用） */
+  hydratePanelWidth: () => void;
+  /** 获取搜索节点数据 */
+  getSearchNode: (id: string) => Node | undefined;
+  /** 检查是否可以添加更多搜索节点 */
+  canAddMore: () => boolean;
+}
 
 /**
- * 查询面板 Store（常驻模式）
- * 管理查询块列表和面板宽度，移除 isOpen 状态
- * 
- * 注意：panelWidth 初始值使用 DEFAULT_WIDTH 以避免 SSR hydration mismatch
- * 客户端挂载后通过 hydratePanelWidth 从 localStorage 同步真实值
+ * 查询面板 Store 类型
+ */
+export type QueryPanelStore = QueryPanelState & QueryPanelActions;
+
+/**
+ * 查询面板 Store
+ * 管理智能查询面板中 search_root 下的搜索节点
  */
 export const useQueryPanelStore = create<QueryPanelStore>((set, get) => ({
   // ========== 初始状态 ==========
-  queries: [],
-  // SSR 安全：始终使用默认值，避免 hydration mismatch
+  searchNodeIds: [],
   panelWidth: QUERY_PANEL_CONSTANTS.DEFAULT_WIDTH,
-  _hydrated: false, // 标记是否已从 localStorage 同步
+  _hydrated: false,
+  isLoading: false,
 
-  // ========== 查询块操作 ==========
+  // ========== 搜索节点操作 ==========
   
   /**
-   * 添加查询块
-   * @param queryText 初始查询文本
-   * @returns 新块 ID，达到上限返回 null
+   * 从 nodeStore 加载 search_root 下的搜索节点
    */
-  addQueryBlock: (queryText?: string) => {
-    const { queries } = get();
+  loadSearchNodes: () => {
+    const nodeStore = useNodeStore.getState();
+    const searchRootId = nodeStore.getSearchRootId();
+    
+    if (!searchRootId) {
+      console.warn('[QueryPanelStore] search_root 不存在');
+      set({ searchNodeIds: [], isLoading: false });
+      return;
+    }
+    
+    const searchRoot = nodeStore.nodes[searchRootId];
+    if (!searchRoot) {
+      set({ searchNodeIds: [], isLoading: false });
+      return;
+    }
+    
+    // 获取 search_root 下的所有搜索节点（nodeType === 'search'）
+    const searchNodeIds = searchRoot.childrenIds.filter((childId) => {
+      const child = nodeStore.nodes[childId];
+      return child && child.type === 'search';
+    });
+    
+    set({ searchNodeIds, isLoading: false });
+  },
+
+  /**
+   * 添加搜索节点
+   * @param config 搜索配置
+   * @returns 新节点 ID，达到上限返回 null
+   */
+  addSearchNode: (config?: SearchConfig) => {
+    const { searchNodeIds } = get();
     
     // 检查是否达到上限
-    if (queries.length >= QUERY_PANEL_CONSTANTS.MAX_QUERY_BLOCKS) {
+    if (searchNodeIds.length >= QUERY_PANEL_CONSTANTS.MAX_SEARCH_NODES) {
       return null;
     }
     
-    // 如果有查询文本，执行 Mock 查询
-    const nodes = queryText ? mockQueryNodes(queryText) : [];
+    const nodeStore = useNodeStore.getState();
+    const searchRootId = nodeStore.getSearchRootId();
     
-    const newBlock: QueryBlock = {
-      id: generateId(),
-      queryText: queryText || '',
-      nodes,
-      status: queryText ? 'done' : 'idle',
-      createdAt: Date.now(),
-    };
-    
-    set({ queries: [...queries, newBlock] });
-    return newBlock.id;
-  },
-
-  /**
-   * 更新查询块
-   */
-  updateQueryBlock: (id: string, updates: Partial<QueryBlock>) => {
-    const { queries } = get();
-    
-    // 如果更新了查询文本，重新执行 Mock 查询
-    let finalUpdates = { ...updates };
-    if (updates.queryText !== undefined) {
-      finalUpdates.nodes = mockQueryNodes(updates.queryText);
-      finalUpdates.status = 'done';
+    if (!searchRootId) {
+      console.error('[QueryPanelStore] search_root 不存在，无法创建搜索节点');
+      return null;
     }
     
-    set({
-      queries: queries.map((q) =>
-        q.id === id ? { ...q, ...finalUpdates, updatedAt: Date.now() } : q
-      ),
-    });
+    // 使用 nodeStore 的 addSearchNode 方法创建搜索节点
+    const defaultConfig: SearchConfig = config || {
+      conditions: [],
+      logicalOperator: 'AND',
+      label: '新搜索',
+    };
+    
+    const newNodeId = nodeStore.addSearchNode(searchRootId, defaultConfig);
+    
+    // 更新本地状态
+    set({ searchNodeIds: [...searchNodeIds, newNodeId] });
+    
+    return newNodeId;
   },
 
   /**
-   * 删除查询块
+   * 删除搜索节点
    */
-  deleteQueryBlock: (id: string) => {
-    const { queries } = get();
-    set({ queries: queries.filter((q) => q.id !== id) });
+  removeSearchNode: (id: string) => {
+    const { searchNodeIds } = get();
+    const nodeStore = useNodeStore.getState();
+    
+    // 从 nodeStore 删除节点
+    nodeStore.deleteNode(id);
+    
+    // 更新本地状态
+    set({ searchNodeIds: searchNodeIds.filter((nodeId) => nodeId !== id) });
   },
 
   /**
@@ -218,27 +180,32 @@ export const useQueryPanelStore = create<QueryPanelStore>((set, get) => ({
   },
 
   /**
-   * 初始化 Mock 数据 - 从真实节点中筛选
-   */
-  initMockData: () => {
-    const mockQueries = createMockQueries();
-    set({ queries: mockQueries });
-  },
-
-  /**
    * 从 localStorage 同步面板宽度
    * 客户端挂载后调用，避免 SSR hydration mismatch
    */
   hydratePanelWidth: () => {
     const { _hydrated } = get();
-    if (_hydrated) return; // 已同步过，跳过
+    if (_hydrated) return;
     
     if (typeof window !== 'undefined') {
       const storedWidth = getStoredPanelWidth();
       set({ panelWidth: storedWidth, _hydrated: true });
     }
   },
-}));
 
-// 导出常量供外部使用
-export { QUERY_PANEL_CONSTANTS };
+  /**
+   * 获取搜索节点数据
+   */
+  getSearchNode: (id: string) => {
+    const nodeStore = useNodeStore.getState();
+    return nodeStore.nodes[id];
+  },
+
+  /**
+   * 检查是否可以添加更多搜索节点
+   */
+  canAddMore: () => {
+    const { searchNodeIds } = get();
+    return searchNodeIds.length < QUERY_PANEL_CONSTANTS.MAX_SEARCH_NODES;
+  },
+}));

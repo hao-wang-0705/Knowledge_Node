@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useRef, useEffect, useState, useLayoutEffect } from 'react';
+import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Calendar, CalendarDays, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles, Clock, Pin } from 'lucide-react';
@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { NavItem } from '@/components/ui/nav-item';
 import { useNodeStore } from '@/stores/nodeStore';
-import { getGreeting } from '@/utils/helpers';
 import { getTodayId } from '@/utils/date-helpers';
 import CommandTemplateManager from './CommandTemplateManager';
 import {
@@ -107,8 +106,6 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         ? (user as { email: string }).email.split('@')[0]
         : '我的笔记');
   }, [session?.user]);
-
-  const greeting = useMemo(() => getGreeting(), []);
 
   // 路由高亮状态判断
   const isTagsPage = pathname === '/library/tags';
@@ -212,7 +209,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
     }
   }, [contextMenu]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (contextMenu && contextMenuRef.current) {
       const menuRect = contextMenuRef.current.getBoundingClientRect();
       const viewportWidth = window.innerWidth;

@@ -1,3 +1,5 @@
+import type { SearchConfig } from './search';
+
 // 导出同步相关类型
 export * from './sync';
 
@@ -10,10 +12,11 @@ export * from './query';
 // - todo: 待办节点
 // - command: 指令节点 (AI Command)
 // - daily: 每日笔记节点
-export type NodeType = 'text' | 'heading' | 'todo' | 'command' | 'daily';
+// - search: 搜索节点 (Search Node)
+export type NodeType = 'text' | 'heading' | 'todo' | 'command' | 'daily' | 'search';
 
-/** 节点结构角色（统一树：仅 user_root / daily_root 为结构节点，其余为 normal） */
-export type NodeRole = 'normal' | 'user_root' | 'daily_root';
+/** 节点结构角色（统一树：user_root / daily_root / search_root 为结构节点，其余为 normal） */
+export type NodeRole = 'normal' | 'user_root' | 'daily_root' | 'search_root';
 
 // =============================================================================
 // 指令节点系统 (Command Node System)
@@ -273,7 +276,7 @@ export interface Node {
   references?: NodeReference[];  // 独立的引用列表（与 content 分离）
   // ===================================
   // ========== 指令节点系统 ==========
-  payload?: CommandConfig | DailyNotePayload | Record<string, any>;  // 扩展数据
+  payload?: CommandConfig | DailyNotePayload | SearchConfig | Record<string, any>;  // 扩展数据
   // ===================================
 }
 
@@ -285,6 +288,7 @@ export interface NodeStore {
   
   // 节点操作
   addNode: (parentId: string | null, afterId?: string) => string;
+  addSearchNode: (parentId: string | null, config?: import('./search').SearchConfig, afterId?: string) => string;
   updateNode: (id: string, updates: Partial<Node>) => void;
   deleteNode: (id: string) => void;
   
@@ -509,4 +513,91 @@ export interface DbSupertag {
   createdAt: Date;
   updatedAt: Date;
   templateContent?: TemplateNode | TemplateNode[] | null;
+}
+
+// =============================================================================
+// 智能捕获系统 (Smart Capture System) - v3.5
+// =============================================================================
+
+/**
+ * 智能捕获节点（流式输出单元）
+ * v3.5: 合并"文本格式化"与"标签匹配+字段提取"能力
+ */
+export interface SmartCaptureNode {
+  /** 临时 ID，用于建立父子关系 */
+  tempId: string;
+  /** 父节点临时 ID，null 表示根节点 */
+  parentTempId: string | null;
+  /** 节点正文内容 */
+  content: string;
+  /** 匹配的超级标签 ID（单标签策略：仅挂载匹配度最高的一个） */
+  supertagId: string | null;
+  /** 提取的字段值 */
+  fields: Record<string, unknown>;
+  /** AI 置信度 (0-1)，用于前端展示和降级判断 */
+  confidence: number;
+  /** 是否为 AI 自动提取（用于前端 AI 标记视觉反馈） */
+  isAIExtracted: boolean;
+}
+
+/**
+ * 智能捕获 SSE 事件类型
+ */
+export type SmartCaptureEventType = 'node' | 'done' | 'error';
+
+/**
+ * 智能捕获节点事件
+ */
+export interface SmartCaptureNodeEvent {
+  event: 'node';
+  data: SmartCaptureNode;
+}
+
+/**
+ * 智能捕获完成事件
+ */
+export interface SmartCaptureDoneEvent {
+  event: 'done';
+  data: {
+    success: true;
+    nodeCount: number;
+    requestId: string;
+  };
+}
+
+/**
+ * 智能捕获错误事件
+ */
+export interface SmartCaptureErrorEvent {
+  event: 'error';
+  data: {
+    code: string;
+    message: string;
+  };
+}
+
+/**
+ * 智能捕获 SSE 事件联合类型
+ */
+export type SmartCaptureEvent = 
+  | SmartCaptureNodeEvent 
+  | SmartCaptureDoneEvent 
+  | SmartCaptureErrorEvent;
+
+/**
+ * 智能捕获进度状态
+ */
+export interface SmartCaptureProgress {
+  /** 已创建节点数 */
+  nodeCount: number;
+  /** tempId → realId 映射 */
+  tempIdMap: Map<string, string>;
+  /** 目标父节点 ID */
+  targetParentId: string;
+  /** 是否正在进行 */
+  isActive: boolean;
+  /** AbortController 用于取消 */
+  abortController: AbortController | null;
+  /** 带标签的节点数 */
+  taggedNodeCount: number;
 }

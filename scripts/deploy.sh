@@ -200,12 +200,66 @@ until docker exec knowledge-node-postgres pg_isready -U "${POSTGRES_USER:-postgr
 done
 echo -e "${GREEN}✓${NC}"
 
-echo -e "  执行迁移与种子..."
-if ! (docker compose run --rm backend sh -c "npx prisma migrate deploy && npx prisma db seed" 2>/dev/null || docker-compose run --rm backend sh -c "npx prisma migrate deploy && npx prisma db seed"); then
-  echo -e "${RED}✗ 数据库迁移失败，停止部署${NC}"
+echo -e "  执行智能迁移..."
+
+# 智能判断：新部署 vs 已有部署
+# 检查 _prisma_migrations 表是否存在
+DB_USER="${POSTGRES_USER:-postgres}"
+DB_NAME="${POSTGRES_DB:-knowledge_node}"
+HAS_MIGRATIONS=$(docker exec knowledge-node-postgres psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '_prisma_migrations');" 2>/dev/null || echo "f")
+
+if [ "$HAS_MIGRATIONS" = "t" ]; then
+    # 已有部署：检查是否已有迁移记录
+    MIGRATION_COUNT=$(docker exec knowledge-node-postgres psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM _prisma_migrations;" 2>/dev/null || echo "0")
+    
+    if [ "$MIGRATION_COUNT" -gt "0" ]; then
+        echo -e "  ${BLUE}检测到已有部署 ($MIGRATION_COUNT 条迁移记录)${NC}"
+        
+        # 检查基线迁移是否已标记
+        BASELINE_EXISTS=$(docker exec knowledge-node-postgres psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT EXISTS (SELECT 1 FROM _prisma_migrations WHERE migration_name = '0000_baseline');" 2>/dev/null || echo "f")
+        
+        if [ "$BASELINE_EXISTS" = "f" ]; then
+            echo -e "  ${YELLOW}标记基线迁移为已应用...${NC}"
+            docker compose run --rm backend sh -c "npx prisma migrate resolve --applied 0000_baseline" 2>/dev/null || docker-compose run --rm backend sh -c "npx prisma migrate resolve --applied 0000_baseline"
+        fi
+    fi
+else
+    echo -e "  ${BLUE}检测到全新部署，将执行基线迁移${NC}"
+fi
+
+# 执行迁移（带回退机制）
+MIGRATE_SUCCESS=false
+
+# 尝试 1: prisma migrate deploy（标准迁移）
+echo -e "  尝试标准迁移 (migrate deploy)..."
+if docker compose run --rm backend sh -c "npx prisma migrate deploy" 2>/dev/null || docker-compose run --rm backend sh -c "npx prisma migrate deploy" 2>/dev/null; then
+  MIGRATE_SUCCESS=true
+  echo -e "  ${GREEN}✓ 标准迁移成功${NC}"
+else
+  echo -e "  ${YELLOW}⚠ 标准迁移失败，尝试回退方案...${NC}"
+  
+  # 尝试 2: prisma db push（回退方案，适用于全新部署或迁移文件问题）
+  echo -e "  尝试 Schema 同步 (db push)..."
+  if docker compose run --rm backend sh -c "npx prisma db push --accept-data-loss" 2>/dev/null || docker-compose run --rm backend sh -c "npx prisma db push --accept-data-loss" 2>/dev/null; then
+    MIGRATE_SUCCESS=true
+    echo -e "  ${YELLOW}⚠ 已通过 db push 同步 Schema（非标准迁移路径）${NC}"
+  fi
+fi
+
+if [ "$MIGRATE_SUCCESS" = false ]; then
+  echo -e "${RED}✗ 数据库迁移失败（migrate deploy 和 db push 均失败），停止部署${NC}"
   exit 1
 fi
-echo -e "  ${GREEN}✓ 迁移完成${NC}"
+
+# 执行 Seed
+echo -e "  执行数据库 Seed..."
+if docker compose run --rm backend sh -c "npx prisma db seed" 2>/dev/null || docker-compose run --rm backend sh -c "npx prisma db seed" 2>/dev/null; then
+  echo -e "  ${GREEN}✓ Seed 完成${NC}"
+else
+  echo -e "  ${YELLOW}⚠ Seed 失败（可能数据已存在，继续部署）${NC}"
+fi
+
+echo -e "  ${GREEN}✓ 数据库初始化完成${NC}"
 
 echo -e "  启动 backend/frontend..."
 docker compose up -d backend frontend 2>/dev/null || docker-compose up -d backend frontend

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
-import { Trash2, Copy, Scissors, Hash, Indent, Outdent, Plus, Link2, Sparkles } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Trash2, Copy, Scissors, Hash, Indent, Outdent, Plus, Link2, Search, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -19,6 +19,7 @@ interface ContextMenuProps {
   onAddChild?: () => void;
   onInsertReference?: () => void;
   onAddCommandNode?: () => void;
+  onAddSearchNode?: () => void;
   canIndent?: boolean;
   canOutdent?: boolean;
 }
@@ -36,6 +37,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onAddChild,
   onInsertReference,
   onAddCommandNode,
+  onAddSearchNode,
   canIndent = true,
   canOutdent = true,
 }) => {
@@ -43,8 +45,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   const [position, setPosition] = useState({ x, y });
   const [isVisible, setIsVisible] = useState(false);
 
-  // 使用 useLayoutEffect 在渲染后立即测量菜单尺寸并调整位置
-  useLayoutEffect(() => {
+  // 渲染后测量菜单尺寸并调整位置
+  useEffect(() => {
     if (menuRef.current) {
       const menuRect = menuRef.current.getBoundingClientRect();
       const viewportWidth = window.innerWidth;
@@ -140,6 +142,15 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       enabled: FEATURE_FLAGS.AI_COMMAND_NODE,
       highlight: true,
       disabledTooltip: getDisabledMessage('AI_COMMAND_NODE'),
+    },
+    {
+      icon: Search,
+      label: '🔎 新建搜索节点',
+      onClick: onAddSearchNode,
+      shortcut: '/search',
+      enabled: FEATURE_FLAGS.SEARCH_NODE,
+      highlight: true,
+      disabledTooltip: getDisabledMessage('SEARCH_NODE'),
     },
     { type: 'separator' as const },
     {

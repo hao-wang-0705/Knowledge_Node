@@ -28,6 +28,12 @@ export const FEATURE_FLAGS = {
    * - 注意：图片和文字捕获功能保持启用
    */
   VOICE_TRANSCRIPTION: false,
+
+  /**
+   * 搜索节点功能
+   * - 包括：斜杠命令、右键菜单、搜索节点查询与渲染
+   */
+  SEARCH_NODE: true,
 } as const;
 
 /**
@@ -50,6 +56,7 @@ export function isFeatureEnabled(flag: FeatureFlag): boolean {
 export const DISABLED_FEATURE_MESSAGES = {
   AI_COMMAND_NODE: '此功能暂未开放',
   VOICE_TRANSCRIPTION: '语音转写功能暂未开放',
+  SEARCH_NODE: '搜索节点功能暂未开放',
 } as const;
 
 /**

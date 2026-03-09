@@ -11,16 +11,15 @@ import {
   getCalendarPath,
   getISOWeekNumber,
   getISOWeekYear,
-  getWeekDaysUntilToday,
   SYSTEM_TAGS,
 } from '@/utils/date-helpers';
 import { randomUUID } from 'crypto';
 
-const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const WEEKDAY_NAMES = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
 function getDayContent(date: Date): string {
-  const month = format(date, 'MM');
-  const day = format(date, 'dd');
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
   const weekday = WEEKDAY_NAMES[getDay(date)];
   return `${month}月${day}日 ${weekday}`;
 }
@@ -33,7 +32,8 @@ function getDayContent(date: Date): string {
 export async function initializeDailyNotes(userId: string) {
   const now = new Date();
   const today = startOfDay(now);
-  const daysToCreate = getWeekDaysUntilToday(now);
+  // 只创建今天的日期节点
+  const daysToCreate = [today];
 
   const userRootId = `user-root-${userId}`;
   const dailyRootId = `daily-root-${userId}`;

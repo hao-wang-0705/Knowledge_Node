@@ -8,6 +8,7 @@ import {
   BatchUpdateNodesDto,
   MoveNodeDto,
 } from './dto/node.dto';
+import { SearchConditionDto, SearchQueryDto } from './dto/search-query.dto';
 import { v4 as uuidv4 } from 'uuid';
 import { format, getDate, getDay, getISOWeek, getISOWeekYear, getMonth, getYear, startOfDay } from 'date-fns';
 
@@ -66,7 +67,7 @@ export class NodesService {
     });
   }
 
-  private readonly weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  private readonly weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
   private getCalendarPath(date: Date) {
     const isoWeekYear = getISOWeekYear(date);
@@ -75,13 +76,15 @@ export class NodesService {
     const yearId = `year-${isoWeekYear}`;
     const weekId = `week-${isoWeekYear}-${weekPadded}`;
     const dayId = `day-${format(date, 'yyyy-MM-dd')}`;
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
     return {
       yearId,
       weekId,
       dayId,
       yearContent: `${isoWeekYear}年`,
       weekContent: `${isoWeekYear}年第${weekNumber}周`,
-      dayContent: `${format(date, 'MM')}月${format(date, 'dd')}日 ${this.weekdayNames[getDay(date)]}`,
+      dayContent: `${month}月${day}日 ${this.weekdayNames[getDay(date)]}`,
     };
   }
 
@@ -759,6 +762,161 @@ export class NodesService {
     return this.mapNodesBatchToApiModel(userId, nodes);
   }
 
+  private evaluateFieldCondition(fieldValue: unknown, condition: SearchConditionDto): boolean {
+    if (condition.operator === 'contains') {
+      return String(fieldValue ?? '').toLowerCase().includes(String(condition.value).toLowerCase());
+    }
+    if (condition.operator === 'gt') {
+      return Number(fieldValue) > Number(condition.value);
+    }
+    if (condition.operator === 'lt') {
+      return Number(fieldValue) < Number(condition.value);
+    }
+    if (condition.operator === 'gte') {
+      return Number(fieldValue) >= Number(condition.value);
+    }
+    if (condition.operator === 'lte') {
+      return Number(fieldValue) <= Number(condition.value);
+    }
+    if (condition.operator === 'hasAny') {
+      const expected = Array.isArray(condition.value) ? condition.value : [condition.value];
+      const current = Array.isArray(fieldValue) ? fieldValue : [fieldValue];
+      return expected.some((item) => current.includes(item));
+    }
+    if (condition.operator === 'hasAll') {
+      const expected = Array.isArray(condition.value) ? condition.value : [condition.value];
+      const current = Array.isArray(fieldValue) ? fieldValue : [fieldValue];
+      return expected.every((item) => current.includes(item));
+    }
+    if (condition.operator === 'isNot') {
+      return fieldValue !== condition.value;
+    }
+    return fieldValue === condition.value;
+  }
+
+  private evaluateDateCondition(dateValue: Date, condition: SearchConditionDto): boolean {
+    if (condition.operator === 'today') {
+      const target = startOfDay(new Date());
+      return startOfDay(dateValue).getTime() === target.getTime();
+    }
+    if (condition.operator === 'withinDays') {
+      const days = Number(condition.value);
+      const boundary = Date.now() - days * 24 * 60 * 60 * 1000;
+      return dateValue.getTime() >= boundary;
+    }
+
+    const conditionDate = new Date(String(condition.value));
+    if (Number.isNaN(conditionDate.getTime())) {
+      return false;
+    }
+    if (condition.operator === 'gt') return dateValue.getTime() > conditionDate.getTime();
+    if (condition.operator === 'lt') return dateValue.getTime() < conditionDate.getTime();
+    if (condition.operator === 'gte') return dateValue.getTime() >= conditionDate.getTime();
+    if (condition.operator === 'lte') return dateValue.getTime() <= conditionDate.getTime();
+    return startOfDay(dateValue).getTime() === startOfDay(conditionDate).getTime();
+  }
+
+  private isDescendantOf(
+    nodeId: string,
+    ancestorLogicalId: string,
+    parentMapById: Map<string, string | null>,
+    logicalIdMapById: Map<string, string>,
+  ): boolean {
+    let cursor = parentMapById.get(nodeId) ?? null;
+    while (cursor) {
+      if (logicalIdMapById.get(cursor) === ancestorLogicalId) {
+        return true;
+      }
+      cursor = parentMapById.get(cursor) ?? null;
+    }
+    return false;
+  }
+
+  async advancedSearch(userId: string, query: SearchQueryDto) {
+    const take = query.take ?? 50;
+    const rows = await this.prisma.node.findMany({
+      where: { userId, nodeRole: 'normal' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        logicalId: true,
+        content: true,
+        nodeType: true,
+        nodeRole: true,
+        parentId: true,
+        sortOrder: true,
+        isCollapsed: true,
+        supertagId: true,
+        tags: true,
+        references: true,
+        fields: true,
+        payload: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const parentMapById = new Map(rows.map((row) => [row.id, row.parentId]));
+    const logicalIdMapById = new Map(rows.map((row) => [row.id, row.logicalId]));
+
+    const matchesCondition = (row: (typeof rows)[number], condition: SearchConditionDto): boolean => {
+      const evaluate = (): boolean => {
+        if (condition.type === 'keyword') {
+          const keyword = String(condition.value).toLowerCase();
+          return row.content.toLowerCase().includes(keyword);
+        }
+
+        if (condition.type === 'tag') {
+          const values = Array.isArray(condition.value) ? condition.value : [condition.value];
+          if (condition.operator === 'hasAll') {
+            return values.every((value) => typeof value === 'string' && row.tags.includes(value));
+          }
+          return values.some((value) => typeof value === 'string' && row.tags.includes(value));
+        }
+
+        if (condition.type === 'field') {
+          if (!condition.field) return false;
+          const fields = (row.fields as Record<string, unknown>) ?? {};
+          const fieldValue = fields[condition.field];
+          return this.evaluateFieldCondition(fieldValue, condition);
+        }
+
+        if (condition.type === 'ancestor') {
+          const ancestorLogicalId = String(condition.value);
+          return this.isDescendantOf(row.id, ancestorLogicalId, parentMapById, logicalIdMapById);
+        }
+
+        if (condition.type === 'date') {
+          const field = condition.field === 'createdAt' ? 'createdAt' : 'updatedAt';
+          return this.evaluateDateCondition(row[field], condition);
+        }
+
+        return false;
+      };
+
+      const matched = evaluate();
+      return condition.negate ? !matched : matched;
+    };
+
+    const filtered = rows.filter((row) => {
+      if (!query.conditions || query.conditions.length === 0) {
+        return true;
+      }
+      if (query.logicalOperator === 'OR') {
+        return query.conditions.some((condition) => matchesCondition(row, condition));
+      }
+      return query.conditions.every((condition) => matchesCondition(row, condition));
+    });
+
+    let paginated = filtered;
+    if (query.cursor) {
+      const cursorIndex = filtered.findIndex((item) => item.logicalId === query.cursor);
+      paginated = cursorIndex >= 0 ? filtered.slice(cursorIndex + 1) : filtered;
+    }
+
+    return this.mapNodesBatchToApiModel(userId, paginated.slice(0, take));
+  }
+
   // 切换节点折叠状态
   async toggleCollapse(userId: string, id: string) {
     const raw = await this.getRawNodeOrThrow(userId, id);
@@ -781,13 +939,6 @@ export class NodesService {
     await this.ensureStructuralRoots(userId);
     const today = startOfDay(new Date());
     const calendarPath = this.getCalendarPath(today);
-    const dayOfWeek = getDay(today);
-    const offsetToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const daysToCreate = Array.from({ length: offsetToMonday + 1 }, (_, i) => {
-      const d = new Date(today);
-      d.setDate(today.getDate() - offsetToMonday + i);
-      return d;
-    });
 
     const dailyRoot = await this.getRawNodeOrThrow(userId, `daily-root-${userId}`);
 
@@ -831,37 +982,31 @@ export class NodesService {
       },
     });
 
-    const createdDayIds: string[] = [];
-    for (let i = 0; i < daysToCreate.length; i++) {
-      const date = daysToCreate[i];
-      const path = this.getCalendarPath(date);
-      await this.prisma.node.upsert({
-        where: { userId_logicalId: { userId, logicalId: path.dayId } },
-        create: {
-          id: uuidv4(),
-          logicalId: path.dayId,
-          userId,
-          parentId: weekNode.id,
-          content: path.dayContent,
-          nodeType: 'daily',
-          sortOrder: i,
-          tags: ['sys:calendar:day'],
-          payload: {
-            level: 'day',
-            year: getYear(date),
-            month: getMonth(date) + 1,
-            week: getISOWeek(date),
-            day: getDate(date),
-            dateString: format(date, 'yyyy-MM-dd'),
-          } as Prisma.InputJsonValue,
-        },
-        update: {
-          parentId: weekNode.id,
-          sortOrder: i,
-        },
-      });
-      createdDayIds.push(path.dayId);
-    }
+    // 只创建今天的日期节点
+    await this.prisma.node.upsert({
+      where: { userId_logicalId: { userId, logicalId: calendarPath.dayId } },
+      create: {
+        id: uuidv4(),
+        logicalId: calendarPath.dayId,
+        userId,
+        parentId: weekNode.id,
+        content: calendarPath.dayContent,
+        nodeType: 'daily',
+        sortOrder: 0,
+        tags: ['sys:calendar:day'],
+        payload: {
+          level: 'day',
+          year: getYear(today),
+          month: getMonth(today) + 1,
+          week: getISOWeek(today),
+          day: getDate(today),
+          dateString: format(today, 'yyyy-MM-dd'),
+        } as Prisma.InputJsonValue,
+      },
+      update: {
+        parentId: weekNode.id,
+      },
+    });
 
     return {
       success: true,
@@ -869,7 +1014,7 @@ export class NodesService {
       data: {
         yearId: yearNode.logicalId,
         weekId: weekNode.logicalId,
-        dayIds: createdDayIds,
+        dayIds: [calendarPath.dayId],
       },
     };
   }

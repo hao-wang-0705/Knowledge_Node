@@ -7,7 +7,7 @@ ARG BUILD_TIMESTAMP=default
 
 # Install dependencies only when needed
 FROM base AS deps
-RUN apk add --no-cache libc6-compat openssl
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Copy package files
@@ -40,8 +40,8 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
-# Install openssl for Prisma
-RUN apk add --no-cache openssl
+# Install openssl for Prisma (Alpine 3.23+ 使用 openssl3)
+RUN apk add --no-cache openssl3-libs || apk add --no-cache openssl
 
 ENV NODE_ENV=production
 

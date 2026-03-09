@@ -34,6 +34,7 @@ interface NodeStoreActions {
   addNode: (parentId: string | null, afterId?: string) => string;
   addNodes: (newNodes: Record<string, Node>, newRootIds: string[], targetParentId: string | null, afterId?: string) => void;
   addCommandNode: (parentId: string | null, templateId?: string, prompt?: string, afterId?: string) => string;
+  addSearchNode: (parentId: string | null, config?: import('@/types/search').SearchConfig, afterId?: string) => string;
   addAIResponseNode: (commandNodeId: string, content: string) => string;
   executeCommandNode: (commandNodeId: string) => Promise<void>;
   updateNode: (id: string, updates: Partial<Node>) => void;
@@ -56,8 +57,10 @@ interface NodeStoreActions {
   loadFromStorage: () => void | Promise<void>;
   loadFromAPI: () => Promise<void>;
   saveToStorage: () => void;
-  /** 侧边栏入口：user_root 的一级子节点 ID 列表 */
+  /** 侧边栏入口：user_root 的一级子节点 ID 列表（过滤 daily_root 和 search_root） */
   getSidebarEntries: () => string[];
+  /** 获取 search_root 节点 ID（智能搜索面板专用容器） */
+  getSearchRootId: () => string | null;
   /** 是否在 Daily Notes 子树内（从 nodeId 向上遍历经 daily_root） */
   isInDailyTree: (nodeId: string) => boolean;
   initWithMockData: () => void;
@@ -74,6 +77,7 @@ const getRootIdsKey = () => getUserStorageKey(STORAGE_KEYS.ROOT_IDS);
 const getVersionKey = () => getUserStorageKey(STORAGE_KEYS.DATA_VERSION);
 
 const debouncedSave = debounce((nodes: Record<string, Node>, rootIds: string[]) => {
+  if (typeof window === 'undefined') return;
   localStorage.setItem(getNodesKey(), JSON.stringify(nodes));
   localStorage.setItem(getRootIdsKey(), JSON.stringify(rootIds));
 }, 500);
@@ -488,6 +492,67 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
           console.error(`[addCommandNode] 父节点 ${resolvedParentId} 不存在，中止创建`);
           throw new Error('无法创建指令节点：父节点不存在');
         }
+        const newChildrenIds = [...parentNode.childrenIds];
+        if (afterId) {
+          const afterIndex = newChildrenIds.indexOf(afterId);
+          newChildrenIds.splice(afterIndex !== -1 ? afterIndex + 1 : newChildrenIds.length, 0, newId);
+        } else {
+          newChildrenIds.push(newId);
+        }
+        newNodes[resolvedParentId] = { ...parentNode, childrenIds: newChildrenIds };
+        sortOrder = newChildrenIds.indexOf(newId);
+      }
+
+      debouncedSave(newNodes, newRootIds);
+      return { nodes: newNodes, rootIds: newRootIds, focusedNodeId: newId };
+    });
+
+    queueCreateNode(newNode, sortOrder);
+    return newId;
+  },
+
+  addSearchNode: (parentId, config, afterId) => {
+    const newId = generateId();
+    const state = get();
+    const resolvedParentId = resolveCalendarParentId(parentId, state.nodes);
+    if (resolvedParentId === undefined) {
+      console.error('[addSearchNode] 父节点无法解析，中止创建');
+      throw new Error('无法创建搜索节点：父节点未就绪或不存在');
+    }
+
+    const newNode: Node = {
+      id: newId,
+      content: config?.label || '🔎 搜索节点',
+      type: 'search',
+      parentId: resolvedParentId,
+      childrenIds: [],
+      isCollapsed: false,
+      tags: [],
+      fields: {},
+      createdAt: Date.now(),
+      payload: config || { conditions: [], logicalOperator: 'AND' },
+    };
+
+    let sortOrder = 0;
+    set((currentState) => {
+      const newNodes = { ...currentState.nodes, [newId]: newNode };
+      let newRootIds = [...currentState.rootIds];
+
+      if (resolvedParentId === null) {
+        if (afterId) {
+          const afterIndex = newRootIds.indexOf(afterId);
+          newRootIds.splice(afterIndex !== -1 ? afterIndex + 1 : newRootIds.length, 0, newId);
+        } else {
+          newRootIds.push(newId);
+        }
+        sortOrder = newRootIds.indexOf(newId);
+      } else {
+        const parentNode = newNodes[resolvedParentId];
+        if (!parentNode) {
+          console.error(`[addSearchNode] 父节点 ${resolvedParentId} 不存在，中止创建`);
+          throw new Error('无法创建搜索节点：父节点不存在');
+        }
+
         const newChildrenIds = [...parentNode.childrenIds];
         if (afterId) {
           const afterIndex = newChildrenIds.indexOf(afterId);
@@ -1354,7 +1419,17 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const { nodes } = get();
     const userRootId = Object.values(nodes).find((n) => n.nodeRole === 'user_root')?.id;
     if (!userRootId) return [];
-    return nodes[userRootId]?.childrenIds ?? [];
+    // 过滤掉 daily_root 和 search_root，仅返回可导航的笔记本
+    return (nodes[userRootId]?.childrenIds ?? []).filter((childId) => {
+      const child = nodes[childId];
+      return child && child.nodeRole !== 'daily_root' && child.nodeRole !== 'search_root';
+    });
+  },
+
+  /** 获取 search_root 节点 ID（智能搜索面板专用容器） */
+  getSearchRootId: () => {
+    const { nodes } = get();
+    return Object.values(nodes).find((n) => n.nodeRole === 'search_root')?.id ?? null;
   },
 
   isInDailyTree: (nodeId: string) => {

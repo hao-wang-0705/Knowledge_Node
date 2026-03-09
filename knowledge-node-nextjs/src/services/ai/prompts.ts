@@ -1260,3 +1260,349 @@ ${text}
 ## 输出要求
 请直接返回 JSON 数组，不要包含任何其他内容或 markdown 代码块标记。`;
 }
+
+// ============================================================================
+// 智能捕获 Prompt 模块 (Smart Capture)
+// v3.5: 合并"文本格式化整理"与"意图及标签预测"能力
+// ============================================================================
+
+/**
+ * 智能捕获系统 Prompt
+ * 在单次 AI 调用中同时完成：
+ * 1. 文本降噪与格式化（树形节点拆分）
+ * 2. 意图识别与标签匹配
+ * 3. 槽位填充（Slot Filling）
+ */
+export const SMART_CAPTURE_SYSTEM_PROMPT = `你是一个专业的知识管理助手，擅长将非结构化文字整理为结构化知识节点。
+
+核心任务：
+1. 分析文本内容，按主题拆分为层次清晰的树形节点（最多 3 层嵌套）
+2. 为每个节点匹配最合适的超级标签（从提供的标签列表中选择）
+3. 从节点内容中提取关键信息填充到标签字段中
+
+## 标签匹配规则
+- **单标签策略**：每个节点仅匹配置信度最高的一个标签
+- 优先精确匹配：如果内容明确提到任务、会议、想法等关键词
+- 根据语义判断：分析内容意图来匹配合适的标签
+- **置信度阈值 > 0.8**：低于此阈值时，supertagId 设为 null
+- 不要强制匹配，普通笔记内容可以不挂载标签
+
+## 字段提取规则
+- 日期：识别"明天"、"下周五"、"3月15日"等表述，转换为 YYYY-MM-DD 格式
+- 优先级：识别"紧急"、"重要"、"尽快"等词汇
+- 状态：默认为初始状态（待办、计划中等）
+- 参与人/负责人：识别人名或 @ 开头的引用
+- **字段类型校验失败时，该字段留空，不强行填充**
+
+## 输出规则
+- 必须输出 JSON 数组格式，按深度优先顺序排列
+- 每个节点包含：tempId、content、parentTempId、supertagId、fields、confidence、isAIExtracted
+- 根节点的 parentTempId 为 null
+- 确保父节点在子节点之前输出
+- 如果文本无法有意义地拆分，返回单个根节点
+- 不要添加 markdown 代码块标记，直接返回 JSON
+
+## 输出示例
+输入："今天开会讨论了两个任务：1. 产品上线，截止日期下周五，负责人小明，很紧急 2. 市场推广方案，下月初提交"
+
+输出：
+[
+  {"tempId":"1","content":"会议讨论事项","parentTempId":null,"supertagId":null,"fields":{},"confidence":0.6,"isAIExtracted":true},
+  {"tempId":"2","content":"产品上线","parentTempId":"1","supertagId":"task","fields":{"due_date":"2024-03-15","assignee":"小明","priority":"P0"},"confidence":0.95,"isAIExtracted":true},
+  {"tempId":"3","content":"市场推广方案","parentTempId":"1","supertagId":"task","fields":{"due_date":"2024-04-01"},"confidence":0.88,"isAIExtracted":true}
+]`;
+
+/**
+ * 智能捕获 Supertag Schema (精简版，用于 Prompt)
+ */
+export interface SmartCaptureTagSchema {
+  id: string;
+  name: string;
+  icon?: string;
+  description?: string;
+  fields: Array<{
+    key: string;
+    name: string;
+    type: string;
+    options?: string[];
+  }>;
+}
+
+/**
+ * 智能捕获请求参数
+ */
+export interface SmartCapturePromptParams {
+  /** 用户输入的文本 */
+  text: string;
+  /** 可用的 Supertag Schema 列表 */
+  supertags: SmartCaptureTagSchema[];
+}
+
+/**
+ * 构建智能捕获 Prompt
+ */
+export function buildSmartCapturePrompt(params: SmartCapturePromptParams): string {
+  const { text, supertags } = params;
+
+  // 获取今天日期用于相对日期计算
+  const today = new Date();
+  const dateContext = `今天是 ${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日，星期${['日', '一', '二', '三', '四', '五', '六'][today.getDay()]}`;
+
+  // 构建标签列表
+  const tagList = supertags.map((tag) => {
+    const fieldsDesc = tag.fields
+      .map((f) => `${f.name}(${f.key}): ${f.type}${f.options ? `, 选项: ${f.options.join('/')}` : ''}`)
+      .join('; ');
+    return `- ${tag.icon || '📌'} ${tag.name} (ID: ${tag.id})${tag.description ? `: ${tag.description}` : ''}\n  字段: ${fieldsDesc || '无'}`;
+  }).join('\n');
+
+  return `请将以下内容整理为结构化的知识节点，并为适合的节点匹配标签和提取字段：
+
+## 日期上下文
+${dateContext}
+
+## 用户输入
+${text}
+
+## 可用标签列表
+${tagList || '暂无标签（所有节点 supertagId 设为 null）'}
+
+## 输出格式
+请直接返回 JSON 数组，不要包含任何其他内容或 markdown 代码块标记。
+每个节点结构如下：
+{
+  "tempId": "唯一临时ID",
+  "content": "节点正文",
+  "parentTempId": "父节点临时ID或null",
+  "supertagId": "标签ID或null",
+  "fields": {"字段key": "值"},
+  "confidence": 0.0-1.0,
+  "isAIExtracted": true
+}`;
+}
+
+// ============================================================================
+// 搜索条件自然语言解析 Prompt 模块
+// v3.5: 将自然语言查询转换为结构化 SearchConfig
+// ============================================================================
+
+/**
+ * 搜索条件解析系统 Prompt
+ * 用于将自然语言描述的筛选条件转换为结构化的 SearchConfig
+ */
+export const SEARCH_NL_PARSE_SYSTEM_PROMPT = `你是一个智能查询助手，负责将用户的自然语言描述转换为结构化的搜索条件。
+
+## 核心任务
+将用户的自然语言查询解析为 JSON 格式的搜索配置，确保输出与系统现有的 SearchConfig 结构完全兼容。
+
+## 支持的条件类型
+1. **keyword**: 节点文本关键词匹配
+   - operator: contains（包含）, equals（精确匹配）
+   - value: 字符串
+
+2. **tag**: 标签筛选（supertagId）
+   - operator: equals（等于）, isNot（不等于）
+   - value: 标签ID（从提供的标签列表中匹配）
+
+3. **field**: 字段条件（匹配 fieldValues 中的字段）
+   - operator: equals, contains, gt, lt, gte, lte, is, isNot, hasAny, hasAll
+   - field: 字段 key（从提供的标签字段定义中匹配）
+   - value: 根据字段类型确定格式
+
+4. **date**: 时间条件（createdAt/updatedAt）
+   - operator: today（今天）, withinDays（N天内）, gt, lt, gte, lte
+   - field: createdAt 或 updatedAt
+   - value: 日期字符串（YYYY-MM-DD）或天数
+
+## 解析规则
+1. **标签名称转ID**: 用户说"任务"时，匹配到对应标签的 ID
+2. **相对日期转换**: "明天"→当前日期+1天，"下周五"→计算具体日期，"3天内"→使用 withinDays
+3. **字段名匹配**: 用户说"截止日期"时，匹配到对应字段的 key（如 due_date）
+4. **选项值匹配**: 用户说"未完成"时，匹配到字段选项中最接近的值
+5. **逻辑组合**: 默认使用 AND，用户明确说"或者"时使用 OR
+
+## 置信度评估
+- 0.9+: 完全明确的查询，所有条件都能精确匹配
+- 0.7-0.9: 大部分明确，少量需要推断
+- 0.5-0.7: 存在歧义，可能需要确认
+- <0.5: 无法理解意图，建议返回错误
+
+## 输出规则
+- 必须输出合法的 JSON
+- success 为 true 时必须包含 config 和 explanation
+- success 为 false 时必须包含 error 和 suggestions
+- 不要猜测用户意图，宁可报错也不胡乱匹配
+- 不要添加 markdown 代码块标记，直接返回 JSON`;
+
+/**
+ * Supertag Schema（用于搜索条件解析 Prompt）
+ */
+export interface SearchNLTagSchema {
+  id: string;
+  name: string;
+  icon?: string;
+  fields: Array<{
+    key: string;
+    name: string;
+    type: 'text' | 'number' | 'date' | 'select';
+    options?: string[];
+  }>;
+}
+
+/**
+ * 搜索条件解析请求参数
+ */
+export interface SearchNLParsePromptParams {
+  /** 用户输入的自然语言查询 */
+  query: string;
+  /** 可用的 Supertag Schema 列表 */
+  supertags: SearchNLTagSchema[];
+  /** 当前日期（格式：YYYY-MM-DD） */
+  currentDate: string;
+}
+
+/**
+ * 构建搜索条件自然语言解析 Prompt
+ */
+export function buildSearchNLParsePrompt(params: SearchNLParsePromptParams): string {
+  const { query, supertags, currentDate } = params;
+
+  // 解析当前日期获取星期几
+  const dateObj = new Date(currentDate);
+  const weekday = ['日', '一', '二', '三', '四', '五', '六'][dateObj.getDay()];
+  const dateContext = `今天是 ${currentDate}（星期${weekday}）`;
+
+  // 构建标签列表描述
+  const tagListDesc = supertags.map((tag) => {
+    const fieldsDesc = tag.fields
+      .map((f) => {
+        let desc = `${f.name}(key: ${f.key}, type: ${f.type})`;
+        if (f.type === 'select' && f.options && f.options.length > 0) {
+          desc += ` [选项: ${f.options.join(', ')}]`;
+        }
+        return desc;
+      })
+      .join('\n    - ');
+    
+    return `- ${tag.icon || '📌'} **${tag.name}** (ID: \`${tag.id}\`)
+    ${fieldsDesc ? `字段:\n    - ${fieldsDesc}` : '无自定义字段'}`;
+  }).join('\n\n');
+
+  return `## 日期上下文
+${dateContext}
+
+## 用户查询
+"${query}"
+
+## 可用标签及字段定义
+${tagListDesc || '暂无标签定义'}
+
+## 输出格式
+请直接返回 JSON，不要包含 markdown 代码块标记。
+
+成功时：
+{
+  "success": true,
+  "config": {
+    "logicalOperator": "AND",
+    "conditions": [
+      { "type": "keyword", "operator": "contains", "value": "关键词" },
+      { "type": "tag", "operator": "equals", "value": "标签ID" },
+      { "type": "field", "field": "字段key", "operator": "操作符", "value": "值" },
+      { "type": "date", "field": "createdAt", "operator": "withinDays", "value": 7 }
+    ]
+  },
+  "explanation": "人类可读的条件描述",
+  "confidence": 0.92
+}
+
+失败时：
+{
+  "success": false,
+  "error": "无法理解您的查询意图",
+  "suggestions": ["请尝试更具体的描述，例如..."]
+}`;
+}
+
+/**
+ * 搜索条件解析响应类型
+ */
+export interface SearchNLParseResponse {
+  success: boolean;
+  config?: {
+    logicalOperator: 'AND' | 'OR';
+    conditions: Array<{
+      type: 'keyword' | 'tag' | 'field' | 'date' | 'ancestor';
+      field?: string;
+      operator: string;
+      value: string | number | boolean | string[];
+      negate?: boolean;
+    }>;
+  };
+  explanation?: string;
+  warnings?: string[];
+  confidence?: number;
+  error?: string;
+  suggestions?: string[];
+}
+
+/**
+ * 解析搜索条件 AI 响应
+ */
+export function parseSearchNLResponse(content: string): SearchNLParseResponse {
+  // 清理可能的 markdown 代码块标记
+  let cleaned = content.trim();
+  
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+  }
+  
+  try {
+    const parsed = JSON.parse(cleaned);
+    
+    // 验证基本结构
+    if (typeof parsed.success !== 'boolean') {
+      return {
+        success: false,
+        error: 'AI 响应格式错误：缺少 success 字段',
+        suggestions: ['请重试或使用手动配置模式'],
+      };
+    }
+    
+    if (parsed.success) {
+      // 验证成功响应的必要字段
+      if (!parsed.config || !Array.isArray(parsed.config.conditions)) {
+        return {
+          success: false,
+          error: 'AI 响应格式错误：缺少有效的 config',
+          suggestions: ['请重试或使用手动配置模式'],
+        };
+      }
+      
+      return {
+        success: true,
+        config: {
+          logicalOperator: parsed.config.logicalOperator || 'AND',
+          conditions: parsed.config.conditions,
+        },
+        explanation: parsed.explanation || '',
+        warnings: Array.isArray(parsed.warnings) ? parsed.warnings : undefined,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
+      };
+    } else {
+      // 验证失败响应
+      return {
+        success: false,
+        error: parsed.error || '无法理解查询意图',
+        suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : ['请尝试更具体的描述'],
+      };
+    }
+  } catch (e) {
+    console.error('[Search NL Parse] Failed to parse AI response:', e);
+    return {
+      success: false,
+      error: 'AI 响应解析失败',
+      suggestions: ['请重试或使用手动配置模式'],
+    };
+  }
+}

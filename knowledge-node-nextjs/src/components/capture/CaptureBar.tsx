@@ -7,7 +7,7 @@
  * - 文本输入（支持 @ 引用、# 标签）
  * - 图片上传（拖拽、粘贴、选择）
  * - 语音录制
- * - AI 格式化（v3.5 新增）
+ * - AI 智能捕获（v3.5 升级：合并格式化 + 标签匹配 + 字段提取）
  * - 预览确认
  */
 
@@ -19,9 +19,6 @@ import {
   MicOff, 
   X, 
   Loader2, 
-  Hash, 
-  ChevronUp,
-  ChevronDown,
   Wand2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -33,24 +30,18 @@ import { useSupertagStore } from '@/stores/supertagStore';
 import { useNodeStore } from '@/stores/nodeStore';
 import { generateId } from '@/utils/helpers';
 import PreviewBubble from './PreviewBubble';
-import FormattingIndicator from './FormattingIndicator';
+import SmartCaptureIndicator from './SmartCaptureIndicator';
 
 interface CaptureBarProps {
   className?: string;
-  /** 是否默认展开 */
-  defaultExpanded?: boolean;
 }
 
 const CaptureBar: React.FC<CaptureBarProps> = ({
   className,
-  defaultExpanded = true,
 }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  const [showTagSelector, setShowTagSelector] = useState(false);
-  const [tagSearchQuery, setTagSearchQuery] = useState('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   
@@ -61,23 +52,21 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
     images,
     voice,
     preview,
-    manualTagId,
     error,
     isFocused,
-    formattingProgress,
+    smartCaptureProgress,
     setTextInput,
     addImage,
     removeImage,
     setVoice,
     startRecording,
     stopRecording,
-    setManualTagId,
     setError,
     setFocused,
     cancelPreview,
     confirmPreview,
-    startFormatting,
-    cancelFormatting,
+    startSmartCapture,
+    cancelSmartCapture,
   } = useCaptureStore();
   
   const supertags = useSupertagStore((s) => s.supertags);
@@ -87,17 +76,6 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   const updateNode = useNodeStore((s) => s.updateNode);
   const ensureTodayNode = useNodeStore((s) => s.ensureTodayNode);
   const hoistedNodeId = useNodeStore((s) => s.hoistedNodeId);
-  
-  // 获取可用标签（排除已废弃标签）
-  const availableTags = Object.values(supertags).filter((t) => t.status !== 'deprecated');
-  const filteredTags = tagSearchQuery
-    ? availableTags.filter((t) => 
-        t.name.toLowerCase().includes(tagSearchQuery.toLowerCase())
-      )
-    : availableTags;
-  
-  // 获取当前选中的标签
-  const selectedTag = manualTagId ? supertags[manualTagId] : null;
 
   // ============================================
   // 全局快捷键
@@ -109,15 +87,14 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         inputRef.current?.focus();
-        setIsExpanded(true);
       }
-      
+
       // Escape 取消预览
       if (e.key === 'Escape' && preview) {
         cancelPreview();
       }
     };
-    
+
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [preview, cancelPreview]);
@@ -130,43 +107,23 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
     const value = e.target.value;
     setTextInput(value);
     
-    // 检测 # 触发标签选择
-    const lastChar = value.slice(-1);
-    const beforeLastChar = value.slice(-2, -1);
-    
-    if (lastChar === '#' && (beforeLastChar === '' || beforeLastChar === ' ' || beforeLastChar === '\n')) {
-      setShowTagSelector(true);
-      setTagSearchQuery('');
-    } else if (showTagSelector) {
-      // 更新搜索查询
-      const hashIndex = value.lastIndexOf('#');
-      if (hashIndex >= 0) {
-        const query = value.slice(hashIndex + 1);
-        if (query.includes(' ') || query.includes('\n')) {
-          setShowTagSelector(false);
-        } else {
-          setTagSearchQuery(query);
-        }
-      }
-    }
-    
     // 自动调整高度
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
       inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
     }
-  }, [setTextInput, showTagSelector]);
+  }, [setTextInput]);
   
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter 触发 AI 格式化（无修饰键）
+    // Enter 触发 AI 智能捕获（无修饰键）
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       if (preview) {
         e.preventDefault();
         handleConfirm();
       } else if (textInput.trim() && status === 'idle') {
         e.preventDefault();
-        // 触发 AI 格式化
-        handleStartFormatting();
+        // 触发 AI 智能捕获
+        handleStartSmartCapture();
       }
     }
     
@@ -178,49 +135,13 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
       handleConfirm(true);
     }
     
-    // Escape 关闭标签选择器或取消预览
-    if (e.key === 'Escape') {
-      if (showTagSelector) {
-        e.preventDefault();
-        setShowTagSelector(false);
-      } else if (preview) {
-        e.preventDefault();
-        cancelPreview();
-      }
-    }
-    
-    // Tab 选择标签
-    if (e.key === 'Tab' && showTagSelector && filteredTags.length > 0) {
+    // Escape 取消预览
+    if (e.key === 'Escape' && preview) {
       e.preventDefault();
-      handleSelectTag(filteredTags[0].id);
+      cancelPreview();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preview, textInput, status, showTagSelector, filteredTags, cancelPreview]);
-  
-  // ============================================
-  // 标签选择
-  // ============================================
-  
-  const handleSelectTag = useCallback((tagId: string) => {
-    const tag = supertags[tagId];
-    if (!tag) return;
-    
-    setManualTagId(tagId);
-    trackTagUsage(tagId);
-    setShowTagSelector(false);
-    
-    // 从输入中移除 #xxx
-    const hashIndex = textInput.lastIndexOf('#');
-    if (hashIndex >= 0) {
-      setTextInput(textInput.slice(0, hashIndex));
-    }
-    
-    inputRef.current?.focus();
-  }, [supertags, setManualTagId, trackTagUsage, textInput, setTextInput]);
-  
-  const handleRemoveTag = useCallback(() => {
-    setManualTagId(null);
-  }, [setManualTagId]);
+  }, [preview, textInput, status, cancelPreview]);
   
   // ============================================
   // 图片处理
@@ -413,26 +334,26 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   }, [cancelPreview]);
   
   // ============================================
-  // AI 格式化（v3.5 新增）
+  // AI 智能捕获（v3.5 升级）
   // ============================================
   
-  const handleStartFormatting = useCallback(async () => {
+  const handleStartSmartCapture = useCallback(async () => {
     if (!textInput.trim()) return;
     
     // 获取目标父节点
     const targetId = hoistedNodeId || ensureTodayNode();
     
-    // 调用流式格式化
-    await startFormatting(textInput.trim(), targetId, addNode, updateNode);
+    // 调用流式智能捕获（合并格式化 + 标签匹配 + 字段提取）
+    await startSmartCapture(textInput.trim(), targetId, supertags, addNode, updateNode);
     
-    // 格式化完成后聚焦输入框
+    // 智能捕获完成后聚焦输入框
     inputRef.current?.focus();
-  }, [textInput, hoistedNodeId, ensureTodayNode, startFormatting, addNode, updateNode]);
+  }, [textInput, hoistedNodeId, ensureTodayNode, startSmartCapture, supertags, addNode, updateNode]);
   
-  const handleCancelFormatting = useCallback(() => {
-    cancelFormatting();
+  const handleCancelSmartCapture = useCallback(() => {
+    cancelSmartCapture();
     inputRef.current?.focus();
-  }, [cancelFormatting]);
+  }, [cancelSmartCapture]);
   
   // ============================================
   // 渲染
@@ -440,7 +361,7 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
   
   const isProcessing = status === 'processing';
   const isRecording = status === 'recording';
-  const isFormatting = status === 'formatting';
+  const isSmartCapturing = status === 'smart-capturing';
   const showPreview = status === 'preview' && preview;
   
   return (
@@ -469,24 +390,7 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
         
         {/* 输入区域容器 */}
         <div className="max-w-4xl mx-auto">
-          {/* 折叠/展开按钮 */}
-          <div className="flex justify-center mb-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="h-6 px-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              {isExpanded ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronUp className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
-          
-          {isExpanded && (
-            <div
+          <div
               className={cn(
                 'relative rounded-2xl border shadow-lg transition-all duration-200',
                 'bg-white dark:bg-gray-800',
@@ -506,28 +410,6 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                     <ImageIcon className="w-8 h-8 mx-auto mb-2" />
                     松开以添加图片
                   </div>
-                </div>
-              )}
-              
-              {/* 已选标签显示 */}
-              {selectedTag && (
-                <div className="flex items-center gap-2 px-4 pt-3">
-                  <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-sm"
-                    style={{
-                      backgroundColor: `${selectedTag.color}20`,
-                      color: selectedTag.color,
-                    }}
-                  >
-                    {selectedTag.icon && <span>{selectedTag.icon}</span>}
-                    {selectedTag.name}
-                    <button
-                      onClick={handleRemoveTag}
-                      className="ml-1 hover:opacity-70"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
                 </div>
               )}
               
@@ -617,11 +499,12 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
               
               {/* 文本输入区 */}
               <div className="flex items-end gap-2 p-3">
-                {/* 格式化进度指示器 - 格式化时显示 */}
-                {isFormatting && formattingProgress ? (
-                  <FormattingIndicator
-                    nodeCount={formattingProgress.nodeCount}
-                    onCancel={handleCancelFormatting}
+                {/* 智能捕获进度指示器 - 捕获时显示 */}
+                {isSmartCapturing && smartCaptureProgress ? (
+                  <SmartCaptureIndicator
+                    nodeCount={smartCaptureProgress.nodeCount}
+                    taggedNodeCount={smartCaptureProgress.taggedNodeCount}
+                    onCancel={handleCancelSmartCapture}
                     className="flex-1"
                   />
                 ) : (
@@ -645,8 +528,8 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                   />
                 )}
                 
-                {/* 操作按钮 - 格式化时隐藏 */}
-                {!isFormatting && (
+                {/* 操作按钮 - 智能捕获时隐藏 */}
+                {!isSmartCapturing && (
                 <div className="flex items-center gap-1">
                   {/* 图片上传 - 暂时禁用 */}
                   <Tooltip>
@@ -690,37 +573,15 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                     </TooltipContent>
                   </Tooltip>
                   
-                  {/* 标签选择 */}
+
+                  
+                  {/* AI 智能捕获按钮 */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => setShowTagSelector(!showTagSelector)}
-                        disabled={isProcessing}
-                        className={cn(
-                          'h-9 w-9',
-                          manualTagId 
-                            ? 'text-blue-500' 
-                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                        )}
-                      >
-                        <Hash className="w-5 h-5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>选择标签</TooltipContent>
-                  </Tooltip>
-                  
-                  {/* 分隔线 */}
-                  <div className="h-5 w-px bg-gray-200 dark:bg-gray-600 mx-1" />
-                  
-                  {/* AI 格式化按钮 */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={handleStartFormatting}
+                        onClick={handleStartSmartCapture}
                         disabled={!textInput.trim() || isProcessing}
                         className={cn(
                           'h-9 w-9',
@@ -732,7 +593,7 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                         <Wand2 className="w-5 h-5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>AI 格式化笔记</TooltipContent>
+                    <TooltipContent>AI 智能捕获（格式化 + 标签匹配）</TooltipContent>
                   </Tooltip>
                   
                   {/* 发送按钮 - 仅在预览模式下显示 */}
@@ -762,41 +623,7 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                 )}
               </div>
               
-              {/* 标签选择器下拉 */}
-              {showTagSelector && (
-                <div className="absolute bottom-full left-0 right-0 mb-2 mx-4">
-                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg max-h-60 overflow-y-auto">
-                    {filteredTags.length > 0 ? (
-                      <div className="py-1">
-                        {filteredTags.map((tag) => (
-                          <button
-                            key={tag.id}
-                            onClick={() => handleSelectTag(tag.id)}
-                            className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
-                          >
-                            <span
-                              className="w-6 h-6 rounded flex items-center justify-center text-sm"
-                              style={{ backgroundColor: `${tag.color}20`, color: tag.color }}
-                            >
-                              {tag.icon || '#'}
-                            </span>
-                            <span className="text-gray-800 dark:text-gray-200">{tag.name}</span>
-                            {tag.description && (
-                              <span className="text-gray-400 text-sm truncate">
-                                {tag.description}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="px-4 py-3 text-gray-500 text-sm">
-                        没有找到匹配的标签
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+
               
               {/* 错误提示 */}
               {error && (
@@ -818,25 +645,22 @@ const CaptureBar: React.FC<CaptureBarProps> = ({
                 className="hidden"
               />
             </div>
-          )}
-          
+
           {/* 快捷键提示 */}
-          {isExpanded && (
-            <div className="flex justify-center mt-2 text-xs text-gray-400">
-              <span className="px-2">
-                <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-mono">⌘K</kbd>
-                {' '}聚焦
-              </span>
-              <span className="px-2">
-                <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-mono">Enter</kbd>
-                {' '}{showPreview ? '确认' : 'AI 格式化'}
-              </span>
-              <span className="px-2">
-                <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-mono">Esc</kbd>
-                {' '}取消
-              </span>
-            </div>
-          )}
+          <div className="flex justify-center mt-2 text-xs text-gray-400">
+            <span className="px-2">
+              <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-mono">⌘K</kbd>
+              {' '}聚焦
+            </span>
+            <span className="px-2">
+              <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-mono">Enter</kbd>
+              {' '}{showPreview ? '确认' : 'AI 智能捕获'}
+            </span>
+            <span className="px-2">
+              <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-mono">Esc</kbd>
+              {' '}取消
+            </span>
+          </div>
         </div>
         </div> {/* 关闭 pointer-events-auto div */}
       </div>

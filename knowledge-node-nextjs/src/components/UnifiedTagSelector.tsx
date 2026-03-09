@@ -7,15 +7,14 @@
  * 1. 统一入口 - 用户只用 # 作为触发器
  * 2. 分组结构 - AI 推荐 → 最近使用 → 功能标签
  * 3. 模糊搜索 - 支持快速过滤
- * 4. 快速创建 - 支持创建新的功能标签
  * 
  * v3.4: 移除分类系统，简化为扁平列表
+ * v3.5: 移除用户创建标签功能（已废弃）
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Check, Hash, Sparkles, Clock, Plus } from 'lucide-react';
+import { Check, Hash, Sparkles, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { BRAND } from '@/lib/brand';
 import { useSupertagStore } from '@/stores/supertagStore';
 
 // ============================================
@@ -29,8 +28,6 @@ export interface UnifiedTagSelectorProps {
   onClose: () => void;
   /** 选择标签回调 */
   onSelectTag: (tagId: string, tagType: 'type') => void;
-  /** 创建新标签回调 */
-  onCreateTag: (name: string, tagType: 'type') => void;
   /** 弹窗位置 */
   position: { x: number; y: number };
   /** AI 推荐的标签列表 */
@@ -48,14 +45,13 @@ export interface UnifiedTagSelectorProps {
   initialSearchTerm?: string;
 }
 
-// 标签项的统一数据结构 (v3.4: 移除分类字段)
+// 标签项的统一数据结构
 interface TagItem {
   id: string;
   name: string;
   color: string;
   type: 'type';
   icon?: string;
-  isNew?: boolean;
 }
 
 // ============================================
@@ -66,7 +62,6 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
   open,
   onClose,
   onSelectTag,
-  onCreateTag,
   position,
   aiRecommendations = [],
   recentTags = [],
@@ -79,6 +74,12 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
   
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Viewport 尺寸（SSR 安全）
+  const [viewport, setViewport] = useState({ width: 1920, height: 1080 });
+  useEffect(() => {
+    setViewport({ width: window.innerWidth, height: window.innerHeight });
+  }, [open]);
   
   // Store (v3.4: 移除分类相关)
   const supertags = useSupertagStore((state) => state.supertags);
@@ -154,7 +155,6 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
         aiRecommended: [],
         recent: [],
         all: [],
-        canCreate: filteredTags.length === 0,
       };
     }
     
@@ -181,7 +181,6 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
       aiRecommended,
       recent,
       all,
-      canCreate: false,
     };
   }, [searchTerm, filteredTags, allTags, aiRecommendations, recentTags]);
   
@@ -191,16 +190,6 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
     
     if (searchTerm.trim()) {
       list.push(...groupedTags.search);
-      // 添加创建新标签选项
-      if (groupedTags.canCreate) {
-        list.push({
-          id: '__create__',
-          name: searchTerm.trim(),
-          color: BRAND.primaryHex,
-          type: 'type',
-          isNew: true,
-        });
-      }
     } else {
       list.push(...groupedTags.aiRecommended);
       list.push(...groupedTags.recent);
@@ -219,15 +208,9 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
   
   // 处理标签选择
   const handleSelect = useCallback((item: TagItem) => {
-    if (item.isNew) {
-      // 新建标签 - 直接创建功能标签
-      onCreateTag(item.name, 'type');
-      onClose();
-    } else {
-      onSelectTag(item.id, item.type);
-      onClose();
-    }
-  }, [onSelectTag, onCreateTag, onClose]);
+    onSelectTag(item.id, item.type);
+    onClose();
+  }, [onSelectTag, onClose]);
   
   // 键盘导航
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -267,8 +250,8 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
       ref={containerRef}
       className="fixed z-50 min-w-[280px] max-w-[320px] bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
       style={{
-        left: Math.min(position.x, window.innerWidth - 340),
-        top: Math.min(position.y, window.innerHeight - 400),
+        left: Math.min(position.x, viewport.width - 340),
+        top: Math.min(position.y, viewport.height - 400),
       }}
       onKeyDown={handleKeyDown}
     >
@@ -281,7 +264,7 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="搜索或创建标签..."
+                placeholder="搜索超级标签"
                 className="w-full pl-8 pr-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-md outline-none focus:ring-2 focus:ring-indigo-400 transition-shadow"
               />
             </div>
@@ -308,28 +291,6 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
                     没有找到匹配的标签
                   </div>
                 )}
-                
-                {/* 创建新标签选项 */}
-                <div className="mt-1 pt-1 border-t border-gray-100 dark:border-gray-700">
-                  <button
-                    onClick={() => {
-                      onCreateTag(searchTerm.trim(), 'type');
-                      onClose();
-                    }}
-                    className={cn(
-                      "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
-                      selectedIndex === groupedTags.search.length
-                        ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-200"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
-                    )}
-                  >
-                    <Plus size={14} className="text-indigo-500" />
-                    <span>创建标签</span>
-                    <span className="font-medium text-indigo-600 dark:text-indigo-400">
-                      #{searchTerm.trim()}
-                    </span>
-                  </button>
-                </div>
               </>
             ) : (
               <>
@@ -372,7 +333,7 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
                 {/* 空状态 */}
                 {flatList.length === 0 && (
                   <div className="py-8 text-center text-sm text-gray-400">
-                    输入标签名称开始创建
+                    暂无可用标签
                   </div>
                 )}
               </>

@@ -141,6 +141,13 @@ export {
   // v3.5: 笔记格式化 Prompt 相关
   FORMAT_NOTES_SYSTEM_PROMPT,
   buildFormatNotesPrompt,
+  // v3.5: 智能捕获 Prompt 相关
+  SMART_CAPTURE_SYSTEM_PROMPT,
+  buildSmartCapturePrompt,
+  // v3.5: 搜索条件自然语言解析 Prompt 相关
+  SEARCH_NL_PARSE_SYSTEM_PROMPT,
+  buildSearchNLParsePrompt,
+  parseSearchNLResponse,
   type PromptVariables,
   type SupertagSchema,
   type CapturePromptParams,
@@ -149,6 +156,11 @@ export {
   type SchemaGenerateResponse,
   type AIFieldPromptParams,
   type FormatNotesParams,
+  type SmartCaptureTagSchema,
+  type SmartCapturePromptParams,
+  type SearchNLTagSchema,
+  type SearchNLParsePromptParams,
+  type SearchNLParseResponse,
 } from './prompts';
 
 // v3.4: AI 字段处理器

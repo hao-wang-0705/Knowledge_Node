@@ -3,6 +3,7 @@
  */
 import apiClient from './client';
 import type { Node, NodeReference } from '@/types';
+import type { SearchQuery } from '@/types/search';
 
 // API 响应类型
 export interface NodeResponse {
@@ -180,6 +181,11 @@ export const nodesApi = {
   // 搜索节点
   async search(query: string): Promise<Node[]> {
     const response = await apiClient.get<NodeResponse[]>('/api/nodes/search', { q: query });
+    return response.map(toNode);
+  },
+
+  async advancedSearch(query: SearchQuery): Promise<Node[]> {
+    const response = await apiClient.post<NodeResponse[]>('/api/nodes/search/query', query);
     return response.map(toNode);
   },
 };

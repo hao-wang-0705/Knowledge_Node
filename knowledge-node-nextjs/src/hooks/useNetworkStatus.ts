@@ -81,13 +81,8 @@ export function useNetworkStatus(
   const processQueue = useSyncStore((state) => state.processQueue);
   const pendingCount = useSyncStore((state) => state.pendingOperations.length);
   
-  // 本地状态
-  const [isOnline, setIsOnline] = useState<boolean>(() => {
-    if (typeof navigator !== 'undefined') {
-      return navigator.onLine;
-    }
-    return true;
-  });
+  // 本地状态 — SSR 固定返回 true，客户端通过 useEffect 更新
+  const [isOnline, setIsOnline] = useState<boolean>(true);
   
   const [lastOfflineAt, setLastOfflineAt] = useState<number | null>(null);
   const [lastOnlineAt, setLastOnlineAt] = useState<number | null>(null);

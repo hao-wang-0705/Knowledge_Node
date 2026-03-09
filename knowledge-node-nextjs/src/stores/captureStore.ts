@@ -1,11 +1,11 @@
 /**
  * 快速捕获状态管理 (Capture Store)
  * 管理多模态输入、AI 结构化预览和确认流程
- * v3.5: 新增 AI 格式化功能（流式写入）
+ * v3.5: 新增 AI 格式化功能（流式写入）+ 智能捕获功能
  */
 
 import { create } from 'zustand';
-import type { Node, Supertag, FieldDefinition } from '@/types';
+import type { Node, Supertag, FieldDefinition, SmartCaptureNode, SmartCaptureProgress } from '@/types';
 import { generateId } from '@/utils/helpers';
 import type { FormatNode } from '@/utils/format-parser';
 
@@ -23,7 +23,8 @@ export type CaptureStatus =
   | 'processing'     // AI 处理中
   | 'preview'        // 预览确认
   | 'submitting'     // 提交中
-  | 'formatting';    // AI 格式化中（v3.5 新增）
+  | 'formatting'     // AI 格式化中（v3.5）
+  | 'smart-capturing'; // 智能捕获中（v3.5 新增）
 
 /** 图片附件 */
 export interface CaptureImage {
@@ -98,8 +99,10 @@ interface CaptureStoreState {
   isFocused: boolean;
   /** 目标父节点 ID (默认写入今日笔记) */
   targetParentId: string | null;
-  /** 格式化进度（v3.5 新增） */
+  /** 格式化进度（v3.5） */
   formattingProgress: FormattingProgress | null;
+  /** 智能捕获进度（v3.5 新增） */
+  smartCaptureProgress: SmartCaptureProgress | null;
 }
 
 /** 捕获 Store 操作 */
@@ -154,6 +157,18 @@ interface CaptureStoreActions {
   ) => Promise<void>;
   /** 取消正在进行的格式化 */
   cancelFormatting: () => void;
+  
+  // v3.5: 智能捕获（合并格式化 + 标签匹配 + 字段提取）
+  /** 开始智能捕获，流式写入带标签的节点 */
+  startSmartCapture: (
+    text: string,
+    targetParentId: string,
+    supertags: Record<string, Supertag>,
+    addNode: (parentId: string) => string,
+    updateNode: (id: string, updates: Partial<Node>) => void
+  ) => Promise<void>;
+  /** 取消正在进行的智能捕获 */
+  cancelSmartCapture: () => void;
 }
 
 type CaptureStore = CaptureStoreState & CaptureStoreActions;
@@ -173,6 +188,7 @@ const initialState: CaptureStoreState = {
   isFocused: false,
   targetParentId: null,
   formattingProgress: null,
+  smartCaptureProgress: null,
 };
 
 // ============================================================================
@@ -599,6 +615,209 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
     set({
       status: 'idle',
       formattingProgress: null,
+    });
+  },
+
+  /**
+   * v3.5: 智能捕获 - 合并格式化 + 标签匹配 + 字段提取
+   * 将大段文字格式化为树形节点，同时智能匹配标签和提取字段
+   */
+  startSmartCapture: async (text, targetParentId, supertags, addNode, updateNode) => {
+    const { setStatus, setError } = get();
+    
+    // 创建 AbortController 用于取消
+    const abortController = new AbortController();
+    
+    // 初始化智能捕获进度
+    const smartCaptureProgress: SmartCaptureProgress = {
+      nodeCount: 0,
+      tempIdMap: new Map(),
+      targetParentId,
+      isActive: true,
+      abortController,
+      taggedNodeCount: 0,
+    };
+    
+    set({ 
+      status: 'smart-capturing',
+      error: null,
+      smartCaptureProgress,
+    });
+    
+    try {
+      // 准备 Supertag Schema（精简版）
+      const resolveFields = (tagId: string): FieldDefinition[] => {
+        const tag = supertags[tagId];
+        return (tag?.fieldDefinitions ?? []) as FieldDefinition[];
+      };
+      
+      const supertagSchemas = Object.values(supertags)
+        .filter((tag) => tag.status !== 'deprecated')
+        .map((tag) => ({
+          id: tag.id,
+          name: tag.name,
+          icon: tag.icon,
+          description: tag.description,
+          fields: resolveFields(tag.id).map((f) => ({
+            key: f.key,
+            name: f.name,
+            type: f.type,
+            options: f.options,
+          })),
+        }));
+      
+      // 发起流式请求
+      const response = await fetch('/api/ai/smart-capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          supertags: supertagSchemas,
+        }),
+        signal: abortController.signal,
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '智能捕获请求失败');
+      }
+      
+      if (!response.body) {
+        throw new Error('无法获取响应流');
+      }
+      
+      // 读取 SSE 流
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        // 按行处理 SSE 事件
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // 保留未完成的行
+        
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            // 解析事件类型（可用于调试）
+            continue;
+          }
+          
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr) continue;
+            
+            try {
+              const data = JSON.parse(dataStr);
+              
+              // 获取最新的 progress 状态
+              const currentProgress = get().smartCaptureProgress;
+              if (!currentProgress?.isActive) {
+                // 已被取消
+                reader.cancel();
+                return;
+              }
+              
+              // 处理节点事件
+              if (data.tempId && data.content !== undefined) {
+                const node = data as SmartCaptureNode;
+                
+                // 确定真实父节点 ID
+                let realParentId = targetParentId;
+                if (node.parentTempId) {
+                  const mappedParentId = currentProgress.tempIdMap.get(node.parentTempId);
+                  if (mappedParentId) {
+                    realParentId = mappedParentId;
+                  }
+                }
+                
+                // 创建节点
+                const realId = addNode(realParentId);
+                
+                // 更新节点内容（包含标签和字段）
+                updateNode(realId, {
+                  content: node.content,
+                  supertagId: node.supertagId,
+                  tags: node.supertagId ? [node.supertagId] : [],
+                  fields: node.fields || {},
+                });
+                
+                // 记录映射
+                currentProgress.tempIdMap.set(node.tempId, realId);
+                currentProgress.nodeCount++;
+                if (node.supertagId) {
+                  currentProgress.taggedNodeCount++;
+                }
+                
+                // 更新状态触发 UI 更新
+                set({ smartCaptureProgress: { ...currentProgress } });
+              }
+              
+              // 处理完成事件
+              if (data.success !== undefined && data.nodeCount !== undefined) {
+                console.log(`[Smart Capture] 完成，共创建 ${data.nodeCount} 个节点，${data.taggedNodeCount || 0} 个带标签`);
+              }
+              
+              // 处理错误事件
+              if (data.code && data.message) {
+                throw new Error(data.message);
+              }
+              
+            } catch (parseError) {
+              // 如果是 Error 实例且有 message 属性，重新抛出
+              if (parseError instanceof Error && parseError.message) {
+                throw parseError;
+              }
+              console.warn('[Smart Capture] 解析 SSE 数据失败:', parseError);
+            }
+          }
+        }
+      }
+      
+      // 智能捕获完成，重置状态
+      set({ 
+        status: 'idle',
+        textInput: '', // 清空输入
+        smartCaptureProgress: null,
+      });
+      
+    } catch (error) {
+      // 检查是否是取消操作
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[Smart Capture] 用户取消智能捕获');
+        set({ 
+          status: 'idle',
+          smartCaptureProgress: null,
+        });
+        return;
+      }
+      
+      const message = error instanceof Error ? error.message : '智能捕获失败';
+      setError(message);
+      set({ 
+        status: 'idle',
+        smartCaptureProgress: null,
+      });
+    }
+  },
+
+  /**
+   * v3.5: 取消正在进行的智能捕获
+   */
+  cancelSmartCapture: () => {
+    const { smartCaptureProgress } = get();
+    
+    if (smartCaptureProgress?.abortController) {
+      smartCaptureProgress.abortController.abort();
+    }
+    
+    set({
+      status: 'idle',
+      smartCaptureProgress: null,
     });
   },
 }));

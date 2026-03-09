@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, memo, useCallback, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS } from '@/lib/feature-flags';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -10,7 +10,11 @@ import ContextMenu from './ContextMenu';
 import MentionPopover from './MentionPopover';
 import UnifiedTagSelector from './UnifiedTagSelector';
 import CommandConfigModal from './CommandConfigModal';
+import SlashCommandMenu from './SlashCommandMenu';
+import type { SlashCommandItem } from './SlashCommandMenu';
+import SearchNodeView from './search-node/SearchNodeView';
 import { NodeReference, CommandConfig } from '@/types';
+import type { SearchConfig } from '@/types/search';
 import BacklinksBadge from './BacklinksBadge';
 import { createReferenceText, hasReferences } from '@/utils/reference-helpers';
 import { analyzeNavigationTarget } from '@/utils/navigation';
@@ -40,6 +44,8 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const [mentionPosition, setMentionPosition] = useState({ x: 0, y: 0 }); // 引用弹窗位置
   const [isEditing, setIsEditing] = useState(false); // 是否正在编辑
   const [localContent, setLocalContent] = useState(''); // 本地编辑内容
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashMenuPosition, setSlashMenuPosition] = useState({ x: 0, y: 0 });
 
   const node = useNodeStore((state) => state.nodes[nodeId]);
   const focusedNodeId = useNodeStore((state) => state.focusedNodeId);
@@ -49,6 +55,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const applySupertag = useNodeStore((state) => state.applySupertag);
   const addNode = useNodeStore((state) => state.addNode);
   const addCommandNode = useNodeStore((state) => state.addCommandNode);
+  const addSearchNode = useNodeStore((state) => state.addSearchNode);
   const executeCommandNode = useNodeStore((state) => state.executeCommandNode);
   const deleteNode = useNodeStore((state) => state.deleteNode);
   const indentNode = useNodeStore((state) => state.indentNode);
@@ -300,32 +307,6 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     setTimeout(() => contentRef.current?.focus(), 50);
   }, [node, nodeId, updateNode, applySupertag, supertags, trackTagUsage, getFieldDefinitions]);
   
-  // 统一标签选择器回调 - 创建新标签（仅支持功能标签）
-  const handleUnifiedTagCreate = useCallback((name: string, tagType: 'type' | 'context') => {
-    // 移除内容中的 # 及搜索词
-    if (contentRef.current) {
-      const content = contentRef.current.textContent || '';
-      const hashPattern = /#[^\s#]*$/;
-      if (hashPattern.test(content)) {
-        const newContent = content.replace(hashPattern, '').trimEnd();
-        contentRef.current.textContent = newContent;
-        setLocalContent(newContent);
-        updateNode(nodeId, { content: newContent });
-      }
-    }
-    
-    if (!node) return;
-    
-    // 功能标签需要通过 supertagStore 创建（暂不支持快捷创建）
-    console.log('Creating tag is not supported yet:', name, tagType);
-    
-    setShowTagSelector(false);
-    setTagSearchTerm('');
-    
-    // 恢复焦点
-    setTimeout(() => contentRef.current?.focus(), 50);
-  }, [node]);
-
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // 如果正在进行中文输入法组合，不处理快捷键
     if (isComposing) return;
@@ -362,9 +343,26 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+
+      const content = contentRef.current?.textContent?.trim() || '';
+      if (FEATURE_FLAGS.SEARCH_NODE && content === '/') {
+        const rect = contentRef.current?.getBoundingClientRect();
+        setSlashMenuPosition({ x: rect?.left || 0, y: (rect?.bottom || 0) + 8 });
+        setShowSlashMenu(true);
+        return;
+      }
+
+      if (FEATURE_FLAGS.SEARCH_NODE && content.toLowerCase() === '/search') {
+        if (contentRef.current) {
+          contentRef.current.textContent = '';
+        }
+        updateNode(nodeId, { content: '' });
+        addSearchNode(node?.parentId || null, undefined, nodeId);
+        deleteNode(nodeId);
+        return;
+      }
       
       // 检测 /ai 快捷指令 - 仅在功能启用时生效
-      const content = contentRef.current?.textContent?.trim() || '';
       if (FEATURE_FLAGS.AI_COMMAND_NODE && content.toLowerCase() === '/ai') {
         if (contentRef.current) {
           contentRef.current.textContent = '';
@@ -424,7 +422,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       setShowTagSelector(false);
     }
     // 注意：移除了 ArrowUp/ArrowDown 的拦截，让光标可以在文本内自由移动
-  }, [node, nodeId, rootIds, nodes, addNode, addCommandNode, updateNode, indentNode, outdentNode, deleteNode, setFocusedNode, saveCursorPosition, isComposing, showTagSelector, supertags, selectedTagIndex, handleAddTag, nodeCommand]);
+  }, [node, nodeId, rootIds, nodes, addNode, addCommandNode, addSearchNode, updateNode, indentNode, outdentNode, deleteNode, setFocusedNode, saveCursorPosition, isComposing, showTagSelector, supertags, selectedTagIndex, handleAddTag, nodeCommand]);
 
   const handleFocus = useCallback(() => {
     setFocusedNode(nodeId);
@@ -516,6 +514,31 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
     }
     setShowMentionPopover(true);
   }, []);
+
+  const handleAddSearchNodeFromContext = useCallback(() => {
+    addSearchNode(node?.parentId || null, undefined, nodeId);
+  }, [addSearchNode, node?.parentId, nodeId]);
+
+  const slashCommands: SlashCommandItem[] = [
+    {
+      id: 'search-node',
+      label: '搜索节点',
+      description: '创建一个动态搜索视图节点',
+      icon: <Search size={14} />,
+    },
+  ];
+
+  const handleSlashCommandSelect = useCallback((commandId: string) => {
+    if (commandId === 'search-node') {
+      if (contentRef.current) {
+        contentRef.current.textContent = '';
+      }
+      updateNode(nodeId, { content: '' });
+      addSearchNode(node?.parentId || null, undefined, nodeId);
+      deleteNode(nodeId);
+    }
+    setShowSlashMenu(false);
+  }, [addSearchNode, deleteNode, node?.parentId, nodeId, updateNode]);
 
   // 生成唯一 ID
   const generateRefId = useCallback(() => {
@@ -627,7 +650,9 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const showEditableContent = isEditing || !contentHasReferences;
   
   const isCommandNode = node.type === 'command';
+  const isSearchNode = node.type === 'search';
   const commandConfig = isCommandNode ? (node.payload as CommandConfig) : null;
+  const searchConfig = isSearchNode ? (node.payload as SearchConfig | undefined) : undefined;
   const commandTemplate = commandConfig?.templateId ? getTemplateById(commandConfig.templateId) : null;
 
   // 点击圆点进入聚焦模式（Deep Focus）或触发自定义回调
@@ -669,18 +694,24 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       <div
         className={cn(
           "node-row group flex items-start py-1 px-2 rounded-lg transition-all duration-150",
-          // AI 指令节点特殊样式
-          isCommandNode 
+          isSearchNode
             ? cn(
-                "bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30",
-                "border-l-4 border-purple-400 dark:border-purple-500",
-                "shadow-sm",
-                isFocused && "ring-2 ring-purple-300 dark:ring-purple-600"
+                'bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/30',
+                'border-l-4 border-teal-400 dark:border-teal-500',
+                'shadow-sm',
+                isFocused && 'ring-2 ring-teal-300 dark:ring-teal-600'
               )
-            : cn(
-                isFocused && "bg-blue-50 dark:bg-blue-950/30",
-                "hover:bg-gray-50 dark:hover:bg-gray-800/50"
-              )
+            : isCommandNode
+              ? cn(
+                  "bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/30 dark:to-indigo-950/30",
+                  "border-l-4 border-purple-400 dark:border-purple-500",
+                  "shadow-sm",
+                  isFocused && "ring-2 ring-purple-300 dark:ring-purple-600"
+                )
+              : cn(
+                  isFocused && "bg-blue-50 dark:bg-blue-950/30",
+                  "hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                )
         )}
         style={{ paddingLeft: `${depth * 24 + 8}px` }}
         onContextMenu={handleContextMenu}
@@ -697,8 +728,26 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
 
         {/* 内容区域 - 智能布局：标签与文本同行，空间不足时自然换行 */}
         <div className="flex-1 min-w-0 relative">
-          {/* AI 指令节点专用内容区域 */}
-          {isCommandNode ? (
+          {isSearchNode ? (
+            <SearchNodeView
+              nodeId={nodeId}
+              config={searchConfig}
+              onUpdateConfig={(config) => {
+                updateNode(nodeId, {
+                  payload: config,
+                  content: config.label || '🔎 搜索节点',
+                });
+              }}
+              renderNode={(resultNodeId) => (
+                <NodeComponent
+                  key={`${nodeId}-search-result-${resultNodeId}`}
+                  nodeId={resultNodeId}
+                  depth={depth + 1}
+                  onBulletClick={onBulletClick}
+                />
+              )}
+            />
+          ) : isCommandNode ? (
             <NodeCommand
               icon={commandTemplate?.icon}
               name={commandTemplate?.name}
@@ -767,7 +816,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       </div>
 
       {/* 字段表格区域 - 有标签时显示，带明显的视觉区分（非AI指令节点） */}
-      {!isCommandNode && (
+      {!isCommandNode && !isSearchNode && (
         <NodeFields
           node={node}
           nodeId={nodeId}
@@ -807,16 +856,22 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
       )}
 
       {/* 普通节点的子节点区域 */}
-      {!isCommandNode && hasChildren && !node.isCollapsed && (
+      {!isCommandNode && !isSearchNode && hasChildren && !node.isCollapsed && (
         <div className="children-container mt-1">
-          {node.childrenIds.map((childId) => (
-            <NodeComponent
-              key={childId}
-              nodeId={childId}
-              depth={depth + 1}
-              onBulletClick={onBulletClick}
-            />
-          ))}
+          {node.childrenIds
+            .filter((childId) => {
+              // 过滤掉 search_root 节点（智能搜索仅在查询面板显示）
+              const child = nodes[childId];
+              return child && child.nodeRole !== 'search_root';
+            })
+            .map((childId) => (
+              <NodeComponent
+                key={childId}
+                nodeId={childId}
+                depth={depth + 1}
+                onBulletClick={onBulletClick}
+              />
+            ))}
         </div>
       )}
 
@@ -835,6 +890,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           onAddChild={handleAddChild}
           onInsertReference={handleInsertReferenceFromContext}
           onAddCommandNode={nodeCommand.handleAddCommandNodeFromContext}
+          onAddSearchNode={handleAddSearchNodeFromContext}
           canIndent={(() => {
             // 检查是否可以缩进：需要有前一个兄弟节点
             const siblings = node?.parentId === null ? rootIds : (nodes[node?.parentId || '']?.childrenIds || []);
@@ -845,6 +901,14 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         />
       )}
       
+      <SlashCommandMenu
+        open={showSlashMenu}
+        position={slashMenuPosition}
+        onClose={() => setShowSlashMenu(false)}
+        onSelect={handleSlashCommandSelect}
+        commands={slashCommands}
+      />
+
       {/* @ 引用弹窗 */}
       <MentionPopover
         open={showMentionPopover}
@@ -862,7 +926,6 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           setTagSearchTerm('');
         }}
         onSelectTag={handleUnifiedTagSelect}
-        onCreateTag={handleUnifiedTagCreate}
         position={tagSelectorPosition}
         initialSearchTerm={tagSearchTerm}
         excludeTagIds={node?.tags || []}

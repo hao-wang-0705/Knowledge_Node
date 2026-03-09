@@ -13,7 +13,7 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import NodeComponent from './NodeComponent';
 import FieldEditor from './FieldEditor';
 import { formatDate } from '@/utils/helpers';
-import { getCalendarNodeType } from '@/utils/date-helpers';
+import { getCalendarNodeType, getTodayId } from '@/utils/date-helpers';
 import QuickInputNode from './QuickInputNode';
 import { CaptureBar } from './capture';
 import { getTagStyle } from '@/utils/tag-styles';
@@ -100,10 +100,16 @@ const OutlineEditor: React.FC = () => {
   }, [isInitialized, nodes, hasInitialNavigated, goToToday]);
 
   // 获取当前显示的节点 ID 列表（统一树：直接使用 hoisted 的子节点）
+  // 过滤掉 search_root（智能搜索仅在查询面板显示）
   const displayedNodeIds = useMemo(() => {
     if (hoistedNodeId) {
       const hoistedNode = nodes[hoistedNodeId];
-      return hoistedNode?.childrenIds ?? [];
+      const childIds = hoistedNode?.childrenIds ?? [];
+      // 在用户根节点视图中，过滤掉 search_root 节点
+      return childIds.filter((id) => {
+        const child = nodes[id];
+        return child && child.nodeRole !== 'search_root';
+      });
     }
     return rootIds;
   }, [hoistedNodeId, nodes, rootIds]);
@@ -189,6 +195,13 @@ const OutlineEditor: React.FC = () => {
 
   // 判断当前是否在"日"层级
   const isDayView = calendarNodeType === 'day';
+
+  // 判断当前查看的日节点是否是今天
+  const isToday = useMemo(() => {
+    if (!isDayView || !hoistedNodeId) return false;
+    const todayId = getTodayId();
+    return hoistedNodeId === todayId;
+  }, [isDayView, hoistedNodeId]);
 
   // 是否可以添加节点：
   // 解锁所有层级的添加能力，包括年/月/周/日各层级
@@ -432,8 +445,8 @@ const OutlineEditor: React.FC = () => {
               </div>
             )}
             
-            {/* 日历节点的特殊提示 */}
-            {isCalendarView && isDayView && (
+            {/* 日历节点的特殊提示 - 仅在今天的日记页面展示 */}
+            {isToday && (
               <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4">
                 <p className="text-sm text-green-800 dark:text-green-200">
                   ✨ 这是今天的日记页面，开始记录您的想法吧！
