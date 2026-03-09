@@ -133,6 +133,7 @@ export class TagsService {
         icon: createDto.icon,
         description: createDto.description,
         fieldDefinitions: createDto.fieldDefinitions ?? [],
+        viewConfig: createDto.viewConfig ?? undefined,
         isGlobalDefault: createDto.isGlobalDefault ?? true,
         status: createDto.status ?? 'active',
         order: createDto.order ?? 0,
@@ -192,6 +193,7 @@ export class TagsService {
         ...(updateDto.icon !== undefined && { icon: updateDto.icon }),
         ...(updateDto.description !== undefined && { description: updateDto.description }),
         ...(updateDto.fieldDefinitions !== undefined && { fieldDefinitions: updateDto.fieldDefinitions }),
+        ...(updateDto.viewConfig !== undefined && { viewConfig: updateDto.viewConfig }),
         ...(updateDto.isGlobalDefault !== undefined && { isGlobalDefault: updateDto.isGlobalDefault }),
         ...(updateDto.status !== undefined && { status: updateDto.status }),
         ...(updateDto.templateContent !== undefined && { templateContent: updateDto.templateContent }),
@@ -274,6 +276,7 @@ export class TagsService {
                   icon: tagDto.icon ?? existing.icon,
                   description: tagDto.description ?? existing.description,
                   fieldDefinitions: tagDto.fieldDefinitions ?? existing.fieldDefinitions ?? undefined,
+                  viewConfig: tagDto.viewConfig !== undefined ? tagDto.viewConfig : (existing as any).viewConfig ?? undefined,
                   isGlobalDefault: tagDto.isGlobalDefault ?? existing.isGlobalDefault,
                   status: tagDto.status ?? existing.status,
                   templateContent: tagDto.templateContent ?? existing.templateContent ?? undefined,
@@ -294,6 +297,7 @@ export class TagsService {
                 icon: tagDto.icon,
                 description: tagDto.description,
                 fieldDefinitions: tagDto.fieldDefinitions ?? [],
+                viewConfig: tagDto.viewConfig ?? undefined,
                 isGlobalDefault: tagDto.isGlobalDefault ?? true,
                 status: tagDto.status ?? 'active',
                 order: tagDto.order ?? 0,
@@ -327,6 +331,7 @@ export class TagsService {
       fieldDefinitions: unknown;
       order: number;
       templateContent: unknown;
+      viewConfig: unknown;
       createdAt: Date;
       updatedAt: Date;
       isGlobalDefault: boolean;
@@ -344,6 +349,7 @@ export class TagsService {
       fieldDefinitions: tag.fieldDefinitions,
       order: tag.order,
       templateContent: tag.templateContent,
+      viewConfig: tag.viewConfig,
       createdAt: tag.createdAt,
       updatedAt: tag.updatedAt,
       isGlobalDefault: tag.isGlobalDefault,

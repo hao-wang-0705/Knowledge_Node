@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useFocusStore } from '@/stores/focusStore';
 import { useAuthErrorHandler } from '@/hooks/useAuthErrorHandler';
-import SupertagFocusPage from '@/components/supertag-focus/SupertagFocusPage';
+import { SupertagPinnedView } from '@/components/pinned-view/SupertagPinnedView';
 
 // 加载状态组件
 function LoadingState() {
@@ -157,7 +157,7 @@ function FocusPageContent({ tagId }: { tagId: string }) {
     return <ErrorState message={error} onBack={handleBack} />;
   }
   
-  return <SupertagFocusPage tagId={tagId} onBack={handleBack} />;
+  return <SupertagPinnedView tagId={tagId} onBack={handleBack} />;
 }
 
 // 页面入口

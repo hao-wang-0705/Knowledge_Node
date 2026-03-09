@@ -14,10 +14,11 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Hash, Eye, Copy, Check } from 'lucide-react';
+import { Search, Hash, Eye, Copy, Check, Pin, PinOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Supertag } from '@/types';
 import { useSupertagStore } from '@/stores/supertagStore';
+import { usePinnedTagsStore, useIsTagPinned } from '@/stores/pinnedTagsStore';
 
 interface TagGalleryGridProps {
   onSelectTag: (tagId: string) => void;
@@ -30,8 +31,10 @@ interface ContextMenuProps {
   y: number;
   tagId: string;
   tagName: string;
+  isPinned: boolean;
   onViewDetails: () => void;
   onCopyId: () => void;
+  onTogglePin: () => void;
   onClose: () => void;
 }
 
@@ -40,8 +43,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   y,
   tagId,
   tagName,
+  isPinned,
   onViewDetails,
   onCopyId,
+  onTogglePin,
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -66,7 +71,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       {/* 菜单 */}
       <div
         className={cn(
-          'fixed z-50 min-w-[160px]',
+          'fixed z-50 min-w-[180px]',
           'bg-white dark:bg-gray-800',
           'border border-gray-200 dark:border-gray-700',
           'rounded-lg shadow-lg py-1',
@@ -88,6 +93,27 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         >
           <Eye size={14} />
           <span>查看详情</span>
+        </button>
+        <button
+          onClick={() => { onTogglePin(); onClose(); }}
+          className={cn(
+            'w-full flex items-center gap-2 px-3 py-2 text-sm',
+            'text-gray-700 dark:text-gray-200',
+            'hover:bg-gray-100 dark:hover:bg-gray-700',
+            'transition-colors'
+          )}
+        >
+          {isPinned ? (
+            <>
+              <PinOff size={14} />
+              <span>取消固定到侧边栏</span>
+            </>
+          ) : (
+            <>
+              <Pin size={14} />
+              <span>固定到侧边栏</span>
+            </>
+          )}
         </button>
         <button
           onClick={handleCopyId}
@@ -115,12 +141,23 @@ interface TagCardProps {
 }
 
 const TagCard: React.FC<TagCardProps> = ({ tag, isSelected, onClick, onContextMenu }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const isPinned = useIsTagPinned(tag.id);
+  const togglePin = usePinnedTagsStore((state) => state.togglePin);
+  
+  const handlePinClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    togglePin(tag.id);
+  }, [tag.id, togglePin]);
+  
   return (
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       className={cn(
-        "group flex items-center gap-3 w-full h-12 px-4",
+        "group relative flex items-center gap-3 w-full h-12 px-4",
         "bg-gray-100 dark:bg-gray-800 rounded-lg",
         "transition-all duration-200 ease-out",
         "hover:bg-gray-200 dark:hover:bg-gray-700 hover:scale-[1.02]",
@@ -138,11 +175,31 @@ const TagCard: React.FC<TagCardProps> = ({ tag, isSelected, onClick, onContextMe
 
       {/* 标签名称 */}
       <span
-        className="text-sm font-medium truncate"
+        className="text-sm font-medium truncate flex-1 text-left"
         style={{ color: tag.color }}
       >
         {tag.name}
       </span>
+      
+      {/* 图钉按钮 - hover 或已固定时显示 */}
+      {(isHovered || isPinned) && (
+        <div 
+          className="relative flex-shrink-0"
+          onClick={handlePinClick}
+        >
+          <div
+            className={cn(
+              'p-1 rounded transition-colors',
+              isPinned 
+                ? 'text-indigo-500 hover:text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-900/30' 
+                : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            )}
+            title={isPinned ? '取消固定' : '固定到侧边栏'}
+          >
+            {isPinned ? <Pin size={14} className="fill-current" /> : <Pin size={14} />}
+          </div>
+        </div>
+      )}
     </button>
   );
 };
@@ -153,6 +210,8 @@ const TagGalleryGrid: React.FC<TagGalleryGridProps> = ({
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const togglePin = usePinnedTagsStore((state) => state.togglePin);
+  const isPinnedFn = usePinnedTagsStore((state) => state.isPinned);
   
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -213,6 +272,13 @@ const TagGalleryGrid: React.FC<TagGalleryGridProps> = ({
   const handleCopyId = useCallback(() => {
     // 由 ContextMenu 组件处理
   }, []);
+  
+  // 处理固定/取消固定（通过右键菜单）
+  const handleTogglePin = useCallback(() => {
+    if (contextMenu) {
+      togglePin(contextMenu.tagId);
+    }
+  }, [contextMenu, togglePin]);
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900">
@@ -292,8 +358,10 @@ const TagGalleryGrid: React.FC<TagGalleryGridProps> = ({
           y={contextMenu.y}
           tagId={contextMenu.tagId}
           tagName={contextMenu.tagName}
+          isPinned={isPinnedFn(contextMenu.tagId)}
           onViewDetails={handleViewDetails}
           onCopyId={handleCopyId}
+          onTogglePin={handleTogglePin}
           onClose={closeContextMenu}
         />
       )}

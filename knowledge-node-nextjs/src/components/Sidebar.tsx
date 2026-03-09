@@ -1,15 +1,18 @@
 'use client';
 
 import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Calendar, CalendarDays, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles, Clock, Pin } from 'lucide-react';
+import { Calendar, CalendarDays, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles, Clock, Pin, PinOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { NavItem } from '@/components/ui/nav-item';
 import { useNodeStore } from '@/stores/nodeStore';
+import { usePinnedTagsStore } from '@/stores/pinnedTagsStore';
+import { useSupertagStore } from '@/stores/supertagStore';
 import { getTodayId } from '@/utils/date-helpers';
 import CommandTemplateManager from './CommandTemplateManager';
 import {
@@ -59,6 +62,11 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   const getSidebarEntries = useNodeStore((state) => state.getSidebarEntries);
   const isInDailyTree = useNodeStore((state) => state.isInDailyTree);
   const { data: session } = useSession();
+  
+  // 固定标签相关
+  const pinnedTagIds = usePinnedTagsStore((state) => state.pinnedTagIds);
+  const unpinTag = usePinnedTagsStore((state) => state.unpinTag);
+  const supertags = useSupertagStore((state) => state.supertags);
 
   const userRootId = useMemo(
     () => Object.values(nodes).find((n) => n.nodeRole === 'user_root')?.id ?? null,
@@ -109,6 +117,12 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
 
   // 路由高亮状态判断
   const isTagsPage = pathname === '/library/tags';
+  
+  // 检查当前是否在某个标签的聚焦页面
+  const currentFocusTagId = useMemo(() => {
+    const match = pathname?.match(/^\/library\/tags\/([^/]+)\/focus$/);
+    return match ? match[1] : null;
+  }, [pathname]);
 
   const isTodayActive = useMemo(() => {
     if (!isCalendarView) return false;
@@ -120,6 +134,17 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   const handleGoToTags = useCallback(() => {
     router.push('/library/tags');
   }, [router]);
+  
+  // 跳转到固定标签的聚焦页面
+  const handleGoToTagFocus = useCallback((tagId: string) => {
+    router.push(`/library/tags/${tagId}/focus`);
+  }, [router]);
+  
+  // 取消固定标签
+  const handleUnpinTag = useCallback((e: React.MouseEvent, tagId: string) => {
+    e.stopPropagation();
+    unpinTag(tagId);
+  }, [unpinTag]);
 
   const handleGoToAllNotes = useCallback(() => {
     if (!userRootId) return;
@@ -233,7 +258,11 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
     e.preventDefault();
     e.stopPropagation();
     setIsMenuVisible(false);
-    setContextMenu({ x: e.clientX, y: e.clientY, nodeId });
+    const x = e.clientX;
+    const y = e.clientY;
+    setContextMenu({ x, y, nodeId });
+    // 直接初始化菜单位置，后续 useEffect 会调整边界
+    setMenuPosition({ x, y });
   }, []);
 
   const handleRename = useCallback(() => {
@@ -337,23 +366,69 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         </button>
       </div>
 
-      {/* ============ 第三部分：聚焦区（置灰） ============ */}
+      {/* ============ 第三部分：聚焦区 ============ */}
       <div className="px-3 py-2 sidebar-section">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="opacity-50 cursor-not-allowed">
-              <div className="flex items-center gap-2 px-2 py-1.5 mb-1">
-                <Pin size={14} className="text-gray-400" />
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">聚焦</span>
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">Pinned</span>
-              </div>
-              <div className="px-2 py-3 text-center">
-                <p className="text-xs text-gray-400 dark:text-gray-500">即将推出</p>
-              </div>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="right">功能开发中，敬请期待</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-2 px-2 py-1.5 mb-1">
+          <Pin size={14} className="text-gray-400" />
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">聚焦</span>
+          <span className="text-[10px] text-gray-400 dark:text-gray-500">Pinned</span>
+        </div>
+        
+        {pinnedTagIds.length > 0 ? (
+          <div className="space-y-0.5">
+            {pinnedTagIds.map((tagId) => {
+              const tag = supertags[tagId];
+              if (!tag) return null;
+              
+              const isActive = currentFocusTagId === tagId;
+              
+              return (
+                <div
+                  key={tagId}
+                  onClick={() => handleGoToTagFocus(tagId)}
+                  className={cn(
+                    'group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all',
+                    isActive 
+                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' 
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+                  )}
+                >
+                  <Hash 
+                    size={14} 
+                    style={{ color: tag.color }}
+                    strokeWidth={2.5}
+                    className="flex-shrink-0"
+                  />
+                  <span className="flex-1 text-sm truncate" style={{ color: isActive ? undefined : tag.color }}>
+                    {tag.name}
+                  </span>
+                  {/* 取消固定按钮 - hover 时显示 */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={(e) => handleUnpinTag(e, tagId)}
+                        className={cn(
+                          'p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity',
+                          'hover:bg-gray-200 dark:hover:bg-gray-700',
+                          'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                        )}
+                      >
+                        <PinOff size={12} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">取消固定</TooltipContent>
+                  </Tooltip>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="px-2 py-3 text-center">
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              点击标签卡片上的图钉固定
+            </p>
+          </div>
+        )}
       </div>
 
       {/* ============ 第四部分：笔记本区 ============ */}
@@ -400,21 +475,21 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             <div
               onClick={handleGoToToday}
               className={cn(
-                getNotebookItemClass(isCalendarView && !isTagsPage)
+                getNotebookItemClass(isCalendarView && !isTagsPage && !currentFocusTagId)
               )}
             >
               <Calendar
                 size={16}
                 className={cn(
                   'flex-shrink-0',
-                  getNotebookIconClass(isCalendarView && !isTagsPage)
+                  getNotebookIconClass(isCalendarView && !isTagsPage && !currentFocusTagId)
                 )}
               />
               <span className="flex-1 text-sm">Daily notes</span>
-              {isTodayActive && !isTagsPage && (
+              {isTodayActive && !isTagsPage && !currentFocusTagId && (
                 <div className="today-indicator" />
               )}
-              {isCalendarView && !isTodayActive && !isTagsPage && (
+              {isCalendarView && !isTodayActive && !isTagsPage && !currentFocusTagId && (
                 <ChevronRight size={14} className={cn(notebookItemStyles.chevronActive, 'opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0')} />
               )}
             </div>
@@ -496,7 +571,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         </div>
       </div>
 
-      {contextMenu && menuPosition && (
+      {contextMenu && menuPosition && typeof document !== 'undefined' && createPortal(
         <div
           ref={contextMenuRef}
           className={cn(
@@ -525,7 +600,8 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
             </span>
             <span>删除</span>
           </button>
-        </div>
+        </div>,
+        document.body
       )}
 
       <CommandTemplateManager open={showCommandManager} onClose={() => setShowCommandManager(false)} />

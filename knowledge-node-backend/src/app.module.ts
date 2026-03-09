@@ -4,6 +4,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { NodesModule } from './modules/nodes/nodes.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { UsersModule } from './modules/users/users.module';
+import { AIModule } from './modules/ai/ai.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -17,6 +18,7 @@ import { HealthController } from './health.controller';
     NodesModule,
     TagsModule,
     UsersModule,
+    AIModule,
   ],
 })
 export class AppModule {}

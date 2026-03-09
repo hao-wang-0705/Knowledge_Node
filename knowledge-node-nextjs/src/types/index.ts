@@ -1,10 +1,14 @@
 import type { SearchConfig } from './search';
+import type { ViewConfig } from './view-config';
 
 // 导出同步相关类型
 export * from './sync';
 
 // 导出查询面板相关类型
 export * from './query';
+
+// 导出 ViewConfig 相关类型 (v3.6)
+export * from './view-config';
 
 // 节点类型
 // - text: 普通文本节点
@@ -196,6 +200,7 @@ export interface FieldDefinition {
 /**
  * 标签模版定义 (系统预置标签)
  * v3.4: 移除父子继承关系和分类系统
+ * v3.6: 新增 viewConfig 视图配置
  */
 export interface TagTemplate {
   id: string;
@@ -213,6 +218,8 @@ export interface TagTemplate {
   order?: number;            // 在列表中的排序
   /** v2.1: 默认内容模版（节点树） */
   templateContent?: TemplateNode | TemplateNode[] | null;
+  /** v3.6: 视图配置（声明式驱动 Pinned 页面渲染） */
+  viewConfig?: ViewConfig | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -478,6 +485,7 @@ export interface DbNode {
 /**
  * 数据库 TagTemplate 类型 (与 Prisma 模型对应)
  * v3.4: 移除 parentId, categoryId, resolvedFieldDefinitions 字段
+ * v3.6: 新增 viewConfig 视图配置字段
  */
 export interface DbTagTemplate {
   id: string;
@@ -494,6 +502,8 @@ export interface DbTagTemplate {
   status: string;
   order: number;
   templateContent: TemplateNode | TemplateNode[] | null;
+  /** v3.6: 视图配置 */
+  viewConfig: ViewConfig | null;
   createdAt: Date;
   updatedAt: Date;
   _count?: { nodes: number };

@@ -60,6 +60,7 @@ model Node {
 
 // 标签模版表 - 系统预置标签库
 // v3.4: 移除 parentId 继承关系，移除 categoryId 分类关系
+// v3.6: 新增 viewConfig 视图配置字段
 model TagTemplate {
   id               String           @id @default(cuid())
   name             String
@@ -67,6 +68,7 @@ model TagTemplate {
   icon             String?
   description      String?
   fieldDefinitions Json             @default("[]")
+  viewConfig       Json?            // v3.6: 视图配置（声明式驱动 Pinned 页面渲染）
   isGlobalDefault  Boolean          @default(true)
   creatorId        String?
   status           String           @default("active")

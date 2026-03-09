@@ -611,6 +611,21 @@ export const useSyncStore = create<SyncStore>((set, get) => {
             );
           }
 
+          // 恢复 processing 状态为 pending（页面刷新时中断的操作）
+          const processingCount = validQueue.filter(
+            (op) => op.status === 'processing'
+          ).length;
+          if (processingCount > 0) {
+            validQueue = validQueue.map((op) =>
+              op.status === 'processing'
+                ? { ...op, status: 'pending' as const }
+                : op
+            );
+            console.log(
+              `[SyncStore] 恢复 ${processingCount} 个中断的 processing 操作为 pending`
+            );
+          }
+
           // 清除已达最大重试次数的失败操作，避免堆积
           const maxRetries = DEFAULT_SYNC_CONFIG.retry.maxRetries;
           const beforeExpired = validQueue.length;

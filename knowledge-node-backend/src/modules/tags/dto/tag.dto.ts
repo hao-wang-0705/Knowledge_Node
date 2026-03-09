@@ -57,6 +57,11 @@ export class CreateTagTemplateDto {
   @IsNumber()
   @IsOptional()
   order?: number;
+
+  @ApiPropertyOptional({ description: '视图配置（ViewConfig JSON，声明式驱动 Pinned 页面渲染）' })
+  @IsObject()
+  @IsOptional()
+  viewConfig?: any;
 }
 
 /**
@@ -108,6 +113,11 @@ export class UpdateTagTemplateDto {
   @IsNumber()
   @IsOptional()
   order?: number;
+
+  @ApiPropertyOptional({ description: '视图配置（ViewConfig JSON，声明式驱动 Pinned 页面渲染）' })
+  @IsObject()
+  @IsOptional()
+  viewConfig?: any;
 }
 
 /**

@@ -53,6 +53,59 @@
           }
         ]
       },
+      "viewConfig": {
+        "version": "1.0",
+        "layout": {
+          "type": "kanban",
+          "groupByField": "task_status",
+          "sortField": "due_date",
+          "sortOrder": "asc"
+        },
+        "widgets": {
+          "header": [
+            {
+              "id": "standup-report",
+              "type": "ai-aggregation",
+              "props": {
+                "title": "📋 站会播报",
+                "query": {
+                  "filters": [
+                    {
+                      "field": "task_status",
+                      "operator": "nin",
+                      "value": ["已完成", "已取消"]
+                    }
+                  ],
+                  "limit": 20,
+                  "includeChildren": true,
+                  "childDepth": 1
+                },
+                "prompt": "请作为站会主持人，分析以下任务列表并生成简洁的站会播报：\n\n1. **高优预警**：列出已逾期或今天到期的任务，用 [[nodeId]] 格式引用\n2. **进展摘要**：总结进行中任务的整体进度\n3. **阻塞风险**：识别可能存在阻塞或依赖的任务\n\n要求：\n- 语言简洁有力，适合晨会口播\n- 优先级最高的任务放在最前面\n- 每个要点不超过 3 条",
+                "cacheTTL": 600,
+                "showBacklinks": true
+              }
+            }
+          ]
+        },
+        "actions": {
+          "quickCapture": {
+            "defaultFields": {
+              "task_status": "待启动"
+            },
+            "placeholder": "快速添加任务，回车创建..."
+          },
+          "drag": {
+            "targetField": "task_status",
+            "allowedTransitions": {
+              "待启动": ["进行中", "已取消"],
+              "进行中": ["已完成", "待启动"],
+              "已完成": ["进行中"],
+              "已取消": ["待启动"]
+            },
+            "debounceMs": 300
+          }
+        }
+      },
       "isGlobalDefault": true,
       "status": "active"
     },
@@ -111,7 +164,7 @@
       "status": "active"
     },
     {
-      "name": "Meeting",
+      "name": "会议",
       "color": "#8B5CF6",
       "icon": "📅",
       "description": "会议记录标签，包含 AI 信息抽取字段",
@@ -182,7 +235,7 @@
       "status": "active"
     },
     {
-      "name": "Idea",
+      "name": "灵感",
       "color": "#F59E0B",
       "icon": "💡",
       "description": "灵感记录标签",
@@ -213,7 +266,7 @@
       "status": "active"
     },
     {
-      "name": "Book",
+      "name": "书籍",
       "color": "#10B981",
       "icon": "📚",
       "description": "书籍阅读记录",
