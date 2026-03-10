@@ -6,21 +6,23 @@ import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS } from '@/lib/feature-flags';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
+import { useSearchNodeStore } from '@/stores/searchNodeStore';
 import ContextMenu from './ContextMenu';
 import MentionPopover from './MentionPopover';
 import UnifiedTagSelector from './UnifiedTagSelector';
 import CommandConfigModal from './CommandConfigModal';
 import SlashCommandMenu from './SlashCommandMenu';
 import type { SlashCommandItem } from './SlashCommandMenu';
-import SearchNodeView from './search-node/SearchNodeView';
+import SearchConfigModal from './search-node/SearchConfigModal';
 import { NodeReference, CommandConfig } from '@/types';
 import type { SearchConfig } from '@/types/search';
 import BacklinksBadge from './BacklinksBadge';
-import { createReferenceText, hasReferences } from '@/utils/reference-helpers';
-import { analyzeNavigationTarget } from '@/utils/navigation';
-import { getTemplateById } from '@/utils/command-templates';
+import { hasReferences } from '@/utils/reference-helpers';
 import { useNodeCommand } from '@/hooks/useNodeCommand';
+import { useSearchNode } from '@/hooks/useSearchNode';
 import { NodeActions, NodeCommand, NodeContent, NodeFields, NodeReferences } from './node';
+import NodeSearch from './node/NodeSearch';
+import QuickActionButton from './node/QuickActionButton';
 
 interface NodeComponentProps {
   nodeId: string;
@@ -70,6 +72,7 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const getRecentTags = useSupertagStore((state) => state.getRecentTags);
 
   const nodeCommand = useNodeCommand(nodeId);
+  const nodeSearch = useSearchNode(nodeId);
 
   // 当此节点获得焦点时，聚焦 contentEditable
   const isFocused = focusedNodeId === nodeId;
@@ -357,8 +360,8 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           contentRef.current.textContent = '';
         }
         updateNode(nodeId, { content: '' });
-        addSearchNode(node?.parentId || null, undefined, nodeId);
-        deleteNode(nodeId);
+        // v4.0: 创建搜索节点后自动打开配置弹窗
+        nodeSearch.openSearchConfigAndDeleteCurrentAfterCreate();
         return;
       }
       
@@ -534,11 +537,11 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         contentRef.current.textContent = '';
       }
       updateNode(nodeId, { content: '' });
-      addSearchNode(node?.parentId || null, undefined, nodeId);
-      deleteNode(nodeId);
+      // v4.0: 创建搜索节点后自动打开配置弹窗
+      nodeSearch.openSearchConfigAndDeleteCurrentAfterCreate();
     }
     setShowSlashMenu(false);
-  }, [addSearchNode, deleteNode, node?.parentId, nodeId, updateNode]);
+  }, [nodeId, updateNode, nodeSearch]);
 
   // 生成唯一 ID
   const generateRefId = useCallback(() => {
@@ -653,7 +656,16 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
   const isSearchNode = node.type === 'search';
   const commandConfig = isCommandNode ? (node.payload as CommandConfig) : null;
   const searchConfig = isSearchNode ? (node.payload as SearchConfig | undefined) : undefined;
-  const commandTemplate = commandConfig?.templateId ? getTemplateById(commandConfig.templateId) : null;
+  // v4.0: 从 surface 中获取指令名称
+  const commandName = commandConfig?.surface?.name;
+  
+  // v4.0: 搜索节点状态
+  const EMPTY_ARRAY: string[] = [];
+  const searchResultIds = useSearchNodeStore((state) => isSearchNode ? (state.resultsBySearchNodeId[nodeId] ?? EMPTY_ARRAY) : EMPTY_ARRAY);
+  const searchLoading = useSearchNodeStore((state) => isSearchNode ? !!state.loadingBySearchNodeId[nodeId] : false);
+  const searchError = useSearchNodeStore((state) => isSearchNode ? state.errorBySearchNodeId[nodeId] : null);
+  const searchResultCount = searchResultIds.length;
+  const hasSearchConditions = !!(searchConfig?.conditions && searchConfig.conditions.length > 0);
 
   // 点击圆点进入聚焦模式（Deep Focus）或触发自定义回调
   const handleBulletClick = (e: React.MouseEvent) => {
@@ -726,34 +738,40 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
           onBulletClick={handleBulletClick}
         />
 
+        {/* v4.1: AI 快捷动作按钮 */}
+        <QuickActionButton
+          nodeId={nodeId}
+          nodeType={node.type}
+          hasContent={!!node.content?.trim()}
+        />
+
         {/* 内容区域 - 智能布局：标签与文本同行，空间不足时自然换行 */}
         <div className="flex-1 min-w-0 relative">
           {isSearchNode ? (
-            <SearchNodeView
-              nodeId={nodeId}
-              config={searchConfig}
-              onUpdateConfig={(config) => {
-                updateNode(nodeId, {
-                  payload: config,
-                  content: config.label || '🔎 搜索节点',
-                });
+            <NodeSearch
+              name={searchConfig?.label}
+              resultCount={searchResultCount}
+              isLoading={searchLoading}
+              hasError={!!searchError}
+              errorMessage={searchError ?? undefined}
+              hasConditions={hasSearchConditions}
+              isCollapsed={node.isCollapsed}
+              onRefresh={(e) => {
+                e.stopPropagation();
+                nodeSearch.handleExecuteSearch();
               }}
-              renderNode={(resultNodeId) => (
-                <NodeComponent
-                  key={`${nodeId}-search-result-${resultNodeId}`}
-                  nodeId={resultNodeId}
-                  depth={depth + 1}
-                  onBulletClick={onBulletClick}
-                />
-              )}
+              onOpenConfig={(e) => {
+                e.stopPropagation();
+                nodeSearch.handleOpenSearchConfig();
+              }}
             />
           ) : isCommandNode ? (
             <NodeCommand
-              icon={commandTemplate?.icon}
-              name={commandTemplate?.name}
+              icon="🤖"
+              name={commandName}
               isExecuting={nodeCommand.isExecuting}
               lastExecutionStatus={commandConfig?.lastExecutionStatus}
-              prompt={commandConfig?.prompt}
+              prompt={commandConfig?.surface?.userPrompt}
               lastError={commandConfig?.lastError}
               isCollapsed={node.isCollapsed}
               onExecute={(e) => {
@@ -855,6 +873,34 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         </div>
       )}
 
+      {/* v4.0: 搜索节点的搜索结果区域 - 普通节点样式展示 */}
+      {isSearchNode && searchResultCount > 0 && !node.isCollapsed && (
+        <div 
+          className="search-results-container mt-1"
+          style={{ marginLeft: `${depth * 24 + 8}px` }}
+        >
+          {/* 搜索结果区域标题 */}
+          <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-teal-600 dark:text-teal-400 border-l-2 border-teal-300 dark:border-teal-600 bg-teal-50/50 dark:bg-teal-950/20 rounded-r-md mb-1">
+            <Search size={12} />
+            <span className="font-medium">搜索结果</span>
+            <span className="text-gray-400 dark:text-gray-500">
+              ({searchResultCount} 条)
+            </span>
+          </div>
+          {/* 搜索结果作为普通子节点展示 */}
+          <div className="border-l-2 border-teal-200 dark:border-teal-700 ml-2 pl-1 rounded-bl-lg">
+            {searchResultIds.map((resultNodeId) => (
+              <NodeComponent
+                key={`${nodeId}-search-result-${resultNodeId}`}
+                nodeId={resultNodeId}
+                depth={depth + 1}
+                onBulletClick={onBulletClick}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 普通节点的子节点区域 */}
       {!isCommandNode && !isSearchNode && hasChildren && !node.isCollapsed && (
         <div className="children-container mt-1">
@@ -939,6 +985,14 @@ const NodeComponent: React.FC<NodeComponentProps> = memo(({ nodeId, depth, onFoc
         onConfirm={nodeCommand.handleCommandConfigConfirm}
         initialConfig={nodeCommand.commandConfigForModal}
         mode={nodeCommand.pendingCommandNodeId ? 'edit' : 'create'}
+      />
+
+      {/* v4.0: 搜索节点配置弹窗 */}
+      <SearchConfigModal
+        open={nodeSearch.showSearchConfig}
+        initialConfig={nodeSearch.searchConfigForModal}
+        onClose={nodeSearch.handleCloseSearchConfig}
+        onSave={nodeSearch.handleSearchConfigConfirm}
       />
     </div>
   );

@@ -17,7 +17,7 @@ export const FEATURE_FLAGS = {
   /**
    * AI 指令节点功能
    * - 包括：侧边栏入口、右键菜单、/ai 快捷指令、指令节点执行/设置按钮
-   * - MVP 版本暂时禁用
+   * - v4.0: 临时禁用新建能力，已有节点保留展示和执行能力
    */
   AI_COMMAND_NODE: false,
 

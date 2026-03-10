@@ -10,6 +10,9 @@ export * from './query';
 // 导出 ViewConfig 相关类型 (v3.6)
 export * from './view-config';
 
+// 导出快捷动作相关类型 (v4.1)
+export * from './quick-action';
+
 // 节点类型
 // - text: 普通文本节点
 // - heading: 标题节点
@@ -23,40 +26,67 @@ export type NodeType = 'text' | 'heading' | 'todo' | 'command' | 'daily' | 'sear
 export type NodeRole = 'normal' | 'user_root' | 'daily_root' | 'search_root';
 
 // =============================================================================
-// 指令节点系统 (Command Node System)
+// 指令节点系统 (Command Node System) - v4.0 重构：前端极简 + 后端意图接管
 // =============================================================================
 
 /**
- * 上下文筛选条件
+ * 指令分类
+ * - web_search: 联网搜索，调用 Google Search grounding 获取实时信息
  */
-export interface ContextFilter {
-  /** 按 Supertag 筛选 */
-  supertagIds?: string[];
-  /** 按时间范围筛选 */
-  dateRange?: {
-    start: Date;
-    end: Date;
-  };
-  /** 按节点路径筛选（祖先节点ID） */
-  ancestorId?: string;
-  /** 包含子节点层级深度 */
-  depth?: number;
+export type CommandCategory = 'productivity' | 'analysis' | 'creative' | 'summary' | 'search' | 'expansion' | 'web_search';
+
+/**
+ * 表层配置（用户可见）- v4.0 极简设计
+ */
+export interface CommandSurface {
+  /** 指令名称 */
+  name: string;
+  /** 用户自然语言 Prompt */
+  userPrompt: string;
 }
 
 /**
- * 指令节点配置
+ * 上下文查询 DSL（后端使用）
+ */
+export interface ContextQueryDSL {
+  /** 按标签筛选（从 Prompt 中解析 # 标签） */
+  tags?: string[];
+  /** 按时间范围筛选 */
+  dateRange?: 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | string;
+  /** 搜索范围 */
+  scope?: 'relative' | 'global';
+  /** 相对范围时的祖先节点 ID */
+  ancestorId?: string;
+  /** 遍历深度 */
+  depth?: number;
+  /** 关键词（从 Prompt 解析） */
+  keywords?: string[];
+}
+
+/**
+ * 深层配置（后端推导）- 对用户隐藏
+ */
+export interface CommandCoreConfig {
+  /** 自动推断的指令分类 */
+  commandCategory: CommandCategory;
+  /** 是否需要上下文数据 */
+  requiresContext: boolean;
+  /** 上下文查询 DSL */
+  contextQueryDSL?: ContextQueryDSL;
+  /** 系统提示词（后端生成） */
+  systemPrompt: string;
+  /** 动作策略 */
+  actionStrategy?: 'append_children' | 'replace_content' | 'create_sibling';
+}
+
+/**
+ * 指令节点配置 - v4.0 重构版
  */
 export interface CommandConfig {
-  /** 指令模板 ID（如果使用预设模板） */
-  templateId?: string;
-  /** 自定义 Prompt */
-  prompt: string;
-  /** 上下文筛选条件 */
-  contextFilter?: ContextFilter;
-  /** Token 预算上限 */
-  maxTokens?: number;
-  /** AI 模型选择 */
-  model?: 'gpt-4' | 'gpt-4-turbo' | 'gpt-3.5-turbo' | 'claude-3-opus' | 'claude-3-sonnet' | 'claude-3-haiku' | 'hunyuan-turbo' | 'hunyuan-pro' | 'deepseek-chat';
+  /** 表层配置：用户输入 */
+  surface: CommandSurface;
+  /** 深层配置：后端推导（可选，首次执行时后端填充） */
+  coreConfig?: CommandCoreConfig;
   /** 最近一次执行时间 */
   lastExecutedAt?: number;
   /** 最近一次执行状态 */
@@ -66,7 +96,17 @@ export interface CommandConfig {
 }
 
 /**
- * 指令模板定义
+ * @deprecated v4.0: 上下文筛选条件已移至后端 ContextQueryDSL
+ */
+export interface ContextFilter {
+  supertagIds?: string[];
+  dateRange?: { start: Date; end: Date };
+  ancestorId?: string;
+  depth?: number;
+}
+
+/**
+ * @deprecated v4.0: 指令模板已移除，改为后端意图分析
  */
 export interface CommandTemplate {
   id: string;
@@ -74,8 +114,7 @@ export interface CommandTemplate {
   description: string;
   prompt: string;
   icon: string;
-  category: 'productivity' | 'analysis' | 'creative' | 'summary';
-  /** 推荐的上下文筛选 */
+  category: CommandCategory;
   suggestedFilter?: Partial<ContextFilter>;
 }
 

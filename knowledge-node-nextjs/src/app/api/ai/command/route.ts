@@ -17,6 +17,7 @@ import {
   fillPromptVariables,
   buildFullPrompt,
 } from '@/services/ai';
+import type { CommandCategory } from '@/types';
 
 // 请求体类型
 interface CommandRequest {
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
 
     // 构建最终 Prompt
     let finalPrompt: string;
-    let category: 'productivity' | 'analysis' | 'creative' | 'summary' | undefined;
+    let category: CommandCategory | undefined;
 
     if (body.templateId) {
       // 使用模板

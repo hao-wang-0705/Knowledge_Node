@@ -6,7 +6,6 @@ import {
   UpdateNodeDto,
   BatchCreateNodesDto,
   BatchUpdateNodesDto,
-  MoveNodeDto,
 } from './dto/node.dto';
 import { SearchConditionDto, SearchQueryDto } from './dto/search-query.dto';
 import { v4 as uuidv4 } from 'uuid';
@@ -599,100 +598,6 @@ export class NodesService {
     );
 
     return results;
-  }
-
-  // 移动节点（改变父节点和位置）
-  async move(userId: string, id: string, moveDto: MoveNodeDto) {
-    const existing = await this.getRawNodeOrThrow(userId, id);
-    if (existing.nodeRole !== 'normal') {
-      throw new ConflictException('结构根节点不能通过通用移动接口调整');
-    }
-    let nextParentId = existing.parentId;
-    if (moveDto.newParentId !== undefined) {
-      if (moveDto.newParentId === null) {
-        nextParentId = null;
-      } else {
-        const parent = await this.getRawNodeOrThrow(userId, moveDto.newParentId);
-        nextParentId = parent.id;
-      }
-    }
-    await this.assertNoCycle(userId, id, moveDto.newParentId ?? null);
-
-    const node = await this.prisma.node.update({
-      where: { id: existing.id },
-      data: {
-        parentId: nextParentId,
-        sortOrder: moveDto.newSortOrder ?? existing.sortOrder,
-      },
-    });
-    return this.mapNodeToApiModel(node, userId);
-  }
-
-  // 缩进节点（成为上一个兄弟节点的子节点）
-  async indent(userId: string, id: string) {
-    const node = await this.findOne(userId, id);
-    const rawNode = await this.getRawNodeOrThrow(userId, id);
-    if (rawNode.nodeRole !== 'normal') {
-      throw new ConflictException('结构根节点不能缩进');
-    }
-    
-    if (!rawNode.parentId) {
-      // 获取同级的前一个节点
-      const siblings = await this.prisma.node.findMany({
-        where: { userId, parentId: null, sortOrder: { lt: node.sortOrder } },
-        orderBy: { sortOrder: 'desc' },
-        select: { logicalId: true },
-        take: 1,
-      });
-
-      if (siblings.length === 0) {
-        throw new Error('No previous sibling to become parent');
-      }
-
-      return this.move(userId, id, { newParentId: siblings[0].logicalId });
-    }
-
-    const siblings = await this.prisma.node.findMany({
-      where: { userId, parentId: rawNode.parentId, sortOrder: { lt: node.sortOrder } },
-      orderBy: { sortOrder: 'desc' },
-      select: { logicalId: true },
-      take: 1,
-    });
-
-    if (siblings.length === 0) {
-      throw new Error('No previous sibling to become parent');
-    }
-
-    return this.move(userId, id, { newParentId: siblings[0].logicalId });
-  }
-
-  // 反缩进节点（成为父节点的下一个兄弟节点）
-  async outdent(userId: string, id: string) {
-    const node = await this.findOne(userId, id);
-    const rawNode = await this.getRawNodeOrThrow(userId, id);
-    if (rawNode.nodeRole !== 'normal') {
-      throw new ConflictException('结构根节点不能反缩进');
-    }
-
-    if (!rawNode.parentId) {
-      throw new Error('Root nodes cannot be outdented');
-    }
-
-    const parentRaw = await this.prisma.node.findFirst({
-      where: { userId, id: rawNode.parentId },
-      select: { parentId: true },
-    });
-    const grandParentLogical = parentRaw?.parentId
-      ? (await this.prisma.node.findFirst({
-          where: { userId, id: parentRaw.parentId },
-          select: { logicalId: true },
-        }))?.logicalId ?? null
-      : null;
-
-    return this.move(userId, id, {
-      newParentId: grandParentLogical ?? undefined,
-      newSortOrder: node.sortOrder + 1,
-    });
   }
 
   // 删除单个节点（包括其所有子节点）；禁止删除 user_root / daily_root
@@ -1296,5 +1201,225 @@ export class NodesService {
       where: { userId, id: { in: ids } },
     });
     return { deletedCount: ids.length, deletedIds: ids };
+  }
+
+  // =========================================================================
+  // v4.0: AI 指令节点 - 根据 DSL 查询上下文节点
+  // =========================================================================
+
+  /**
+   * 根据 ID 或 logicalId 查找节点（兼容两种 ID 格式）
+   * @param userId 用户 ID
+   * @param nodeId 节点 ID（可能是 id 或 logicalId）
+   */
+  private async findNodeByAnyId(userId: string, nodeId: string) {
+    // 先尝试通过 logicalId 查找
+    let node = await this.prisma.node.findFirst({
+      where: {
+        userId,
+        logicalId: nodeId,
+      },
+      select: {
+        id: true,
+        logicalId: true,
+        userId: true,
+        parentId: true,
+        nodeRole: true,
+        sortOrder: true,
+        content: true,
+      },
+    });
+
+    // 如果找不到，尝试通过物理 id 查找
+    if (!node) {
+      node = await this.prisma.node.findFirst({
+        where: {
+          userId,
+          id: nodeId,
+        },
+        select: {
+          id: true,
+          logicalId: true,
+          userId: true,
+          parentId: true,
+          nodeRole: true,
+          sortOrder: true,
+          content: true,
+        },
+      });
+    }
+
+    return node;
+  }
+
+  /**
+   * 根据 DSL 查询上下文节点
+   * @param userId 用户 ID
+   * @param dsl 查询 DSL
+   * @param currentNodeId 当前节点 ID（用于 relative scope）
+   */
+  async queryNodesByDSL(
+    userId: string,
+    dsl: {
+      tags?: string[];
+      dateRange?: string;
+      scope?: 'relative' | 'global';
+      ancestorId?: string;
+      depth?: number;
+      keywords?: string[];
+    },
+    currentNodeId?: string,
+  ): Promise<Array<{ id: string; content: string; fields: Record<string, unknown> }>> {
+    console.log('[queryNodesByDSL] Start:', { userId, dsl, currentNodeId });
+
+    const where: any = {
+      userId,
+      nodeRole: 'normal',
+    };
+
+    // 1. 标签筛选
+    if (dsl.tags && dsl.tags.length > 0) {
+      // 查找标签 ID（tags 数组包含标签名或 ID）
+      where.OR = [
+        { tags: { hasSome: dsl.tags } },
+        { supertagId: { in: dsl.tags } },
+      ];
+    }
+
+    // 2. 时间范围筛选
+    if (dsl.dateRange) {
+      const dateFilter = this.parseDateRange(dsl.dateRange);
+      if (dateFilter) {
+        where.createdAt = dateFilter;
+      }
+    }
+
+    // 3. 关键词筛选
+    if (dsl.keywords && dsl.keywords.length > 0) {
+      where.content = {
+        contains: dsl.keywords.join(' '),
+        mode: 'insensitive',
+      };
+    }
+
+    // 4. 范围筛选 - 使用兼容两种 ID 格式的查找方法
+    let ancestorPhysicalId: string | null = null;
+    if (dsl.scope === 'relative' && currentNodeId) {
+      // 获取当前节点的父节点作为范围
+      const currentNode = await this.findNodeByAnyId(userId, currentNodeId);
+      console.log('[queryNodesByDSL] Found current node:', currentNode);
+      if (currentNode?.parentId) {
+        ancestorPhysicalId = currentNode.parentId;
+      }
+    } else if (dsl.ancestorId) {
+      const ancestorNode = await this.findNodeByAnyId(userId, dsl.ancestorId);
+      console.log('[queryNodesByDSL] Found ancestor node:', ancestorNode);
+      ancestorPhysicalId = ancestorNode?.id ?? null;
+    }
+
+    console.log('[queryNodesByDSL] Where clause:', JSON.stringify(where, null, 2));
+    console.log('[queryNodesByDSL] Ancestor physical ID:', ancestorPhysicalId);
+
+    // 先查询符合基本条件的节点
+    const candidates = await this.prisma.node.findMany({
+      where,
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 100, // 限制数量
+      select: {
+        id: true,
+        logicalId: true,
+        content: true,
+        fields: true,
+        parentId: true,
+      },
+    });
+
+    console.log('[queryNodesByDSL] Candidates found:', candidates.length);
+    
+    // 5. 如果有祖先限制，过滤子树内的节点
+    let results = candidates;
+    if (ancestorPhysicalId) {
+      const subtreeIds = await this.getSubtreeIds(userId, ancestorPhysicalId, dsl.depth);
+      console.log('[queryNodesByDSL] Subtree IDs count:', subtreeIds.size);
+      results = candidates.filter(node => subtreeIds.has(node.id));
+    }
+
+    console.log('[queryNodesByDSL] Final results:', results.length);
+    
+    return results.map(node => ({
+      id: node.logicalId,
+      content: node.content,
+      fields: (node.fields as Record<string, unknown>) ?? {},
+    }));
+  }
+
+  /**
+   * 解析时间范围
+   */
+  private parseDateRange(dateRange: string): { gte?: Date; lte?: Date } | null {
+    const now = new Date();
+    const today = startOfDay(now);
+
+    switch (dateRange) {
+      case 'today':
+        return { gte: today };
+      case 'yesterday': {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        return { gte: yesterday, lte: today };
+      }
+      case 'this_week': {
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() - today.getDay());
+        return { gte: startOfWeek };
+      }
+      case 'last_week': {
+        const endOfLastWeek = new Date(today);
+        endOfLastWeek.setDate(today.getDate() - today.getDay());
+        const startOfLastWeek = new Date(endOfLastWeek);
+        startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+        return { gte: startOfLastWeek, lte: endOfLastWeek };
+      }
+      case 'this_month': {
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        return { gte: startOfMonth };
+      }
+      case 'last_month': {
+        const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+        return { gte: startOfLastMonth, lte: endOfLastMonth };
+      }
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * 获取子树所有节点 ID
+   */
+  private async getSubtreeIds(userId: string, rootId: string, maxDepth?: number): Promise<Set<string>> {
+    const ids = new Set<string>([rootId]);
+    const queue: Array<{ id: string; depth: number }> = [{ id: rootId, depth: 0 }];
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      
+      // 如果有深度限制且已达到，跳过
+      if (maxDepth !== undefined && depth >= maxDepth) continue;
+      
+      const children = await this.prisma.node.findMany({
+        where: { userId, parentId: id },
+        select: { id: true },
+      });
+      
+      for (const child of children) {
+        if (!ids.has(child.id)) {
+          ids.add(child.id);
+          queue.push({ id: child.id, depth: depth + 1 });
+        }
+      }
+    }
+
+    return ids;
   }
 }

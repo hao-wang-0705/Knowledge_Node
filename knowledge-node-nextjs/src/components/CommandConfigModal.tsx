@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Sparkles, FileText, Zap, Brain, PenTool, ChevronRight, Check } from 'lucide-react';
+import { Sparkles, Wand2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,32 +11,24 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { CommandConfig, CommandTemplate } from '@/types';
-import {
-  COMMAND_TEMPLATES,
-  getTemplatesByCategory,
-  getTemplateCategories,
-  getTemplateById,
-} from '@/utils/command-templates';
+import type { CommandConfig, CommandSurface } from '@/types';
 
 interface CommandConfigModalProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: (config: { templateId?: string; prompt: string }) => void;
+  onConfirm: (surface: CommandSurface) => void;
   initialConfig?: CommandConfig;
   mode: 'create' | 'edit';
 }
 
-// 分类图标映射
-const CATEGORY_ICONS: Record<string, React.ReactNode> = {
-  productivity: <Zap size={16} />,
-  analysis: <Brain size={16} />,
-  creative: <PenTool size={16} />,
-  summary: <FileText size={16} />,
-};
-
+/**
+ * v4.0 极简版 AI 指令配置弹窗
+ * 仅需要输入：指令名称 + 自然语言 Prompt
+ */
 const CommandConfigModal: React.FC<CommandConfigModalProps> = ({
   open,
   onClose,
@@ -44,217 +36,123 @@ const CommandConfigModal: React.FC<CommandConfigModalProps> = ({
   initialConfig,
   mode,
 }) => {
-  const [activeTab, setActiveTab] = useState<'template' | 'custom'>('template');
-  const [selectedCategory, setSelectedCategory] = useState<string>('productivity');
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(
-    initialConfig?.templateId
-  );
-  const [customPrompt, setCustomPrompt] = useState(initialConfig?.prompt || '');
+  const [name, setName] = useState('');
+  const [userPrompt, setUserPrompt] = useState('');
 
   // 初始化状态
   useEffect(() => {
     if (open) {
-      if (initialConfig?.templateId) {
-        setActiveTab('template');
-        setSelectedTemplateId(initialConfig.templateId);
-        const template = getTemplateById(initialConfig.templateId);
-        if (template) {
-          setSelectedCategory(template.category);
-        }
-      } else if (initialConfig?.prompt) {
-        setActiveTab('custom');
-        setCustomPrompt(initialConfig.prompt);
+      if (initialConfig?.surface) {
+        setName(initialConfig.surface.name || '');
+        setUserPrompt(initialConfig.surface.userPrompt || '');
       } else {
-        // 新建模式，默认显示模板选择
-        setActiveTab('template');
-        setSelectedTemplateId(undefined);
-        setCustomPrompt('');
+        setName('');
+        setUserPrompt('');
       }
     }
   }, [open, initialConfig]);
 
-  const categories = getTemplateCategories();
-
   const handleConfirm = useCallback(() => {
-    if (activeTab === 'template' && selectedTemplateId) {
-      const template = getTemplateById(selectedTemplateId);
-      onConfirm({
-        templateId: selectedTemplateId,
-        prompt: template?.prompt || '',
-      });
-    } else {
-      onConfirm({
-        templateId: undefined,
-        prompt: customPrompt,
-      });
-    }
+    if (!name.trim() || !userPrompt.trim()) return;
+    
+    onConfirm({
+      name: name.trim(),
+      userPrompt: userPrompt.trim(),
+    });
     onClose();
-  }, [activeTab, selectedTemplateId, customPrompt, onConfirm, onClose]);
+  }, [name, userPrompt, onConfirm, onClose]);
 
-  const currentTemplates = getTemplatesByCategory(
-    selectedCategory as CommandTemplate['category']
-  );
+  const isValid = name.trim().length > 0 && userPrompt.trim().length > 0;
 
-  const selectedTemplate = selectedTemplateId
-    ? getTemplateById(selectedTemplateId)
-    : undefined;
+  // 快捷示例
+  const examples = [
+    { name: '生成周报', prompt: '帮我总结上周所有的笔记，提取核心要点和待办事项' },
+    { name: '头脑风暴', prompt: '基于当前节点的内容，发散思考 5 个相关的新想法' },
+    { name: '任务拆解', prompt: '将当前任务拆解为可执行的子任务清单' },
+  ];
 
-  const isValid =
-    (activeTab === 'template' && selectedTemplateId) ||
-    (activeTab === 'custom' && customPrompt.trim().length > 0);
+  const applyExample = (example: { name: string; prompt: string }) => {
+    setName(example.name);
+    setUserPrompt(example.prompt);
+  };
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-purple-700">
+          <DialogTitle className="flex items-center gap-2 text-purple-700 dark:text-purple-400">
             <Sparkles size={20} />
             {mode === 'create' ? '新建 AI 指令' : '编辑 AI 指令'}
           </DialogTitle>
           <DialogDescription>
-            选择预设模板或自定义 Prompt 来配置 AI 指令
+            告诉 AI 你想做什么，它会自动理解并执行
           </DialogDescription>
         </DialogHeader>
 
-        {/* Tab 切换 */}
-        <div className="flex border-b border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setActiveTab('template')}
-            className={cn(
-              'flex-1 py-2.5 px-4 text-sm font-medium transition-colors relative',
-              activeTab === 'template'
-                ? 'text-purple-600 dark:text-purple-400'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            )}
-          >
-            <span className="flex items-center justify-center gap-2">
-              <FileText size={16} />
-              选择模板
-            </span>
-            {activeTab === 'template' && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-600 dark:bg-purple-400" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('custom')}
-            className={cn(
-              'flex-1 py-2.5 px-4 text-sm font-medium transition-colors relative',
-              activeTab === 'custom'
-                ? 'text-purple-600 dark:text-purple-400'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            )}
-          >
-            <span className="flex items-center justify-center gap-2">
-              <PenTool size={16} />
-              自定义 Prompt
-            </span>
-            {activeTab === 'custom' && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-600 dark:bg-purple-400" />
-            )}
-          </button>
-        </div>
+        <div className="space-y-4 py-4">
+          {/* 指令名称 */}
+          <div className="space-y-2">
+            <Label htmlFor="command-name" className="text-sm font-medium">
+              指令名称
+            </Label>
+            <Input
+              id="command-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="例如：生成周报、头脑风暴、任务拆解..."
+              className="w-full"
+              autoFocus
+            />
+          </div>
 
-        {/* 内容区域 */}
-        <div className="flex-1 overflow-hidden">
-          {activeTab === 'template' ? (
-            <div className="flex h-full">
-              {/* 分类侧边栏 */}
-              <div className="w-32 border-r border-gray-200 dark:border-gray-700 py-2 flex-shrink-0">
-                {categories.map((category) => (
+          {/* 自然语言 Prompt */}
+          <div className="space-y-2">
+            <Label htmlFor="command-prompt" className="text-sm font-medium">
+              告诉 AI 做什么
+            </Label>
+            <Textarea
+              id="command-prompt"
+              value={userPrompt}
+              onChange={(e) => setUserPrompt(e.target.value)}
+              placeholder={`用自然语言描述你的需求...
+
+💡 提示：
+• 用 # 引用标签，如 #产品规划
+• 用 @ 提及特定节点
+• 支持时间描述，如"上周"、"本月"`}
+              className="min-h-[120px] resize-none"
+            />
+          </div>
+
+          {/* 快捷示例 */}
+          {mode === 'create' && (
+            <div className="space-y-2">
+              <Label className="text-xs text-gray-500 dark:text-gray-400">
+                快捷示例
+              </Label>
+              <div className="flex flex-wrap gap-2">
+                {examples.map((example) => (
                   <button
-                    key={category.id}
-                    onClick={() => {
-                      setSelectedCategory(category.id);
-                      setSelectedTemplateId(undefined);
-                    }}
+                    key={example.name}
+                    onClick={() => applyExample(example)}
                     className={cn(
-                      'w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors',
-                      selectedCategory === category.id
-                        ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-medium'
-                        : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800'
+                      'px-3 py-1.5 text-xs rounded-full border transition-colors',
+                      'border-gray-200 dark:border-gray-700',
+                      'text-gray-600 dark:text-gray-400',
+                      'hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700',
+                      'dark:hover:border-purple-600 dark:hover:bg-purple-900/30 dark:hover:text-purple-300'
                     )}
                   >
-                    <span className="text-base">{category.icon}</span>
-                    <span>{category.name}</span>
+                    <Wand2 size={12} className="inline mr-1" />
+                    {example.name}
                   </button>
                 ))}
-              </div>
-
-              {/* 模板列表 */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {currentTemplates.map((template) => (
-                  <button
-                    key={template.id}
-                    onClick={() => setSelectedTemplateId(template.id)}
-                    className={cn(
-                      'w-full text-left p-3 rounded-lg border transition-all',
-                      selectedTemplateId === template.id
-                        ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/30 dark:border-purple-500 ring-1 ring-purple-300 dark:ring-purple-600'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-purple-200 hover:bg-gray-50 dark:hover:bg-gray-800/50'
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="text-2xl flex-shrink-0">{template.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900 dark:text-gray-100">
-                            {template.name}
-                          </span>
-                          {selectedTemplateId === template.id && (
-                            <Check size={16} className="text-purple-600 dark:text-purple-400" />
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
-                          {template.description}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {/* 预览区域 */}
-              {selectedTemplate && (
-                <div className="w-64 border-l border-gray-200 dark:border-gray-700 p-3 flex-shrink-0 bg-gray-50/50 dark:bg-gray-900/30 overflow-y-auto">
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-medium">
-                    指令预览
-                  </div>
-                  <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
-                    {selectedTemplate.prompt.length > 500
-                      ? selectedTemplate.prompt.slice(0, 500) + '...'
-                      : selectedTemplate.prompt}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="p-4 h-full flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                自定义指令内容
-              </label>
-              <Textarea
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                placeholder="输入你的 AI 指令...
-
-例如：
-- 帮我总结这段内容的要点
-- 根据上下文生成待办事项
-- 分析这些数据并给出建议
-
-支持使用变量：
-{{context}} - 当前节点及子节点内容
-{{date}} - 当前日期"
-                className="flex-1 min-h-[200px] resize-none"
-              />
-              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                提示：使用 <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{'{{context}}'}</code> 引用节点内容
               </div>
             </div>
           )}
         </div>
 
-        <DialogFooter className="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             取消
           </Button>
@@ -267,7 +165,7 @@ const CommandConfigModal: React.FC<CommandConfigModalProps> = ({
             )}
           >
             <Sparkles size={16} className="mr-1" />
-            {mode === 'create' ? '创建指令' : '保存修改'}
+            {mode === 'create' ? '创建并执行' : '保存'}
           </Button>
         </DialogFooter>
       </DialogContent>

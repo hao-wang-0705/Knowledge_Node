@@ -58,6 +58,15 @@ export class UsersController {
     return this.usersService.getOrCreateDefaultUser();
   }
 
+  @Post('internal/init-all-guides')
+  @ApiOperation({ summary: '为所有用户初始化新手村笔记本（管理员接口）' })
+  @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
+  @ApiResponse({ status: 200, description: '初始化完成' })
+  async initAllGuides(@Headers('x-admin-key') adminKey: string) {
+    this.assertAdminKey(adminKey);
+    return this.usersService.initGuideForAllUsers();
+  }
+
   @Get('me')
   @ApiOperation({ summary: '获取当前用户' })
   @ApiResponse({ status: 200, description: '返回指定用户', type: UserResponseDto })

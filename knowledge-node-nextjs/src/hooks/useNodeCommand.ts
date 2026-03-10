@@ -2,11 +2,10 @@
 
 import { useState, useCallback } from 'react';
 import { useNodeStore } from '@/stores/nodeStore';
-import { getTemplateById } from '@/utils/command-templates';
-import type { CommandConfig } from '@/types';
+import type { CommandConfig, CommandSurface } from '@/types';
 
 /**
- * 指令节点配置/执行状态与逻辑
+ * v4.0: 指令节点配置/执行状态与逻辑
  * 供 NodeComponent 在 node.type === 'command' 时使用
  */
 export function useNodeCommand(nodeId: string) {
@@ -29,27 +28,38 @@ export function useNodeCommand(nodeId: string) {
     }
   }, [node?.type, nodeId]);
 
+  // v4.0: 更新为使用 CommandSurface
   const handleCommandConfigConfirm = useCallback(
-    (config: { templateId?: string; prompt: string }) => {
+    (surface: CommandSurface) => {
       if (pendingCommandNodeId) {
+        // 编辑现有指令节点
         const existingNode = nodes[pendingCommandNodeId];
         if (existingNode?.type === 'command') {
           const existingConfig = existingNode.payload as CommandConfig;
-          const template = config.templateId ? getTemplateById(config.templateId) : undefined;
           updateNode(pendingCommandNodeId, {
-            content: template ? `🤖 ${template.icon} ${template.name}` : '🤖 自定义指令',
+            content: `🤖 ${surface.name}`,
             payload: {
               ...existingConfig,
-              templateId: config.templateId,
-              prompt: config.prompt,
+              surface,
+              // 清除旧的 coreConfig，重新执行时会重新生成
+              coreConfig: undefined,
             },
           });
+          // v4.0: 更新后自动执行
+          setTimeout(() => {
+            executeCommandNode(pendingCommandNodeId).catch(console.error);
+          }, 100);
         }
       } else {
-        addCommandNode(node?.parentId ?? null, config.templateId, config.prompt, nodeId);
+        // 创建新指令节点
+        const newNodeId = addCommandNode(node?.parentId ?? null, surface.name, surface.userPrompt, nodeId);
         if (deleteAfterCommandCreate) {
           deleteNode(nodeId);
         }
+        // v4.0: 创建后自动执行
+        setTimeout(() => {
+          executeCommandNode(newNodeId).catch(console.error);
+        }, 100);
       }
       setShowCommandConfig(false);
       setPendingCommandNodeId(null);
@@ -64,6 +74,7 @@ export function useNodeCommand(nodeId: string) {
       addCommandNode,
       deleteAfterCommandCreate,
       deleteNode,
+      executeCommandNode,
     ]
   );
 
@@ -76,7 +87,8 @@ export function useNodeCommand(nodeId: string) {
   const handleExecuteCommand = useCallback(async () => {
     if (!node || node.type !== 'command' || isExecuting) return;
     const config = node.payload as CommandConfig;
-    if (!config?.prompt && !config?.templateId) {
+    // v4.0: 检查 surface.userPrompt
+    if (!config?.surface?.userPrompt) {
       setPendingCommandNodeId(nodeId);
       setShowCommandConfig(true);
       return;

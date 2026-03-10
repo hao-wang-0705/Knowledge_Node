@@ -16,7 +16,6 @@ import {
   UpdateNodeDto,
   BatchCreateNodesDto,
   BatchUpdateNodesDto,
-  MoveNodeDto,
   NodeResponseDto,
 } from './dto/node.dto';
 import { SearchQueryDto } from './dto/search-query.dto';
@@ -120,27 +119,6 @@ export class NodesController {
   @ApiResponse({ status: 200, description: '节点更新成功', type: NodeResponseDto })
   update(@CurrentUserId() userId: string, @Param('id') id: string, @Body() updateNodeDto: UpdateNodeDto) {
     return this.nodesService.update(userId, id, updateNodeDto);
-  }
-
-  @Patch(':id/move')
-  @ApiOperation({ summary: '移动节点' })
-  @ApiResponse({ status: 200, description: '节点移动成功', type: NodeResponseDto })
-  move(@CurrentUserId() userId: string, @Param('id') id: string, @Body() moveDto: MoveNodeDto) {
-    return this.nodesService.move(userId, id, moveDto);
-  }
-
-  @Patch(':id/indent')
-  @ApiOperation({ summary: '缩进节点' })
-  @ApiResponse({ status: 200, description: '节点缩进成功', type: NodeResponseDto })
-  indent(@CurrentUserId() userId: string, @Param('id') id: string) {
-    return this.nodesService.indent(userId, id);
-  }
-
-  @Patch(':id/outdent')
-  @ApiOperation({ summary: '反缩进节点' })
-  @ApiResponse({ status: 200, description: '节点反缩进成功', type: NodeResponseDto })
-  outdent(@CurrentUserId() userId: string, @Param('id') id: string) {
-    return this.nodesService.outdent(userId, id);
   }
 
   @Patch(':id/toggle-collapse')

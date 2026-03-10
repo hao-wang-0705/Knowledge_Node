@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { Node, CommandConfig, TemplateNode } from '@/types';
 import { generateId, STORAGE_KEYS, CURRENT_DATA_VERSION, debounce } from '@/utils/helpers';
-import { getTemplateById } from '@/utils/command-templates';
 import { getCalendarPath, SYSTEM_TAGS, getCalendarNodeType } from '@/utils/date-helpers';
 import {
   findCalendarNodeActualId,
@@ -9,7 +8,7 @@ import {
   initCalendarNodeIdMap,
   setCalendarNodeIdMapping,
 } from '@/utils/calendarNodeId';
-import { getUserStorageKey, migrateOldData } from '@/utils/userStorage';
+import { getUserStorageKey, migrateOldData, getUserId } from '@/utils/userStorage';
 import { clearClientCaches } from '@/utils/cache';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useSyncStore } from '@/stores/syncStore';
@@ -439,16 +438,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     });
   },
 
-  // 添加指令节点
+  // v4.0: 添加指令节点（极简创建）
   addCommandNode: (parentId, templateId, prompt, afterId) => {
     const newId = generateId();
-    const template = templateId ? getTemplateById(templateId) : undefined;
-    const commandName = template ? template.name : '自定义指令';
-    const commandPrompt = prompt || template?.prompt || '';
+    // v4.0: 使用新的 surface/coreConfig 结构
     const commandConfig: CommandConfig = {
-      templateId,
-      prompt: commandPrompt,
-      model: 'gpt-4',
+      surface: {
+        name: templateId || '自定义指令',
+        userPrompt: prompt || '',
+      },
       lastExecutionStatus: 'pending',
     };
 
@@ -462,7 +460,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
     const newNode: Node = {
       id: newId,
-      content: template ? `🤖 ${template.icon} ${commandName}` : `🤖 ${commandName}`,
+      content: `🤖 ${commandConfig.surface.name}`,
       type: 'command',
       parentId: resolvedParentId,
       childrenIds: [],
@@ -614,7 +612,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     return newId;
   },
 
-  // 执行指令节点 - 调用真实 AI 服务
+  // v4.0: 执行指令节点 - 调用后端 SSE 流式接口
   executeCommandNode: async (commandNodeId) => {
     const state = get();
     const commandNode = state.nodes[commandNodeId];
@@ -627,10 +625,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
     const commandConfig = commandNode.payload as CommandConfig;
     
-    // 验证 prompt 不为空
-    if (!commandConfig.prompt && !commandConfig.templateId) {
-      const error = new Error('指令内容不能为空，请先配置 Prompt 或选择模板');
-      console.error('[executeCommandNode] Missing prompt:', commandNodeId);
+    // v4.0: 验证 surface.userPrompt 不为空
+    if (!commandConfig.surface?.userPrompt) {
+      const error = new Error('指令内容不能为空，请先配置 Prompt');
+      console.error('[executeCommandNode] Missing userPrompt:', commandNodeId);
       throw error;
     }
     
@@ -650,65 +648,78 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }));
 
     try {
-      // 收集上下文（当前节点的兄弟节点内容）
-      let context = '';
-      if (commandNode.parentId) {
-        const parentNode = state.nodes[commandNode.parentId];
-        if (parentNode) {
-          // 获取同级节点内容作为上下文
-          const siblingContents = parentNode.childrenIds
-            .map(id => state.nodes[id])
-            .filter(n => n && n.id !== commandNodeId && n.type !== 'command')
-            .map(n => n.content)
-            .filter(c => c && c.trim())
-            .join('\n\n');
-          context = siblingContents;
-        }
-      }
-
-      // 调用 AI API
-      const response = await fetch('/api/ai/command', {
+      // v4.1: 调用本地 API route（自动处理 userId 映射）
+      const response = await fetch('/api/ai/command/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          commandId: commandNodeId,
-          templateId: commandConfig.templateId,
-          prompt: commandConfig.prompt,
-          context,
-          model: commandConfig.model,
-          maxTokens: commandConfig.maxTokens,
-          stream: false, // 非流式，简化处理
+          nodeId: commandNodeId,
+          surface: commandConfig.surface,
+          parentNodeId: commandNode.parentId,
+          autoExecute: true,
         }),
       });
 
-      const result = await response.json();
-
-      // 检查 API 响应
-      if (!response.ok || !result.success) {
-        const errorMessage = result.error?.message || `AI 服务请求失败 (${response.status})`;
-        const suggestion = result.error?.suggestion || '';
-        const fullError = suggestion ? `${errorMessage}\n${suggestion}` : errorMessage;
-        throw new Error(fullError);
+      if (!response.ok) {
+        throw new Error(`AI 服务请求失败 (${response.status})`);
       }
 
-      // 检查响应内容
-      const content = result.data?.content;
-      if (!content || content.trim().length === 0) {
-        throw new Error('AI 返回了空响应，请调整指令内容后重试');
+      // 处理 SSE 流
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法读取响应流');
       }
 
-      // 将 AI 响应按段落拆分为多个子节点
-      const paragraphs = content
-        .split(/\n{2,}/)
-        .map((p: string) => p.trim())
-        .filter((p: string) => p.length > 0);
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let nodeCount = 0;
+      let coreConfig: CommandConfig['coreConfig'] | undefined;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          
+          try {
+            const eventData = JSON.parse(line.slice(6));
+            const { event, data } = eventData;
+
+            switch (event) {
+              case 'intent':
+                console.log('[executeCommandNode] Intent:', data);
+                break;
+                
+              case 'context':
+                console.log('[executeCommandNode] Context:', data);
+                break;
+                
+              case 'node':
+                // 创建子节点
+                get().addAIResponseNode(commandNodeId, data.content);
+                nodeCount++;
+                break;
+                
+              case 'done':
+                coreConfig = data.coreConfig;
+                console.log('[executeCommandNode] Done:', data);
+                break;
+                
+              case 'error':
+                throw new Error(data.message || 'AI 执行失败');
+            }
+          } catch (parseError) {
+            console.warn('[executeCommandNode] Failed to parse SSE event:', line);
+          }
+        }
+      }
       
-      // 添加 AI 响应作为子节点
-      for (const paragraph of paragraphs) {
-        get().addAIResponseNode(commandNodeId, paragraph);
-      }
-      
-      // 更新执行状态为成功
+      // 更新执行状态为成功，并保存 coreConfig
       set((s) => {
         const node = s.nodes[commandNodeId];
         if (!node) return s;
@@ -720,6 +731,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
               ...node,
               payload: {
                 ...(node.payload as CommandConfig),
+                coreConfig,
                 lastExecutionStatus: 'success' as const,
                 lastExecutedAt: Date.now(),
               },
@@ -735,7 +747,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     } catch (error) {
       console.error('[executeCommandNode] Execution failed:', error);
       
-      // 更新执行状态为失败，并保存错误信息
+      // 更新执行状态为失败
       set((s) => {
         const node = s.nodes[commandNodeId];
         if (!node) return s;
@@ -758,7 +770,6 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         };
       });
       
-      // 重新抛出错误，让调用方处理
       throw error;
     }
   },

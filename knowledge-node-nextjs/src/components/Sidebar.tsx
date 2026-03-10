@@ -4,7 +4,7 @@ import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Calendar, CalendarDays, Plus, Book, Settings, Trash2, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles, Clock, Pin, PinOff } from 'lucide-react';
+import { Calendar, CalendarDays, Plus, Book, User, ChevronRight, Edit2, Hash, Search, Command, Sparkles, Clock, Pin, PinOff, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Button } from '@/components/ui/button';
@@ -538,36 +538,6 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
               );
             })}
           </div>
-        </div>
-      </div>
-
-      {/* ============ 底部工具栏 ============ */}
-      <div className="p-2 border-t border-gray-200 dark:border-gray-800">
-        <div className="flex items-center justify-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <Settings size={16} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">设置</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <Trash2 size={16} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">回收站</TooltipContent>
-          </Tooltip>
         </div>
       </div>
 

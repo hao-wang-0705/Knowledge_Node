@@ -51,6 +51,12 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:-knowledge-node-admin-secret}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      # AI 服务配置（优先级：GEMINI > VENUS > OPENAI）
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      VENUS_API_KEY: ${VENUS_API_KEY:-}
+      VENUS_API_URL: ${NEXT_PUBLIC_VENUS_API_URL:-http://v2.open.venus.oa.com/llmproxy}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     ports:
       - "${BACKEND_PORT:-4000}:4000"
     depends_on:

@@ -131,19 +131,6 @@ export class BatchCreateNodesDto {
   nodes: CreateNodeDto[];
 }
 
-export class MoveNodeDto {
-  @ApiProperty({ description: '新的父节点ID（null表示移到根级别）' })
-  @IsString()
-  @IsOptional()
-  newParentId?: string;
-
-  @ApiProperty({ description: '新的排序顺序' })
-  @IsInt()
-  @Min(0)
-  @IsOptional()
-  newSortOrder?: number;
-}
-
 export class NodeResponseDto {
   @ApiProperty({ description: '节点ID' })
   id: string;

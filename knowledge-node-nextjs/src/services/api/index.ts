@@ -13,7 +13,6 @@ export type {
   NodeResponse,
   CreateNodeParams,
   UpdateNodeParams,
-  MoveNodeParams,
 } from './nodes';
 
 export type {

@@ -55,12 +55,6 @@ export interface UpdateNodeParams {
   sortOrder?: number;
 }
 
-// 移动节点参数
-export interface MoveNodeParams {
-  newParentId?: string;
-  newIndex?: number;
-}
-
 // 将 API 响应转换为前端 Node 类型
 function toNode(response: NodeResponse): Node {
   return {
@@ -134,24 +128,6 @@ export const nodesApi = {
   async batchUpdate(nodes: Array<{ id: string } & UpdateNodeParams>): Promise<Node[]> {
     const response = await apiClient.patch<NodeResponse[]>('/api/nodes/batch', { nodes });
     return response.map(toNode);
-  },
-
-  // 移动节点
-  async move(id: string, params: MoveNodeParams): Promise<Node> {
-    const response = await apiClient.patch<NodeResponse>(`/api/nodes/${id}/move`, params);
-    return toNode(response);
-  },
-
-  // 缩进节点
-  async indent(id: string): Promise<Node> {
-    const response = await apiClient.patch<NodeResponse>(`/api/nodes/${id}/indent`);
-    return toNode(response);
-  },
-
-  // 反缩进节点
-  async outdent(id: string): Promise<Node> {
-    const response = await apiClient.patch<NodeResponse>(`/api/nodes/${id}/outdent`);
-    return toNode(response);
   },
 
   // 切换折叠状态
