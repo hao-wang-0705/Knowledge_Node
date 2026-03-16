@@ -8,6 +8,7 @@ dist/
 build/
 .next/
 out/
+.build-info
 
 # Environment files
 .env

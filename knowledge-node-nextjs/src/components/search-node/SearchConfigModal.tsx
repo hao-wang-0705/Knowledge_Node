@@ -1,7 +1,7 @@
 /**
  * 搜索节点配置弹窗
  * v4.0: 简化版配置弹窗，仅保留自然语言输入，移除高级手动配置模式
- * 参考 CommandConfigModal 的交互模式
+ * 交互模式参考原命令配置弹窗
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';

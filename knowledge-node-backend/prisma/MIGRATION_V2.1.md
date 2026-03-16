@@ -1,5 +1,7 @@
 # v2.1 数据库迁移说明
 
+> **历史说明**：本文描述的迁移 `20260212000000_add_supertag_inheritance_and_template` 已移至 `migrations/_legacy/`。当前部署以 `prisma migrate deploy` 与根目录下现有 migrations 为准（含 `0000_baseline` 及后续迁移），本文件仅作历史参考。
+
 ## 变更内容
 
 - **supertags** 表新增字段：

@@ -142,21 +142,22 @@ try {
 
 ## API 端点
 
-### POST /api/ai/command
+当前 AI 相关路由由 `src/app/api/ai/` 提供，与后端 Agent 能力对接。
 
-执行 AI 指令。
-
-请求体：
-```json
-{
-  "prompt": "帮我总结这段内容",
-  "context": "要处理的内容...",
-  "templateId": "content-summary",
-  "model": "gpt-4",
-  "maxTokens": 4000,
-  "stream": true
-}
-```
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/api/ai/status` | 检查 AI 服务状态与配置 |
+| POST | `/api/ai/aggregate` | 聚合多节点内容 |
+| POST | `/api/ai/capture` | 捕获/录入内容 |
+| POST | `/api/ai/smart-capture` | 智能捕获（含结构化） |
+| POST | `/api/ai/quick-action` | 快捷操作 |
+| POST | `/api/ai/search-nl-parse` | 自然语言解析为搜索条件 |
+| POST | `/api/ai/should-suggest-deconstruct` | 判断是否建议解构 |
+| POST | `/api/ai/smart-structure` | 智能结构化 |
+| POST | `/api/ai/image-recognize` | 图像识别 |
+| POST | `/api/ai/voice-recognize` | 语音识别 |
+| POST/GET | `/api/ai/transcribe` | 转写 |
+| GET | `/api/ai/test` | 测试用 |
 
 ### GET /api/ai/status
 
