@@ -49,31 +49,6 @@ export class UsersService {
       });
     }
 
-    // 创建 search_root（智能搜索节点容器）
-    const searchRoot = await this.prisma.node.findFirst({
-      where: { userId, nodeRole: 'search_root' },
-      select: { id: true, parentId: true },
-    });
-    if (!searchRoot) {
-      await this.prisma.node.create({
-        data: {
-          id: randomUUID(),
-          logicalId: `search-root-${userId}`,
-          userId,
-          parentId: userRoot.id,
-          content: '智能搜索',
-          nodeType: 'text',
-          nodeRole: 'search_root',
-          sortOrder: 1, // 排在 daily_root 后面
-        },
-      });
-    } else if (searchRoot.parentId !== userRoot.id) {
-      await this.prisma.node.update({
-        where: { id: searchRoot.id },
-        data: { parentId: userRoot.id, sortOrder: 1 },
-      });
-    }
-
     // 创建平台指引笔记本（仅新用户首次创建）
     await this.createGuideNotebook(userId, userRoot.id);
   }

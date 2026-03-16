@@ -1,22 +1,20 @@
 /**
  * 自然语言搜索解析 API
  * POST /api/ai/search-nl-parse
- *
- * 解析用户的自然语言查询，生成结构化的搜索条件
+ * 
+ * 透传到后端 Agent API
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  AIClient,
-  SEARCH_NL_PARSE_SYSTEM_PROMPT,
-  buildSearchNLParsePrompt,
-  parseSearchNLResponse,
-} from '@/services/ai';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+
+// ============================================================================
+// 类型定义
+// ============================================================================
 
 export interface SearchNLParseRequest {
-  /** 用户的自然语言查询 */
   query: string;
-  /** Supertag schema 列表 */
   supertags: Array<{
     id: string;
     name: string;
@@ -28,12 +26,24 @@ export interface SearchNLParseRequest {
       options?: string[];
     }>;
   }>;
-  /** 当前日期（可选，默认使用服务器日期） */
   currentDate?: string;
 }
 
+// ============================================================================
+// API Handler
+// ============================================================================
+
 export async function POST(request: NextRequest) {
   try {
+    // 验证用户身份
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: '未登录，请先登录后再使用 AI 功能' },
+        { status: 401 }
+      );
+    }
+
     const body: SearchNLParseRequest = await request.json();
     const { query, supertags, currentDate } = body;
 
@@ -45,57 +55,66 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 初始化 AI 客户端
-    const client = new AIClient();
-
-    // 检查服务可用性
-    if (!client.isAvailable()) {
-      const validation = client.getValidation();
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'AI 服务不可用',
-          details: validation.errors,
+    // 调用后端 Agent API
+    const backendUrl = process.env.BACKEND_API_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+    const response = await fetch(`${backendUrl}/api/agent/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: session.user.id,
+        prompt: query.trim(),
+        options: {
+          stream: false,
+          forceTool: 'search_nl_parse',
         },
-        { status: 503 }
+        context: {
+          metadata: {
+            query: query.trim(),
+            supertags: supertags || [],
+            currentDate: currentDate || new Date().toISOString().split('T')[0],
+          },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: '后端请求失败' }));
+      return NextResponse.json(
+        { success: false, error: errorData.message || 'AI 服务请求失败' },
+        { status: response.status }
       );
     }
 
-    // 构建提示词
-    const userPrompt = buildSearchNLParsePrompt({
-      query: query.trim(),
-      supertags: supertags || [],
-      currentDate: currentDate || new Date().toISOString().split('T')[0],
-    });
+    const result = await response.json();
 
-    // 调用 AI 服务
-    const response = await client.complete({
-      systemPrompt: SEARCH_NL_PARSE_SYSTEM_PROMPT,
-      prompt: userPrompt,
-      temperature: 0.3, // 降低温度以获得更稳定的结构化输出
-    });
-
-    // 解析 AI 响应
-    const parseResult = parseSearchNLResponse(response.content);
+    // 解析返回值
+    let parsedResult = null;
+    try {
+      parsedResult = JSON.parse(result.content || '{}');
+    } catch {
+      parsedResult = {
+        success: false,
+        error: '解析失败',
+        suggestions: ['请重试或使用手动配置模式'],
+      };
+    }
 
     return NextResponse.json({
-      success: parseResult.success,
-      config: parseResult.config,
-      explanation: parseResult.explanation,
-      warnings: parseResult.warnings,
-      confidence: parseResult.confidence,
-      error: parseResult.error,
-      suggestions: parseResult.suggestions,
+      success: parsedResult.success,
+      config: parsedResult.config,
+      explanation: parsedResult.explanation,
+      warnings: parsedResult.warnings,
+      confidence: parsedResult.confidence,
+      error: parsedResult.error,
+      suggestions: parsedResult.suggestions,
     });
   } catch (error) {
     console.error('[search-nl-parse] Error:', error);
 
-    const message = error instanceof Error ? error.message : 'AI 解析失败';
-
     return NextResponse.json(
       {
         success: false,
-        error: message,
+        error: error instanceof Error ? error.message : 'AI 解析失败',
         suggestions: ['请重试或使用手动配置模式'],
       },
       { status: 500 }

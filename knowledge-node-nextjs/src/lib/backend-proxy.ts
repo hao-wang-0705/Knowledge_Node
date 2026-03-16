@@ -33,6 +33,7 @@ export async function proxyToBackend(
   ok: boolean;
   status: number;
   body: unknown;
+  headers?: Record<string, string>;
 }> {
   const baseUrl = getBackendBaseUrl();
   const headers = new Headers(init.headers || undefined);
@@ -59,25 +60,35 @@ export async function proxyToBackend(
   const text = await response.text();
   const body = text ? JSON.parse(text) : null;
 
+  const forwardedHeaders: Record<string, string> = {};
+  const unlockedIds = response.headers.get('X-Unlocked-Node-Ids');
+  if (unlockedIds) forwardedHeaders['X-Unlocked-Node-Ids'] = unlockedIds;
+
   return {
     ok: response.ok,
     status: response.status,
     body,
+    headers: forwardedHeaders,
   };
 }
 
-export function toProxyResponse(result: {
-  ok: boolean;
-  status: number;
-  body: unknown;
-}): NextResponse {
+export function toProxyResponse(
+  result: {
+    ok: boolean;
+    status: number;
+    body: unknown;
+    headers?: Record<string, string>;
+  },
+  options?: { headers?: Record<string, string> }
+): NextResponse {
+  const headers = options?.headers ?? result.headers ?? undefined;
   if (result.ok) {
     return NextResponse.json(
       {
         success: true,
         data: result.body,
       },
-      { status: result.status || 200 }
+      { status: result.status || 200, headers }
     );
   }
 

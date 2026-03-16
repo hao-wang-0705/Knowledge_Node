@@ -1,9 +1,13 @@
-# Knowledge Node - Docker Compose Configuration
-# 三容器架构：frontend、backend、postgres
-# 版本: 3.0
+# Knowledge Node - Docker 构建与部署
+# 用法:
+#   构建并启动:  docker compose up -d --build
+#   仅构建:      docker compose build
+#   仅启动:      docker compose up -d
+#   查看日志:    docker compose logs -f
+#   停止:        docker compose down
+# 可选: 复制 .env.example 为 .env 并修改变量
 
 services:
-  # PostgreSQL 数据库
   postgres:
     image: postgres:16-alpine
     container_name: knowledge-node-postgres
@@ -29,19 +33,15 @@ services:
         max-size: "10m"
         max-file: "3"
     mem_limit: 768m
-    cpus: 1.0
-    ulimits:
-      nofile:
-        soft: 65535
-        hard: 65535
+    cpus: "1.0"
 
-  # NestJS 后端服务
   backend:
     build:
       context: ./knowledge-node-backend
       dockerfile: Dockerfile
       args:
-        - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-default}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-default}
+    image: knowledge-node-backend:latest
     container_name: knowledge-node-backend
     restart: unless-stopped
     environment:
@@ -51,10 +51,9 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:-knowledge-node-admin-secret}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
-      # AI 服务配置（优先级：GEMINI > VENUS > OPENAI）
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       VENUS_API_KEY: ${VENUS_API_KEY:-}
-      VENUS_API_URL: ${NEXT_PUBLIC_VENUS_API_URL:-http://v2.open.venus.oa.com/llmproxy}
+      VENUS_API_URL: ${VENUS_API_URL:-http://v2.open.venus.oa.com/llmproxy}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     ports:
@@ -76,23 +75,19 @@ services:
         max-size: "10m"
         max-file: "3"
     mem_limit: 1024m
-    cpus: 1.5
-    ulimits:
-      nofile:
-        soft: 65535
-        hard: 65535
+    cpus: "1.5"
 
-  # Next.js 前端服务
   frontend:
     build:
       context: ./knowledge-node-nextjs
       dockerfile: Dockerfile
       args:
-        - BUILD_TIMESTAMP=${BUILD_TIMESTAMP:-default}
-        - BACKEND_API_URL=${BACKEND_API_URL:-http://backend:4000}
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
-        - NEXT_PUBLIC_VENUS_API_URL=${NEXT_PUBLIC_VENUS_API_URL:-http://v2.open.venus.oa.com/llmproxy/chat/completions}
-        - NEXT_PUBLIC_VENUS_MODEL=${NEXT_PUBLIC_VENUS_MODEL:-gemini-2.5-flash}
+        BUILD_TIMESTAMP: ${BUILD_TIMESTAMP:-default}
+        BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:4000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_VENUS_API_URL: ${NEXT_PUBLIC_VENUS_API_URL:-http://v2.open.venus.oa.com/llmproxy/chat/completions}
+        NEXT_PUBLIC_VENUS_MODEL: ${NEXT_PUBLIC_VENUS_MODEL:-gemini-2.5-flash}
+    image: knowledge-node-frontend:latest
     container_name: knowledge-node-frontend
     restart: unless-stopped
     environment:
@@ -102,14 +97,12 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-in-production}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-knowledge-node-internal-key}
-      # AI 服务配置
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
       VENUS_API_KEY: ${VENUS_API_KEY:-}
       NEXT_PUBLIC_VENUS_API_URL: ${NEXT_PUBLIC_VENUS_API_URL:-http://v2.open.venus.oa.com/llmproxy}
       NEXT_PUBLIC_VENUS_MODEL: ${NEXT_PUBLIC_VENUS_MODEL:-gemini-2.5-flash}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       NEXT_PUBLIC_GEMINI_MODEL: ${NEXT_PUBLIC_GEMINI_MODEL:-gemini-2.5-flash}
-      # 关键：在 Docker 网络内部，使用服务名 postgres 而不是 localhost
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-knowledge_node}?schema=public
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
@@ -131,11 +124,7 @@ services:
         max-size: "10m"
         max-file: "3"
     mem_limit: 1536m
-    cpus: 2.0
-    ulimits:
-      nofile:
-        soft: 65535
-        hard: 65535
+    cpus: "2.0"
 
 volumes:
   postgres_data:

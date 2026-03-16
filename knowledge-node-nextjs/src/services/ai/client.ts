@@ -12,8 +12,6 @@ import {
 } from './errors';
 import { loadAIConfig, validateConfig, type AIServiceConfig, type AIModel } from './config';
 import { buildFullPrompt, type PromptVariables, getModelTokenLimit } from './prompts';
-import type { CommandTemplate } from '@/types';
-
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -37,7 +35,7 @@ export interface AIRequestParams {
   /** 是否使用流式输出 */
   stream?: boolean;
   /** 模板分类（用于选择系统提示） */
-  category?: CommandTemplate['category'];
+  category?: string;
   /** 请求 ID（用于追踪） */
   requestId?: string;
   /** 超时时间（毫秒） */

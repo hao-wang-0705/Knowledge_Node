@@ -92,7 +92,7 @@ export function FocusPanel({ nodeId, onClose }: FocusPanelProps) {
         
         {/* 节点标题 */}
         <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 leading-snug">
-          <ContentWithReferences content={node.content} />
+          <ContentWithReferences content={node.content} references={node.references} />
         </h2>
       </div>
       
@@ -198,7 +198,7 @@ function ChildNodeRow({ node, depth, allNodes }: ChildNodeRowProps) {
       >
         <ChevronRight size={12} className="mt-1 text-gray-400 flex-shrink-0" />
         <span className="text-sm text-gray-700 dark:text-gray-300">
-          <ContentWithReferences content={node.content} />
+          <ContentWithReferences content={node.content} references={node.references} />
         </span>
       </div>
       

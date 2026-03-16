@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Trash2, Copy, Scissors, Hash, Indent, Outdent, Plus, Link2, Search, Sparkles } from 'lucide-react';
+import { Trash2, Copy, Scissors, Hash, Indent, Outdent, Plus, Link2, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FEATURE_FLAGS, getDisabledMessage } from '@/lib/feature-flags';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -18,7 +18,6 @@ interface ContextMenuProps {
   onOutdent?: () => void;
   onAddChild?: () => void;
   onInsertReference?: () => void;
-  onAddCommandNode?: () => void;
   onAddSearchNode?: () => void;
   canIndent?: boolean;
   canOutdent?: boolean;
@@ -36,7 +35,6 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onOutdent,
   onAddChild,
   onInsertReference,
-  onAddCommandNode,
   onAddSearchNode,
   canIndent = true,
   canOutdent = true,
@@ -133,15 +131,6 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       shortcut: '@',
       enabled: true,
       highlight: true,
-    },
-    {
-      icon: Sparkles,
-      label: '🤖 新建指令',
-      onClick: onAddCommandNode,
-      shortcut: '/ai',
-      enabled: FEATURE_FLAGS.AI_COMMAND_NODE,
-      highlight: true,
-      disabledTooltip: getDisabledMessage('AI_COMMAND_NODE'),
     },
     {
       icon: Search,

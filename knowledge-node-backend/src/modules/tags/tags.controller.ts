@@ -101,6 +101,17 @@ export class InternalTagsController {
     return this.tagsService.createTagTemplate(createDto);
   }
 
+  @Post('reset')
+  @ApiOperation({ summary: '清空所有标签与节点标签信息（管理员专用，用于 v4.2 实体/行动双轨升级）' })
+  @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })
+  @ApiResponse({ status: 200, description: '重置结果' })
+  reset(
+    @Headers('x-admin-key') adminKey: string,
+  ) {
+    this.assertAdminKey(adminKey);
+    return this.tagsService.resetTagsAndNodeTagData();
+  }
+
   @Post('batch')
   @ApiOperation({ summary: '批量导入系统预置标签（管理员专用）' })
   @ApiHeader({ name: 'x-admin-key', description: '管理员密钥', required: true })

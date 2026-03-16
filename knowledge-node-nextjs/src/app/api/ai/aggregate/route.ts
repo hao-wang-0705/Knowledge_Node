@@ -1,96 +1,141 @@
-import { NextRequest } from 'next/server';
-
 /**
- * AI 聚合代理 API
+ * AI 聚合分析 API 端点
  * POST /api/ai/aggregate
- *
- * 作用：
- * - 将前端请求透传到后端 Nest /api/ai/aggregate
- * - 保留 text/event-stream SSE 流式响应
+ * 
+ * 透传到后端 Agent API，支持 SSE 流式输出
  */
 
-const DEFAULT_BACKEND_BASE = 'http://localhost:4000';
+import { NextRequest } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
-function getBackendBaseUrl(): string {
-  const base =
-    process.env.BACKEND_API_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    DEFAULT_BACKEND_BASE;
+// ============================================================================
+// 类型定义
+// ============================================================================
 
-  return base.replace(/\/+$/, '');
+interface AggregateRequest {
+  query: string;
+  mode?: 'summarize' | 'extract' | 'analyze' | 'custom';
+  outputFormat?: string;
+  nodes?: Array<{
+    id: string;
+    title: string;
+    content?: string;
+    fields?: Record<string, unknown>;
+  }>;
 }
+
+// ============================================================================
+// API Handler
+// ============================================================================
 
 export async function POST(request: NextRequest) {
-  const backendBase = getBackendBaseUrl();
+  // 验证用户身份
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return new Response(
+      JSON.stringify({ success: false, error: '未登录，请先登录后再使用 AI 功能' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 
-  // 直接读取原始 body 文本，保持与前端 fetch(JSON.stringify(...)) 一致
-  const bodyText = await request.text();
-
-  let backendResponse: Response;
+  // 解析请求体
+  let body: AggregateRequest;
   try {
-    backendResponse = await fetch(`${backendBase}/api/ai/aggregate`, {
+    body = await request.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ success: false, error: '无效的请求格式' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // 验证输入
+  if (!body.query?.trim()) {
+    return new Response(
+      JSON.stringify({ success: false, error: '请提供查询内容' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  if (!body.nodes || body.nodes.length === 0) {
+    return new Response(
+      JSON.stringify({ success: false, error: '没有可聚合的节点数据' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // 调用后端 Agent API（流式）
+  const backendUrl = process.env.BACKEND_API_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+
+  try {
+    const response = await fetch(`${backendUrl}/api/agent/execute`, {
       method: 'POST',
-      headers: {
-        'Content-Type':
-          request.headers.get('content-type') || 'application/json',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: session.user.id,
+        prompt: body.query.trim(),
+        options: {
+          stream: true,
+          forceTool: 'aggregate',
+        },
+        context: {
+          nodes: body.nodes,
+          metadata: {
+            mode: body.mode || 'custom',
+            outputFormat: body.outputFormat,
+          },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: '后端请求失败' }));
+      return new Response(
+        JSON.stringify({ success: false, error: errorData.message || 'AI 服务请求失败' }),
+        { status: response.status, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 转发 SSE 流
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const reader = response.body?.getReader();
+        if (!reader) {
+          controller.close();
+          return;
+        }
+
+        const decoder = new TextDecoder();
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            controller.enqueue(encoder.encode(chunk));
+          }
+        } catch (error) {
+          console.error('[Aggregate API] Stream error:', error);
+        } finally {
+          controller.close();
+        }
       },
-      body: bodyText,
-      // 禁用缓存，确保每次都是实时请求
-      cache: 'no-store',
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Upstream request failed';
     return new Response(
-      JSON.stringify({
-        event: 'error',
-        data: { code: 'UPSTREAM_FETCH_ERROR', message },
-      }),
-      {
-        status: 502,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-        },
-      },
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : '处理失败' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
-
-  // 如果后端返回非 2xx，直接透传状态码和文本内容，方便前端错误提示
-  if (!backendResponse.ok || !backendResponse.body) {
-    const text = await backendResponse.text().catch(() => '');
-    return new Response(
-      text ||
-        JSON.stringify({
-          event: 'error',
-          data: {
-            code: 'UPSTREAM_ERROR',
-            message: `Upstream responded with status ${backendResponse.status}`,
-          },
-        }),
-      {
-        status: backendResponse.status,
-        headers: {
-          'Content-Type':
-            backendResponse.headers.get('content-type') ||
-            'application/json; charset=utf-8',
-        },
-      },
-    );
-  }
-
-  // 成功场景：将后端的 SSE 流 body 直接透传给前端
-  const headers = new Headers();
-  headers.set(
-    'Content-Type',
-    backendResponse.headers.get('content-type') || 'text/event-stream',
-  );
-  headers.set('Cache-Control', 'no-cache');
-  headers.set('Connection', 'keep-alive');
-  headers.set('X-Accel-Buffering', 'no');
-
-  return new Response(backendResponse.body, {
-    status: backendResponse.status,
-    headers,
-  });
 }
-

@@ -28,6 +28,11 @@ export class CreateTagTemplateDto {
   @IsOptional()
   description?: string;
 
+  @ApiPropertyOptional({ description: '标签分类 entity=实体 / action=行动', enum: ['entity', 'action'] })
+  @IsString()
+  @IsOptional()
+  category?: string;
+
   @ApiPropertyOptional({ description: '字段定义（JSON Schema）', default: [] })
   @IsArray()
   @IsOptional()
@@ -88,6 +93,11 @@ export class UpdateTagTemplateDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional({ description: '标签分类 entity=实体 / action=行动' })
+  @IsString()
+  @IsOptional()
+  category?: string;
 
   @ApiPropertyOptional({ description: '字段定义（JSON Schema）' })
   @IsArray()
@@ -174,6 +184,9 @@ export class TagTemplateResponseDto {
 
   @ApiPropertyOptional({ description: '标签描述' })
   description?: string;
+
+  @ApiPropertyOptional({ description: '标签分类 entity / action' })
+  category?: string;
 
   @ApiProperty({ description: '字段定义' })
   fieldDefinitions: any[];

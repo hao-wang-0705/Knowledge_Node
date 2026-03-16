@@ -31,10 +31,6 @@ const GlobalLayout: React.FC<GlobalLayoutProps> = memo(({ children }) => {
   // 检测是否为认证页面
   const isAuthPage = AUTH_ROUTES.includes(pathname);
 
-  // 根据路由判断是否显示查询面板
-  // 只在笔记主页面（/）显示查询面板
-  const showQueryPanel = pathname === '/';
-
   // 认证页面直接返回 children，不渲染侧边栏和顶导航
   if (isAuthPage) {
     return <>{children}</>;
@@ -42,7 +38,7 @@ const GlobalLayout: React.FC<GlobalLayoutProps> = memo(({ children }) => {
 
   return (
     <TooltipProvider>
-      <div className="h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900">
+      <div className="h-screen flex flex-col bg-[#f9f9f9] dark:bg-gradient-to-b dark:from-slate-950 dark:to-slate-900">
         {/* 全局顶部导航 */}
         <TopNavigation />
 
@@ -50,13 +46,13 @@ const GlobalLayout: React.FC<GlobalLayoutProps> = memo(({ children }) => {
         <div className="flex-1 flex min-h-0">
           {/* 左侧侧边栏 - 全局显示 */}
           <Sidebar 
-            className="w-64 flex-shrink-0" 
+            className="w-[240px] flex-shrink-0" 
             onOpenCommandCenter={() => setShowCommandCenter(true)}
           />
 
           {/* 右侧内容区域 */}
           <SplitPaneProvider>
-            <MainContentWrapper showQueryPanel={showQueryPanel}>
+            <MainContentWrapper>
               {children}
             </MainContentWrapper>
           </SplitPaneProvider>

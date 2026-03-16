@@ -14,7 +14,6 @@ interface SplitPaneProviderProps {
  * 右侧面板 Context Provider
  * 仅管理 NodeDetailPanel（节点详情面板）
  * 
- * 注意：QueryPanel 已移至 MainContentWrapper 中作为常驻面板
  */
 const SplitPaneProvider: React.FC<SplitPaneProviderProps> = ({
   children,

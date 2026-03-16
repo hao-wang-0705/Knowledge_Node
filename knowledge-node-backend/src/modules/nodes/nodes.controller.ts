@@ -8,7 +8,9 @@ import {
   Delete,
   Query,
   UseGuards,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiHeader, ApiQuery } from '@nestjs/swagger';
 import { NodesService } from './nodes.service';
 import {
@@ -93,6 +95,13 @@ export class NodesController {
     return this.nodesService.findBySupertag(userId, supertagId);
   }
 
+  @Get(':id/mentioned-by')
+  @ApiOperation({ summary: '获取提及当前节点的节点列表（反向链接）' })
+  @ApiResponse({ status: 200, description: '返回提及节点列表' })
+  findMentionedBy(@CurrentUserId() userId: string, @Param('id') id: string) {
+    return this.nodesService.findMentionedBy(userId, id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: '获取单个节点' })
   @ApiResponse({ status: 200, description: '返回节点详情', type: NodeResponseDto })
@@ -117,8 +126,18 @@ export class NodesController {
   @Patch(':id')
   @ApiOperation({ summary: '更新节点' })
   @ApiResponse({ status: 200, description: '节点更新成功', type: NodeResponseDto })
-  update(@CurrentUserId() userId: string, @Param('id') id: string, @Body() updateNodeDto: UpdateNodeDto) {
-    return this.nodesService.update(userId, id, updateNodeDto);
+  async update(
+    @CurrentUserId() userId: string,
+    @Param('id') id: string,
+    @Body() updateNodeDto: UpdateNodeDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.nodesService.update(userId, id, updateNodeDto);
+    const { node, unlockedNodeIds } = result;
+    if (unlockedNodeIds?.length) {
+      res.setHeader('X-Unlocked-Node-Ids', unlockedNodeIds.join(','));
+    }
+    return node;
   }
 
   @Patch(':id/toggle-collapse')

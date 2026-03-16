@@ -3,8 +3,12 @@
 import React, { useState, useRef, useCallback, useEffect, KeyboardEvent } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FEATURE_FLAGS } from '@/lib/feature-flags';
 import { useNodeStore } from '@/stores/nodeStore';
 import MentionPopover from './MentionPopover';
+import UnifiedNodeEditor from './editor/UnifiedNodeEditor';
+import type { NodeReference } from '@/types';
+import type { UnifiedNodeEditorHandle } from './editor/UnifiedNodeEditor';
 
 interface QuickInputNodeProps {
   parentId: string | null;
@@ -31,8 +35,10 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [content, setContent] = useState('');
+  const [draftReferences, setDraftReferences] = useState<NodeReference[]>([]);
   const [isComposing, setIsComposing] = useState(false);
   const inputRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<UnifiedNodeEditorHandle | null>(null);
   
   // 引用弹窗状态
   const [showMentionPopover, setShowMentionPopover] = useState(false);
@@ -40,6 +46,17 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
   
   const addNode = useNodeStore((state) => state.addNode);
   const updateNode = useNodeStore((state) => state.updateNode);
+
+  const getCaretOffsetInEditor = useCallback(() => {
+    if (!inputRef.current) return 0;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return 0;
+    const range = selection.getRangeAt(0);
+    const preCaretRange = range.cloneRange();
+    preCaretRange.selectNodeContents(inputRef.current);
+    preCaretRange.setEnd(range.endContainer, range.endOffset);
+    return preCaretRange.toString().length;
+  }, []);
 
   // 进入编辑模式时自动聚焦
   useEffect(() => {
@@ -62,20 +79,66 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
     }
   }, [isEditing]);
 
+  const syncReferenceOffsets = useCallback((prevText: string, nextText: string, refs: NodeReference[]) => {
+    if (prevText === nextText || refs.length === 0) return refs;
+
+    let start = 0;
+    while (
+      start < prevText.length &&
+      start < nextText.length &&
+      prevText[start] === nextText[start]
+    ) {
+      start++;
+    }
+
+    let prevEnd = prevText.length;
+    let nextEnd = nextText.length;
+    while (
+      prevEnd > start &&
+      nextEnd > start &&
+      prevText[prevEnd - 1] === nextText[nextEnd - 1]
+    ) {
+      prevEnd--;
+      nextEnd--;
+    }
+
+    const removedCount = prevEnd - start;
+    const addedCount = nextEnd - start;
+    const delta = addedCount - removedCount;
+
+    return refs
+      .filter((ref) => {
+        const anchor = ref.anchorOffset ?? 0;
+        if (removedCount <= 0) return true;
+        // 删除范围覆盖锚点时，认为用户删除了该引用
+        return !(anchor >= start && anchor <= prevEnd);
+      })
+      .map((ref) => {
+        const anchor = ref.anchorOffset ?? 0;
+        if (anchor >= prevEnd) {
+          return { ...ref, anchorOffset: Math.max(0, anchor + delta) };
+        }
+        return ref;
+      });
+  }, []);
+
   // 处理内容变化
   const handleInput = useCallback(() => {
     if (isComposing) return;
     
+    const prevContent = content;
     const newContent = inputRef.current?.textContent || '';
     setContent(newContent);
+    setDraftReferences((prev) => syncReferenceOffsets(prevContent, newContent, prev));
     
     // @ 触发引用选择
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
-      const textBeforeCursor = newContent.substring(0, range.startOffset);
+      const caretOffset = getCaretOffsetInEditor();
+      const textBeforeCursor = newContent.substring(0, caretOffset);
       
-      if (textBeforeCursor.endsWith('@')) {
+      if (!FEATURE_FLAGS.UNIFIED_INPUT_KERNEL && textBeforeCursor.endsWith('@')) {
         const mentionRect = range.getBoundingClientRect();
         setMentionPosition({
           x: mentionRect.left,
@@ -84,25 +147,30 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
         setShowMentionPopover(true);
       }
     }
-  }, [isComposing]);
+  }, [isComposing, content, syncReferenceOffsets, getCaretOffsetInEditor]);
 
-  // 创建节点
-  const createNode = useCallback(() => {
-    const trimmedContent = content.trim();
-    
-    if (trimmedContent) {
+  // 创建节点（纯实体引用模型：content + references）
+  const createNode = useCallback((rawText: string) => {
+    const hasPlainContent = rawText.trim().length > 0;
+    const hasReferences = draftReferences.length > 0;
+
+    if (hasPlainContent || hasReferences) {
       const newNodeId = addNode(parentId);
       if (newNodeId) {
-        updateNode(newNodeId, { content: trimmedContent });
+        updateNode(newNodeId, {
+          content: rawText,
+          references: draftReferences.length > 0 ? draftReferences : undefined,
+        });
       }
     }
-    
+
     // 重置状态，准备下一次输入
     setContent('');
+    setDraftReferences([]);
     if (inputRef.current) {
       inputRef.current.textContent = '';
     }
-  }, [content, parentId, addNode, updateNode]);
+  }, [parentId, addNode, updateNode, draftReferences]);
 
   // 标记是否正在通过 Enter 键创建节点，防止 blur 重复触发
   const isCreatingRef = useRef(false);
@@ -120,6 +188,24 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
       return;
     }
     
+    if ((e.key === 'Backspace' || e.key === 'Delete') && draftReferences.length > 0) {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const offset = getCaretOffsetInEditor();
+        const targetRef = draftReferences.find((ref) => {
+          const anchor = ref.anchorOffset ?? 0;
+          return e.key === 'Backspace'
+            ? offset === anchor + 1 || offset === anchor
+            : offset === anchor;
+        });
+        if (targetRef) {
+          e.preventDefault();
+          setDraftReferences((prev) => prev.filter((r) => r.id !== targetRef.id));
+          return;
+        }
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       // 标记正在创建，防止 blur 重复触发
@@ -127,20 +213,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
       
       // 直接从 DOM 读取最新内容（解决状态同步问题）
       const currentContent = inputRef.current?.textContent || '';
-      const trimmedContent = currentContent.trim();
-      
-      if (trimmedContent) {
-        const newNodeId = addNode(parentId);
-        if (newNodeId) {
-          updateNode(newNodeId, { content: trimmedContent });
-        }
-      }
-      
-      // 重置状态，准备下一次输入
-      setContent('');
-      if (inputRef.current) {
-        inputRef.current.textContent = '';
-      }
+      createNode(currentContent);
       
       // 延迟重置标记
       setTimeout(() => {
@@ -158,7 +231,7 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
         inputRef.current.textContent = '';
       }
     }
-  }, [isComposing, showMentionPopover, parentId, addNode, updateNode]);
+  }, [isComposing, showMentionPopover, createNode, draftReferences, getCaretOffsetInEditor]);
 
   // 失焦处理
   const handleBlur = useCallback((e: React.FocusEvent) => {
@@ -178,47 +251,39 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
       
       // 从 DOM 读取最新内容
       const currentContent = inputRef.current?.textContent || '';
-      const trimmedContent = currentContent.trim();
+      const hasAnyContent = currentContent.trim().length > 0 || draftReferences.length > 0;
       
-      if (!trimmedContent) {
+      if (!hasAnyContent) {
         // 空内容，退出编辑模式
         setIsEditing(false);
       } else {
         // 有内容，创建节点
-        createNode();
+        createNode(currentContent);
         setIsEditing(false);
       }
     }, 150);
-  }, [showMentionPopover, createNode]);
+  }, [showMentionPopover, createNode, draftReferences]);
 
-  // 引用选择回调
+  // 引用选择回调：纯实体模型，写入 references 并删除触发字符 @
   const handleMentionSelect = useCallback((nodeId: string, nodeTitle: string) => {
-    // 在当前位置插入引用文本（使用 @提及 格式）
-    const refText = `@${nodeTitle}`;
-    
-    // 替换 @ 符号为引用文本
-    let newContent = content;
-    if (content.endsWith('@')) {
-      newContent = content.slice(0, -1) + refText + ' ';
-    } else {
-      newContent = content + refText + ' ';
+    if (FEATURE_FLAGS.UNIFIED_INPUT_KERNEL) {
+      editorRef.current?.insertReference(nodeId, nodeTitle);
+      editorRef.current?.focus();
     }
-    
-    setContent(newContent);
-    if (inputRef.current) {
-      inputRef.current.textContent = newContent;
-      // 光标移到末尾
-      const range = document.createRange();
-      const selection = window.getSelection();
-      range.selectNodeContents(inputRef.current);
-      range.collapse(false);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-    }
-    
+
     setShowMentionPopover(false);
     setTimeout(() => inputRef.current?.focus(), 50);
-  }, [content]);
+  }, []);
+
+  const handleUnifiedEditorChange = useCallback((next: { content: string; references: NodeReference[] }) => {
+    setContent(next.content);
+    setDraftReferences(next.references);
+  }, []);
+
+  const handleUnifiedMentionTrigger = useCallback((position: { x: number; y: number }) => {
+    setMentionPosition(position);
+    setShowMentionPopover(true);
+  }, []);
 
   // 中文输入法处理
   const handleCompositionStart = useCallback(() => setIsComposing(true), []);
@@ -266,23 +331,44 @@ const QuickInputNode: React.FC<QuickInputNodeProps> = ({
         {/* 输入区域 */}
         {isEditing ? (
           <div className="flex-1 min-w-0">
-            {/* 可编辑输入框 */}
-            <div
-              ref={inputRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={handleInput}
-              onKeyDown={handleKeyDown}
-              onBlur={handleBlur}
-              onCompositionStart={handleCompositionStart}
-              onCompositionEnd={handleCompositionEnd}
-              className={cn(
-                "min-h-[24px] outline-none text-sm leading-relaxed",
-                "text-gray-700 dark:text-gray-300",
-                "empty:before:content-['输入内容，按_Enter_创建...'] empty:before:text-gray-400"
-              )}
-              data-placeholder="输入内容，按 Enter 创建..."
-            />
+            {FEATURE_FLAGS.UNIFIED_INPUT_KERNEL ? (
+              <UnifiedNodeEditor
+                ref={editorRef}
+                value={content}
+                references={draftReferences}
+                contentRef={inputRef}
+                onChange={handleUnifiedEditorChange}
+                onMentionTrigger={handleUnifiedMentionTrigger}
+                onInput={handleInput}
+                onKeyDown={handleKeyDown}
+                onBlur={handleBlur}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
+                className={cn(
+                  'min-h-[24px] outline-none text-sm leading-relaxed',
+                  'text-gray-700 dark:text-gray-300 bg-transparent'
+                )}
+                placeholder="输入内容，按 Enter 创建..."
+              />
+            ) : (
+              <div
+                ref={inputRef}
+                contentEditable
+                suppressContentEditableWarning
+                onInput={handleInput}
+                onKeyDown={handleKeyDown}
+                onBlur={handleBlur}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
+                className={cn(
+                  'min-h-[24px] outline-none text-sm leading-relaxed',
+                  'text-gray-700 dark:text-gray-300 bg-transparent'
+                )}
+                data-placeholder="输入内容，按 Enter 创建..."
+              >
+                {content}
+              </div>
+            )}
             
             {/* 快捷键提示 */}
             <div className="mt-1 text-xs text-gray-400 flex items-center gap-2">

@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import type { Node, Supertag, FieldDefinition, SmartCaptureNode, SmartCaptureProgress } from '@/types';
 import { generateId } from '@/utils/helpers';
 import type { FormatNode } from '@/utils/format-parser';
+import { useSyncStore } from '@/stores/syncStore';
 
 // ============================================================================
 // 类型定义
@@ -65,20 +66,6 @@ export interface CapturePreview {
   isAutoExtracted: boolean;
 }
 
-/** 格式化进度状态（v3.5 新增） */
-export interface FormattingProgress {
-  /** 已创建节点数 */
-  nodeCount: number;
-  /** tempId → realId 映射 */
-  tempIdMap: Map<string, string>;
-  /** 目标父节点 ID */
-  targetParentId: string;
-  /** 是否正在进行 */
-  isActive: boolean;
-  /** AbortController 用于取消 */
-  abortController: AbortController | null;
-}
-
 /** 捕获 Store 状态 */
 interface CaptureStoreState {
   /** 当前状态 */
@@ -99,8 +86,6 @@ interface CaptureStoreState {
   isFocused: boolean;
   /** 目标父节点 ID (默认写入今日笔记) */
   targetParentId: string | null;
-  /** 格式化进度（v3.5） */
-  formattingProgress: FormattingProgress | null;
   /** 智能捕获进度（v3.5 新增） */
   smartCaptureProgress: SmartCaptureProgress | null;
 }
@@ -147,17 +132,6 @@ interface CaptureStoreActions {
   // AI 语音转写
   transcribeAudio: (audio: string, format?: string, language?: string) => Promise<string>;
   
-  // v3.5: AI 格式化
-  /** 开始 AI 格式化，流式写入节点到 targetParentId */
-  startFormatting: (
-    text: string,
-    targetParentId: string,
-    addNode: (parentId: string) => string,
-    updateNode: (id: string, updates: Partial<Node>) => void
-  ) => Promise<void>;
-  /** 取消正在进行的格式化 */
-  cancelFormatting: () => void;
-  
   // v3.5: 智能捕获（合并格式化 + 标签匹配 + 字段提取）
   /** 开始智能捕获，流式写入带标签的节点 */
   startSmartCapture: (
@@ -187,7 +161,6 @@ const initialState: CaptureStoreState = {
   error: null,
   isFocused: false,
   targetParentId: null,
-  formattingProgress: null,
   smartCaptureProgress: null,
 };
 
@@ -324,7 +297,6 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
   processCapture: async (supertags) => {
     const state = get();
     
-    // 检查是否有内容需要处理
     if (!state.textInput.trim() && state.images.length === 0 && !state.voice?.transcription) {
       set({ error: '请输入内容' });
       return;
@@ -333,61 +305,52 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
     set({ status: 'processing', error: null });
     
     try {
-      const resolveFields = (tagId: string): FieldDefinition[] => {
-        const tag = supertags[tagId];
-        return (tag?.fieldDefinitions ?? []) as FieldDefinition[];
-      };
+      // 组装所有输入文本
+      let combinedText = state.textInput.trim();
+      if (state.voice?.transcription) {
+        combinedText = combinedText
+          ? `${combinedText}\n${state.voice.transcription}`
+          : state.voice.transcription;
+      }
 
-      // 准备请求数据
-      const requestData: any = {
-        text: state.textInput.trim(),
-        images: state.images.map((img) => ({
-          base64: img.base64,
-          name: img.name,
-        })),
-        voiceTranscription: state.voice?.transcription,
-        manualTagId: state.manualTagId,
-        // 发送精简版 Supertag Schema
-        supertags: Object.values(supertags)
-          .filter((tag) => tag.status !== 'deprecated')
-          .map((tag) => ({
-            id: tag.id,
-            name: tag.name,
-            icon: tag.icon,
-            description: tag.description,
-            fields: resolveFields(tag.id).map((f) => ({
-              key: f.key,
-              name: f.name,
-              type: f.type,
-              options: f.options,
-            })),
-          })),
-      };
+      const supertagSchemas = buildSupertagSchemas(supertags);
       
-      // 调用 AI 结构化 API
-      const response = await fetch('/api/ai/capture', {
+      // 调用统一的 smart-structure API（quick 模式）
+      const response = await fetch('/api/ai/smart-structure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData),
+        body: JSON.stringify({
+          text: combinedText,
+          supertags: supertagSchemas,
+          mode: 'quick',
+          manualTagId: state.manualTagId,
+        }),
       });
       
       const result = await response.json();
       
       if (!response.ok || !result.success) {
-        throw new Error(result.error?.message || '处理失败');
+        throw new Error(result.error?.message || result.error || '处理失败');
       }
       
-      // 设置预览
-      const matchedTag = result.data.supertagId ? supertags[result.data.supertagId] : undefined;
+      // smart-structure 返回 { nodes: [...] }（无实体识别时无 entityMentions）
+      const data = result.data;
+      const firstNode = Array.isArray(data?.nodes) ? data.nodes[0] : data;
+      
+      if (!firstNode) {
+        throw new Error('AI 未返回有效节点');
+      }
+
+      const matchedTag = firstNode.supertagId ? supertags[firstNode.supertagId] : undefined;
       
       set({
         preview: {
-          content: result.data.content,
-          supertagId: result.data.supertagId,
+          content: firstNode.content || combinedText,
+          supertagId: firstNode.supertagId || null,
           supertag: matchedTag,
-          fields: result.data.fields || {},
-          confidence: result.data.confidence || 0.8,
-          alternativeTags: result.data.alternativeTags,
+          fields: firstNode.fields || {},
+          confidence: firstNode.confidence || 0.8,
+          alternativeTags: undefined,
           originalInput: state.textInput,
           isAutoExtracted: true,
         },
@@ -451,184 +414,14 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
   },
 
   /**
-   * v3.5: AI 格式化 - 流式写入
-   * 将大段文字格式化为树形节点，直接写入到指定父节点下
-   */
-  startFormatting: async (text, targetParentId, addNode, updateNode) => {
-    const { setStatus, setError } = get();
-    
-    // 创建 AbortController 用于取消
-    const abortController = new AbortController();
-    
-    // 初始化格式化进度
-    const formattingProgress: FormattingProgress = {
-      nodeCount: 0,
-      tempIdMap: new Map(),
-      targetParentId,
-      isActive: true,
-      abortController,
-    };
-    
-    set({ 
-      status: 'formatting',
-      error: null,
-      formattingProgress,
-    });
-    
-    try {
-      // 发起流式请求
-      const response = await fetch('/api/ai/format-notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-        signal: abortController.signal,
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || '格式化请求失败');
-      }
-      
-      if (!response.body) {
-        throw new Error('无法获取响应流');
-      }
-      
-      // 读取 SSE 流
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        
-        // 按行处理 SSE 事件
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // 保留未完成的行
-        
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            // 解析事件类型
-            const eventType = line.slice(7).trim();
-            continue;
-          }
-          
-          if (line.startsWith('data: ')) {
-            const dataStr = line.slice(6).trim();
-            if (!dataStr) continue;
-            
-            try {
-              const data = JSON.parse(dataStr);
-              
-              // 获取最新的 progress 状态
-              const currentProgress = get().formattingProgress;
-              if (!currentProgress?.isActive) {
-                // 已被取消
-                reader.cancel();
-                return;
-              }
-              
-              // 处理节点事件
-              if (data.tempId && data.content !== undefined) {
-                const node = data as FormatNode;
-                
-                // 确定真实父节点 ID
-                let realParentId = targetParentId;
-                if (node.parentTempId) {
-                  const mappedParentId = currentProgress.tempIdMap.get(node.parentTempId);
-                  if (mappedParentId) {
-                    realParentId = mappedParentId;
-                  }
-                }
-                
-                // 创建节点
-                const realId = addNode(realParentId);
-                
-                // 更新节点内容
-                updateNode(realId, { content: node.content });
-                
-                // 记录映射
-                currentProgress.tempIdMap.set(node.tempId, realId);
-                currentProgress.nodeCount++;
-                
-                // 更新状态触发 UI 更新
-                set({ formattingProgress: { ...currentProgress } });
-              }
-              
-              // 处理完成事件
-              if (data.success !== undefined && data.nodeCount !== undefined) {
-                // done 事件，格式化完成
-                console.log(`[Format] 完成，共创建 ${data.nodeCount} 个节点`);
-              }
-              
-              // 处理错误事件
-              if (data.error) {
-                throw new Error(data.error);
-              }
-              
-            } catch (parseError) {
-              console.warn('[Format] 解析 SSE 数据失败:', parseError);
-            }
-          }
-        }
-      }
-      
-      // 格式化完成，重置状态
-      set({ 
-        status: 'idle',
-        textInput: '', // 清空输入
-        formattingProgress: null,
-      });
-      
-    } catch (error) {
-      // 检查是否是取消操作
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log('[Format] 用户取消格式化');
-        set({ 
-          status: 'idle',
-          formattingProgress: null,
-        });
-        return;
-      }
-      
-      const message = error instanceof Error ? error.message : '格式化失败';
-      setError(message);
-      set({ 
-        status: 'idle',
-        formattingProgress: null,
-      });
-    }
-  },
-
-  /**
-   * v3.5: 取消正在进行的格式化
-   */
-  cancelFormatting: () => {
-    const { formattingProgress } = get();
-    
-    if (formattingProgress?.abortController) {
-      formattingProgress.abortController.abort();
-    }
-    
-    set({
-      status: 'idle',
-      formattingProgress: null,
-    });
-  },
-
-  /**
    * v3.5: 智能捕获 - 合并格式化 + 标签匹配 + 字段提取
    * 将大段文字格式化为树形节点，同时智能匹配标签和提取字段
    */
   startSmartCapture: async (text, targetParentId, supertags, addNode, updateNode) => {
     const { setStatus, setError } = get();
     
-    // 创建 AbortController 用于取消
     const abortController = new AbortController();
     
-    // 初始化智能捕获进度
     const smartCaptureProgress: SmartCaptureProgress = {
       nodeCount: 0,
       tempIdMap: new Map(),
@@ -643,36 +436,25 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
       error: null,
       smartCaptureProgress,
     });
+
+    // 记录需要后续修正引用的节点（tempId -> realId 映射在流处理后统一处理）
+    const nodesWithReferences: Array<{
+      realId: string;
+      references: Array<{ id: string; targetNodeId: string; title: string; anchorOffset?: number; createdAt: number }>;
+      fields: Record<string, unknown>;
+    }> = [];
     
     try {
-      // 准备 Supertag Schema（精简版）
-      const resolveFields = (tagId: string): FieldDefinition[] => {
-        const tag = supertags[tagId];
-        return (tag?.fieldDefinitions ?? []) as FieldDefinition[];
-      };
+      const supertagSchemas = buildSupertagSchemas(supertags);
       
-      const supertagSchemas = Object.values(supertags)
-        .filter((tag) => tag.status !== 'deprecated')
-        .map((tag) => ({
-          id: tag.id,
-          name: tag.name,
-          icon: tag.icon,
-          description: tag.description,
-          fields: resolveFields(tag.id).map((f) => ({
-            key: f.key,
-            name: f.name,
-            type: f.type,
-            options: f.options,
-          })),
-        }));
-      
-      // 发起流式请求
-      const response = await fetch('/api/ai/smart-capture', {
+      // 调用统一的 smart-structure API（structure 模式）
+      const response = await fetch('/api/ai/smart-structure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
           supertags: supertagSchemas,
+          mode: 'structure',
         }),
         signal: abortController.signal,
       });
@@ -685,7 +467,10 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
       if (!response.body) {
         throw new Error('无法获取响应流');
       }
-      
+
+      // 智能捕获期间推迟 processQueue，等流 + Phase 3.5 全部完成后再统一触发一次
+      useSyncStore.getState().setDeferProcessQueue(true);
+
       // 读取 SSE 流
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -724,7 +509,11 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
               
               // 处理节点事件
               if (data.tempId && data.content !== undefined) {
-                const node = data as SmartCaptureNode;
+                const node = data as SmartCaptureNode & {
+                  tags?: string[];
+                  references?: Array<{ id: string; targetNodeId: string; title: string; anchorOffset?: number; createdAt: number }>;
+                  isNewEntity?: boolean;
+                };
                 
                 // 确定真实父节点 ID
                 let realParentId = targetParentId;
@@ -738,19 +527,30 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
                 // 创建节点
                 const realId = addNode(realParentId);
                 
-                // 更新节点内容（包含标签和字段）
-                updateNode(realId, {
+                // 更新节点内容（包含标签、字段；引用稍后统一修正）
+                const nodeUpdates: Partial<Node> = {
                   content: node.content,
                   supertagId: node.supertagId,
-                  tags: node.supertagId ? [node.supertagId] : [],
+                  tags: node.tags || (node.supertagId ? [node.supertagId] : []),
                   fields: node.fields || {},
-                });
+                };
+
+                updateNode(realId, nodeUpdates);
                 
                 // 记录映射
                 currentProgress.tempIdMap.set(node.tempId, realId);
                 currentProgress.nodeCount++;
                 if (node.supertagId) {
                   currentProgress.taggedNodeCount++;
+                }
+
+                // 记录需要后续修正引用的节点
+                if ((node.references && node.references.length > 0) || node.fields) {
+                  nodesWithReferences.push({
+                    realId,
+                    references: node.references || [],
+                    fields: node.fields || {},
+                  });
                 }
                 
                 // 更新状态触发 UI 更新
@@ -777,6 +577,72 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
           }
         }
       }
+
+      // ========== Phase 3.5: tempId -> realId 引用修正 ==========
+      // 流处理完成后，修正所有引用中的 tempId 为 realId
+      const finalProgress = get().smartCaptureProgress;
+      if (finalProgress?.tempIdMap) {
+        const tempIdMap = finalProgress.tempIdMap;
+
+        for (const nodeInfo of nodesWithReferences) {
+          let needsUpdate = false;
+          const updatedRefs: Array<{ id: string; targetNodeId: string; title: string; anchorOffset?: number; createdAt: number }> = [];
+          const updatedFields: Record<string, unknown> = { ...nodeInfo.fields };
+
+          // 修正 references 数组中的 targetNodeId
+          for (const ref of nodeInfo.references) {
+            const realTargetId = tempIdMap.get(ref.targetNodeId);
+            if (realTargetId && realTargetId !== ref.targetNodeId) {
+              updatedRefs.push({ ...ref, targetNodeId: realTargetId });
+              needsUpdate = true;
+            } else {
+              updatedRefs.push(ref);
+            }
+          }
+
+          // 修正 fields 中 reference 类型字段的 nodeId
+          for (const [key, value] of Object.entries(nodeInfo.fields)) {
+            if (value && typeof value === 'object') {
+              // 单值 reference: { nodeId: string, ... }
+              if ('nodeId' in value && typeof (value as any).nodeId === 'string') {
+                const realId = tempIdMap.get((value as any).nodeId);
+                if (realId) {
+                  updatedFields[key] = { ...value, nodeId: realId };
+                  needsUpdate = true;
+                }
+              }
+              // 多值 reference: Array<{ nodeId: string, ... }>
+              if (Array.isArray(value)) {
+                const updatedArray = value.map((item: unknown) => {
+                  if (item && typeof item === 'object' && 'nodeId' in item && typeof (item as any).nodeId === 'string') {
+                    const realId = tempIdMap.get((item as any).nodeId);
+                    if (realId) {
+                      needsUpdate = true;
+                      return { ...item, nodeId: realId };
+                    }
+                  }
+                  return item;
+                });
+                if (needsUpdate) {
+                  updatedFields[key] = updatedArray;
+                }
+              }
+            }
+          }
+
+          // 如果有修改，更新节点
+          if (needsUpdate) {
+            const nodeUpdate: Partial<Node> = {};
+            if (updatedRefs.length > 0) {
+              (nodeUpdate as any).references = updatedRefs;
+            }
+            nodeUpdate.fields = updatedFields;
+            updateNode(nodeInfo.realId, nodeUpdate);
+          }
+        }
+
+        console.log(`[Smart Capture] tempId -> realId 引用修正完成，共处理 ${nodesWithReferences.length} 个节点`);
+      }
       
       // 智能捕获完成，重置状态
       set({ 
@@ -793,15 +659,18 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
           status: 'idle',
           smartCaptureProgress: null,
         });
-        return;
+      } else {
+        const message = error instanceof Error ? error.message : '智能捕获失败';
+        setError(message);
+        set({ 
+          status: 'idle',
+          smartCaptureProgress: null,
+        });
       }
-      
-      const message = error instanceof Error ? error.message : '智能捕获失败';
-      setError(message);
-      set({ 
-        status: 'idle',
-        smartCaptureProgress: null,
-      });
+    } finally {
+      // 恢复自动 processQueue，并立即触发一次以同步已入队的所有 create/update
+      useSyncStore.getState().setDeferProcessQueue(false);
+      useSyncStore.getState().processQueue();
     }
   },
 
@@ -821,6 +690,46 @@ export const useCaptureStore = create<CaptureStore>((set, get) => ({
     });
   },
 }));
+
+// ============================================================================
+// 内部工具函数
+// ============================================================================
+
+/**
+ * 构建精简版 Supertag Schema 列表（传给后端 AI 工具）
+ * 包含 category、字段的 targetTagId、statusConfig 等信息，
+ * 以支持 Phase 2 属性挂载和实体识别
+ */
+function buildSupertagSchemas(supertags: Record<string, Supertag>) {
+  const resolveFields = (tagId: string): FieldDefinition[] => {
+    const tag = supertags[tagId];
+    return (tag?.fieldDefinitions ?? []) as unknown as FieldDefinition[];
+  };
+
+  return Object.values(supertags)
+    .filter((tag) => tag.status !== 'deprecated')
+    .map((tag) => ({
+      id: tag.id,
+      name: tag.name,
+      icon: tag.icon,
+      description: tag.description,
+      category: (tag as any).category as 'entity' | 'action' | undefined,
+      fields: resolveFields(tag.id).map((f) => ({
+        key: f.key,
+        name: f.name,
+        type: f.type,
+        options: f.options,
+        targetTagId: (f as any).targetTagId as string | undefined,
+        targetTagIds: (f as any).targetTagIds as string[] | undefined,
+        multiple: (f as any).multiple as boolean | undefined,
+        statusConfig: (f as any).statusConfig as {
+          states: string[];
+          initial: string;
+          doneState?: string;
+        } | undefined,
+      })),
+    }));
+}
 
 // ============================================================================
 // 辅助 Hooks

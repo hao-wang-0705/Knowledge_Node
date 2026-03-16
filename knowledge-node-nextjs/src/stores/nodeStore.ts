@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Node, CommandConfig, TemplateNode } from '@/types';
+import { Node, TemplateNode, SmartCaptureNode, FieldDefinition } from '@/types';
 import { generateId, STORAGE_KEYS, CURRENT_DATA_VERSION, debounce } from '@/utils/helpers';
 import { getCalendarPath, SYSTEM_TAGS, getCalendarNodeType } from '@/utils/date-helpers';
 import {
@@ -12,6 +12,8 @@ import { getUserStorageKey, migrateOldData, getUserId } from '@/utils/userStorag
 import { clearClientCaches } from '@/utils/cache';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useSyncStore } from '@/stores/syncStore';
+import { useSearchNodeStore } from '@/stores/searchNodeStore';
+import { useDeconstructPreviewStore } from '@/stores/deconstructPreviewStore';
 import {
   queueCreateWithDependency,
   waitForNodeSync,
@@ -22,25 +24,30 @@ const SAMPLE_DATA_INITIALIZED_KEY = 'knowledge-node-sample-initialized';
 
 export const ROOT_NODE_ID = 'root';
 
+/** 按视图隔离的折叠覆盖层，key: `${viewKey}:${nodeId}`，不持久化、不同步 */
+const COLLAPSE_OVERLAY_KEY = (viewKey: string, nodeId: string) => `${viewKey}:${nodeId}`;
+
 interface NodeStoreState {
   nodes: Record<string, Node>;
   rootIds: string[];
   focusedNodeId: string | null;
   hoistedNodeId: string | null;
+  /** 按视图的折叠状态覆盖层，仅内存，不写 nodes、不持久化 */
+  collapseOverlay: Record<string, boolean>;
 }
 
 interface NodeStoreActions {
   addNode: (parentId: string | null, afterId?: string) => string;
   addNodes: (newNodes: Record<string, Node>, newRootIds: string[], targetParentId: string | null, afterId?: string) => void;
-  addCommandNode: (parentId: string | null, templateId?: string, prompt?: string, afterId?: string) => string;
   addSearchNode: (parentId: string | null, config?: import('@/types/search').SearchConfig, afterId?: string) => string;
-  addAIResponseNode: (commandNodeId: string, content: string) => string;
-  executeCommandNode: (commandNodeId: string) => Promise<void>;
   updateNode: (id: string, updates: Partial<Node>) => void;
   deleteNode: (id: string) => void;
   indentNode: (id: string) => void;
   outdentNode: (id: string) => void;
-  toggleCollapse: (id: string) => void;
+  /** viewKey: 'main' | `search:${searchNodeId}`，仅写 overlay，不持久化 */
+  toggleCollapse: (viewKey: string, id: string) => void;
+  getCollapseState: (viewKey: string, nodeId: string) => boolean;
+  setCollapseState: (viewKey: string, nodeId: string, value: boolean) => void;
   setFocusedNode: (id: string | null) => void;
   setHoistedNode: (id: string | null) => void;
   navigateToNode: (id: string | null) => void;
@@ -56,16 +63,16 @@ interface NodeStoreActions {
   loadFromStorage: () => void | Promise<void>;
   loadFromAPI: () => Promise<void>;
   saveToStorage: () => void;
-  /** 侧边栏入口：user_root 的一级子节点 ID 列表（过滤 daily_root 和 search_root） */
+  /** 侧边栏入口：user_root 的一级子节点 ID 列表（过滤 daily_root） */
   getSidebarEntries: () => string[];
-  /** 获取 search_root 节点 ID（智能搜索面板专用容器） */
-  getSearchRootId: () => string | null;
   /** 是否在 Daily Notes 子树内（从 nodeId 向上遍历经 daily_root） */
   isInDailyTree: (nodeId: string) => boolean;
   initWithMockData: () => void;
   initWithGuideData: () => void;
   /** v2.1: 应用 Supertag 到节点，可选自动填充默认内容模版 */
   applySupertag: (nodeId: string, supertagId: string, options?: { fillTemplateIfEmpty?: boolean }) => void;
+  /** 智能解构：将幽灵预览节点树写入为真实节点，替换原节点内容（根节点更新原节点，子节点挂载其下） */
+  applyDeconstructPreview: (sourceNodeId: string, nodes: SmartCaptureNode[]) => void;
 }
 
 type NodeStore = NodeStoreState & NodeStoreActions;
@@ -130,7 +137,7 @@ const queueUpdateNode = (nodeId: string, updates: Partial<Node> & { sortOrder?: 
   if (updates.supertagId !== undefined) payload.supertagId = updates.supertagId;
   if (updates.fields !== undefined) payload.fields = updates.fields;
   if (updates.payload !== undefined) payload.payload = updates.payload;
-  if (updates.isCollapsed !== undefined) payload.isCollapsed = updates.isCollapsed;
+  // 展开/收起为纯前端状态，不同步到后端
   if (updates.tags !== undefined) payload.tags = updates.tags;
   if (updates.references !== undefined) payload.references = updates.references;
   if (updates.sortOrder !== undefined) payload.sortOrder = updates.sortOrder;
@@ -252,11 +259,12 @@ const loadNodesFromDB = async (): Promise<{ nodes: Record<string, Node>; rootIds
 
 // ============ Store ============
 
-export const useNodeStore = create<NodeStore>((set, get) => ({
+export const useNodeStore = create<NodeStoreState & NodeStoreActions & { mergeNodeFromServer: (node: Node) => void }>((set, get) => ({
   nodes: {},
   rootIds: [],
   focusedNodeId: null,
   hoistedNodeId: null,
+  collapseOverlay: {},
 
   addNode: (parentId, afterId) => {
     const newId = generateId();
@@ -438,77 +446,6 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     });
   },
 
-  // v4.0: 添加指令节点（极简创建）
-  addCommandNode: (parentId, templateId, prompt, afterId) => {
-    const newId = generateId();
-    // v4.0: 使用新的 surface/coreConfig 结构
-    const commandConfig: CommandConfig = {
-      surface: {
-        name: templateId || '自定义指令',
-        userPrompt: prompt || '',
-      },
-      lastExecutionStatus: 'pending',
-    };
-
-    const state = get();
-    const resolvedParentId =
-      resolveCalendarParentId(parentId, state.nodes);
-    if (resolvedParentId === undefined) {
-      console.error('[addCommandNode] 父节点无法解析，中止创建');
-      throw new Error('无法创建指令节点：父节点未就绪或不存在');
-    }
-
-    const newNode: Node = {
-      id: newId,
-      content: `🤖 ${commandConfig.surface.name}`,
-      type: 'command',
-      parentId: resolvedParentId,
-      childrenIds: [],
-      isCollapsed: false,
-      tags: [],
-      fields: {},
-      createdAt: Date.now(),
-      payload: commandConfig,
-    };
-
-    let sortOrder = 0;
-    set((state) => {
-      const newNodes = { ...state.nodes, [newId]: newNode };
-      let newRootIds = [...state.rootIds];
-
-      if (resolvedParentId === null) {
-        if (afterId) {
-          const afterIndex = newRootIds.indexOf(afterId);
-          newRootIds.splice(afterIndex !== -1 ? afterIndex + 1 : newRootIds.length, 0, newId);
-        } else {
-          newRootIds.push(newId);
-        }
-        sortOrder = newRootIds.indexOf(newId);
-      } else {
-        const parentNode = newNodes[resolvedParentId];
-        if (!parentNode) {
-          console.error(`[addCommandNode] 父节点 ${resolvedParentId} 不存在，中止创建`);
-          throw new Error('无法创建指令节点：父节点不存在');
-        }
-        const newChildrenIds = [...parentNode.childrenIds];
-        if (afterId) {
-          const afterIndex = newChildrenIds.indexOf(afterId);
-          newChildrenIds.splice(afterIndex !== -1 ? afterIndex + 1 : newChildrenIds.length, 0, newId);
-        } else {
-          newChildrenIds.push(newId);
-        }
-        newNodes[resolvedParentId] = { ...parentNode, childrenIds: newChildrenIds };
-        sortOrder = newChildrenIds.indexOf(newId);
-      }
-
-      debouncedSave(newNodes, newRootIds);
-      return { nodes: newNodes, rootIds: newRootIds, focusedNodeId: newId };
-    });
-
-    queueCreateNode(newNode, sortOrder);
-    return newId;
-  },
-
   addSearchNode: (parentId, config, afterId) => {
     const newId = generateId();
     const state = get();
@@ -570,210 +507,6 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     return newId;
   },
 
-  // 添加AI响应子节点（AI生成的内容作为子节点）
-  addAIResponseNode: (commandNodeId, content) => {
-    const newId = generateId();
-    
-    const newNode: Node = {
-      id: newId,
-      content,
-      type: 'text', // AI 生成的内容是普通文本节点，可以编辑
-      parentId: commandNodeId,
-      childrenIds: [],
-      isCollapsed: false,
-      tags: [],
-      fields: {},
-      createdAt: Date.now(),
-    };
-
-    let sortOrder = 0;
-    set((state) => {
-      const commandNode = state.nodes[commandNodeId];
-      if (!commandNode) return state;
-      
-      const newNodes = { ...state.nodes, [newId]: newNode };
-      
-      // 将新节点添加到指令节点的子节点列表
-      newNodes[commandNodeId] = {
-        ...commandNode,
-        childrenIds: [...commandNode.childrenIds, newId],
-        isCollapsed: false, // 展开以显示新生成的内容
-      };
-      
-      sortOrder = newNodes[commandNodeId].childrenIds.indexOf(newId);
-
-      debouncedSave(newNodes, state.rootIds);
-      return { nodes: newNodes };
-    });
-
-    // v3.1 修复：入同步队列
-    queueCreateNode(newNode, sortOrder);
-
-    return newId;
-  },
-
-  // v4.0: 执行指令节点 - 调用后端 SSE 流式接口
-  executeCommandNode: async (commandNodeId) => {
-    const state = get();
-    const commandNode = state.nodes[commandNodeId];
-    
-    if (!commandNode || commandNode.type !== 'command') {
-      const error = new Error('无效的指令节点');
-      console.error('[executeCommandNode] Invalid command node:', commandNodeId);
-      throw error;
-    }
-
-    const commandConfig = commandNode.payload as CommandConfig;
-    
-    // v4.0: 验证 surface.userPrompt 不为空
-    if (!commandConfig.surface?.userPrompt) {
-      const error = new Error('指令内容不能为空，请先配置 Prompt');
-      console.error('[executeCommandNode] Missing userPrompt:', commandNodeId);
-      throw error;
-    }
-    
-    // 更新执行状态为进行中
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [commandNodeId]: {
-          ...s.nodes[commandNodeId],
-          payload: {
-            ...commandConfig,
-            lastExecutionStatus: 'pending' as const,
-            lastExecutedAt: Date.now(),
-          },
-        },
-      },
-    }));
-
-    try {
-      // v4.1: 调用本地 API route（自动处理 userId 映射）
-      const response = await fetch('/api/ai/command/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nodeId: commandNodeId,
-          surface: commandConfig.surface,
-          parentNodeId: commandNode.parentId,
-          autoExecute: true,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`AI 服务请求失败 (${response.status})`);
-      }
-
-      // 处理 SSE 流
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('无法读取响应流');
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let nodeCount = 0;
-      let coreConfig: CommandConfig['coreConfig'] | undefined;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          
-          try {
-            const eventData = JSON.parse(line.slice(6));
-            const { event, data } = eventData;
-
-            switch (event) {
-              case 'intent':
-                console.log('[executeCommandNode] Intent:', data);
-                break;
-                
-              case 'context':
-                console.log('[executeCommandNode] Context:', data);
-                break;
-                
-              case 'node':
-                // 创建子节点
-                get().addAIResponseNode(commandNodeId, data.content);
-                nodeCount++;
-                break;
-                
-              case 'done':
-                coreConfig = data.coreConfig;
-                console.log('[executeCommandNode] Done:', data);
-                break;
-                
-              case 'error':
-                throw new Error(data.message || 'AI 执行失败');
-            }
-          } catch (parseError) {
-            console.warn('[executeCommandNode] Failed to parse SSE event:', line);
-          }
-        }
-      }
-      
-      // 更新执行状态为成功，并保存 coreConfig
-      set((s) => {
-        const node = s.nodes[commandNodeId];
-        if (!node) return s;
-        
-        return {
-          nodes: {
-            ...s.nodes,
-            [commandNodeId]: {
-              ...node,
-              payload: {
-                ...(node.payload as CommandConfig),
-                coreConfig,
-                lastExecutionStatus: 'success' as const,
-                lastExecutedAt: Date.now(),
-              },
-            },
-          },
-        };
-      });
-      
-      // 保存到 storage
-      const newState = get();
-      debouncedSave(newState.nodes, newState.rootIds);
-      
-    } catch (error) {
-      console.error('[executeCommandNode] Execution failed:', error);
-      
-      // 更新执行状态为失败
-      set((s) => {
-        const node = s.nodes[commandNodeId];
-        if (!node) return s;
-        
-        const errorMessage = error instanceof Error ? error.message : '执行失败';
-        
-        return {
-          nodes: {
-            ...s.nodes,
-            [commandNodeId]: {
-              ...node,
-              payload: {
-                ...(node.payload as CommandConfig),
-                lastExecutionStatus: 'error' as const,
-                lastExecutedAt: Date.now(),
-                lastError: errorMessage,
-              },
-            },
-          },
-        };
-      });
-      
-      throw error;
-    }
-  },
-
   updateNode: (id, updates) => {
     set((state) => {
       const existingNode = state.nodes[id];
@@ -785,6 +518,16 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     
     // 异步同步到数据库（通过同步队列）
     queueUpdateNode(id, updates);
+  },
+
+  mergeNodeFromServer: (node) => {
+    set((state) => {
+      const existing = state.nodes[node.id];
+      const merged: Node = existing ? { ...existing, ...node } : node;
+      const newNodes = { ...state.nodes, [node.id]: merged };
+      debouncedSave(newNodes, state.rootIds);
+      return { nodes: newNodes };
+    });
   },
 
   deleteNode: (id) => {
@@ -808,7 +551,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       const newNodes = { ...state.nodes };
       nodesToDelete.forEach((nodeId) => delete newNodes[nodeId]);
 
-      let newRootIds = state.rootIds.filter((rootId) => !nodesToDelete.has(rootId));
+      const newRootIds = state.rootIds.filter((rootId) => !nodesToDelete.has(rootId));
 
       if (targetNode.parentId && newNodes[targetNode.parentId]) {
         const parentNode = newNodes[targetNode.parentId];
@@ -824,6 +567,14 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     
     // 异步同步删除到数据库（通过同步队列，只删除根节点，子节点由数据库级联删除）
     queueDeleteNode(id);
+
+    // 删除后，从所有搜索结果中清理被删除节点，避免结果中残留无效 ID
+    try {
+      const searchStore = useSearchNodeStore.getState();
+      searchStore.pruneResultsForDeletedNodes(Array.from(nodesToDelete));
+    } catch (error) {
+      console.error('[nodeStore] prune search results after delete failed:', error);
+    }
 
     // 同步删除后的同级顺序，避免 sortOrder 与前端结构漂移
     const updatedState = get();
@@ -942,14 +693,29 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     });
   },
 
-  toggleCollapse: (id) => {
-    set((state) => {
-      const targetNode = state.nodes[id];
-      if (!targetNode) return state;
-      const newNodes = { ...state.nodes, [id]: { ...targetNode, isCollapsed: !targetNode.isCollapsed } };
-      debouncedSave(newNodes, state.rootIds);
-      return { nodes: newNodes };
-    });
+  toggleCollapse: (viewKey, id) => {
+    const state = get();
+    const node = state.nodes[id];
+    if (!node) return;
+    const key = COLLAPSE_OVERLAY_KEY(viewKey, id);
+    const current = key in state.collapseOverlay
+      ? state.collapseOverlay[key]
+      : node.isCollapsed;
+    set((s) => ({
+      collapseOverlay: { ...s.collapseOverlay, [key]: !current },
+    }));
+  },
+
+  getCollapseState: (viewKey, nodeId) => {
+    const state = get();
+    const key = COLLAPSE_OVERLAY_KEY(viewKey, nodeId);
+    if (key in state.collapseOverlay) return state.collapseOverlay[key];
+    return state.nodes[nodeId]?.isCollapsed ?? false;
+  },
+
+  setCollapseState: (viewKey, nodeId, value) => {
+    const key = COLLAPSE_OVERLAY_KEY(viewKey, nodeId);
+    set((s) => ({ collapseOverlay: { ...s.collapseOverlay, [key]: value } }));
   },
 
   setFocusedNode: (id) => set({ focusedNodeId: id }),
@@ -1430,17 +1196,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const { nodes } = get();
     const userRootId = Object.values(nodes).find((n) => n.nodeRole === 'user_root')?.id;
     if (!userRootId) return [];
-    // 过滤掉 daily_root 和 search_root，仅返回可导航的笔记本
+    // 过滤掉 daily_root，仅返回可导航的笔记本
     return (nodes[userRootId]?.childrenIds ?? []).filter((childId) => {
       const child = nodes[childId];
-      return child && child.nodeRole !== 'daily_root' && child.nodeRole !== 'search_root';
+      return child && child.nodeRole !== 'daily_root';
     });
-  },
-
-  /** 获取 search_root 节点 ID（智能搜索面板专用容器） */
-  getSearchRootId: () => {
-    const { nodes } = get();
-    return Object.values(nodes).find((n) => n.nodeRole === 'search_root')?.id ?? null;
   },
 
   isInDailyTree: (nodeId: string) => {
@@ -1473,19 +1233,41 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
     const supertag = useSupertagStore.getState().supertags[supertagId];
     const templateContent = supertag?.templateContent;
+    const getFieldDefinitions = useSupertagStore.getState().getFieldDefinitions;
+    const defs = getFieldDefinitions(supertagId) ?? [];
+
+    // v4.2: 根据 fieldDefinitions 生成默认 fields（date 默认当天，其余 null/[]）
+    const defaultFields: Record<string, unknown> = {};
+    const today = new Date().toISOString().slice(0, 10);
+    for (const d of defs) {
+      if (d.type === 'date') defaultFields[d.key] = today;
+      else if (d.type === 'reference' && (d as FieldDefinition).multiple) defaultFields[d.key] = [];
+      else if (d.type === 'reference') defaultFields[d.key] = null;
+      else defaultFields[d.key] = null;
+    }
+    const mergedFields = { ...defaultFields, ...node.fields };
 
     set((s) => {
-      const newNodes = { ...s.nodes, [nodeId]: { ...s.nodes[nodeId]!, supertagId, tags: [...(s.nodes[nodeId]?.tags ?? []).filter((t) => t !== supertagId), supertagId] } };
+      const newNodes = {
+        ...s.nodes,
+        [nodeId]: {
+          ...s.nodes[nodeId]!,
+          supertagId,
+          tags: [...(s.nodes[nodeId]?.tags ?? []).filter((t) => t !== supertagId), supertagId],
+          fields: mergedFields,
+        },
+      };
       debouncedSave(newNodes, s.rootIds);
       return { nodes: newNodes };
     });
 
-    // 同步 supertagId 和 tags 到数据库
+    // 同步 supertagId、tags、fields 到数据库
     const updatedNode = get().nodes[nodeId];
     if (updatedNode) {
       queueUpdateNode(nodeId, {
         supertagId: updatedNode.supertagId,
         tags: updatedNode.tags,
+        fields: updatedNode.fields,
       });
     }
 
@@ -1551,8 +1333,20 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         console.warn(`[applySupertag] 嵌套标签不存在: ${task.supertagId}`);
         continue;
       }
+
+      const nestedDefs = supertagStore.getFieldDefinitions(task.supertagId) ?? [];
+      const nestedDefaults: Record<string, unknown> = {};
+      const today = new Date().toISOString().slice(0, 10);
+      for (const d of nestedDefs) {
+        if (d.type === 'date') nestedDefaults[d.key] = today;
+        else if (d.type === 'reference' && (d as FieldDefinition).multiple) nestedDefaults[d.key] = [];
+        else if (d.type === 'reference') nestedDefaults[d.key] = null;
+        else nestedDefaults[d.key] = null;
+      }
+      const targetNodeForMerge = get().nodes[task.nodeId];
+      const nestedMergedFields = { ...nestedDefaults, ...(targetNodeForMerge?.fields ?? {}) };
       
-      // 更新节点的 supertagId 和 tags
+      // 更新节点的 supertagId、tags 与默认 fields
       set((s) => {
         const targetNode = s.nodes[task.nodeId];
         if (!targetNode) return s;
@@ -1563,6 +1357,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
             ...targetNode,
             supertagId: task.supertagId,
             tags: [...(targetNode.tags ?? []).filter((t) => t !== task.supertagId), task.supertagId],
+            fields: nestedMergedFields,
           },
         };
         debouncedSave(newNodes, s.rootIds);
@@ -1575,6 +1370,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         queueUpdateNode(task.nodeId, {
           supertagId: nestedUpdatedNode.supertagId,
           tags: nestedUpdatedNode.tags,
+          fields: nestedUpdatedNode.fields,
         });
       }
       
@@ -1623,5 +1419,43 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         get().addNodes(nestedNewNodes, nestedRootIds, task.nodeId);
       }
     }
+  },
+
+  applyDeconstructPreview: (sourceNodeId, nodes) => {
+    const state = get();
+    const sourceNode = state.nodes[sourceNodeId];
+    if (!sourceNode || !nodes.length) return;
+
+    let rootAssigned = false;
+    const tempIdToRealId = new Map<string, string>();
+    for (const n of nodes) {
+      let realId: string;
+      if (n.parentTempId === null) {
+        if (!rootAssigned) {
+          rootAssigned = true;
+          realId = sourceNodeId;
+        } else {
+          realId = get().addNode(sourceNodeId);
+        }
+      } else {
+        realId = get().addNode(tempIdToRealId.get(n.parentTempId)!);
+      }
+      tempIdToRealId.set(n.tempId, realId);
+    }
+    for (const n of nodes) {
+      const realId = tempIdToRealId.get(n.tempId)!;
+      const updates: Partial<Node> = {
+        content: n.content,
+        fields: n.fields ?? {},
+      };
+      if (n.supertagId) {
+        updates.supertagId = n.supertagId;
+        updates.tags = [n.supertagId];
+      } else {
+        updates.tags = [];
+      }
+      get().updateNode(realId, updates);
+    }
+    useDeconstructPreviewStore.getState().setPreview(sourceNodeId, null);
   },
 }));

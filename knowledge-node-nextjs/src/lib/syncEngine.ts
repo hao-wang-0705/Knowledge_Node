@@ -118,37 +118,43 @@ export function isRetryableError(error: unknown): boolean {
 // 操作执行器
 // =============================================================================
 
+/** 操作执行结果（如级联解锁的节点 id 列表） */
+export type ExecuteResult = { unlockedNodeIds?: string[] };
+
 /**
  * 执行单个同步操作
  * @param operation 同步操作
+ * @returns 部分操作（如 update）可能返回 unlockedNodeIds，供调用方 refetch 合并
  * @throws 执行失败时抛出错误
  */
-export async function executeOperation(operation: SyncOperation): Promise<void> {
+export async function executeOperation(operation: SyncOperation): Promise<ExecuteResult | void> {
   const { type, entityType, entityId, payload } = operation;
-  
+
   console.log(`[SyncEngine] 执行操作: ${type} ${entityType}/${entityId}`);
-  
+
   try {
     switch (entityType) {
-      case 'node':
-        await executeNodeOperation(type, entityId, payload, operation.id);
-        break;
+      case 'node': {
+        const out = await executeNodeOperation(type, entityId, payload, operation.id);
+        return out;
+      }
       case 'supertag':
         await executeSupertagOperation(type, entityId, payload);
-        break;
+        return;
       default:
         throw new Error(`未知的实体类型: ${entityType}`);
     }
   } catch (error) {
-    // 重新抛出认证错误
     if (error instanceof AuthenticationError) {
       console.error('[SyncEngine] 认证失败，需要重新登录');
       throw error;
     }
-    
-    // 包装其他错误
     const message = error instanceof Error ? error.message : '操作执行失败';
     console.error(`[SyncEngine] 操作失败: ${type} ${entityType}/${entityId}`, message);
+    // 保留带 status 的原始错误，以便 isRetryableError 正确判断 4xx 不可重试
+    if (error && typeof error === 'object' && 'status' in error) {
+      throw error;
+    }
     throw new Error(message);
   }
 }
@@ -166,15 +172,28 @@ function isUniqueConstraintError(error: unknown): boolean {
 }
 
 /**
+ * 判断是否为「资源不存在」(404) 错误
+ * 用于 delete 的幂等处理：服务端已无该节点时视为删除成功
+ */
+function isNotFoundError(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'status' in error) {
+    if ((error as { status: number }).status === 404) return true;
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  return /not found/i.test(msg);
+}
+
+/**
  * 执行节点操作
  * create 失败若为唯一约束冲突，自动降级为 update
+ * update 返回级联解锁的节点 id 列表，供调用方 refetch 合并
  */
 async function executeNodeOperation(
   type: OperationType,
   entityId: string,
   payload: unknown,
   opId: string
-): Promise<void> {
+): Promise<ExecuteResult | void> {
   switch (type) {
     case 'create': {
       try {
@@ -183,7 +202,7 @@ async function executeNodeOperation(
         if (isUniqueConstraintError(error)) {
           const p = payload as Record<string, unknown>;
           const parentId = p.parentId;
-          await nodesApi.update(entityId, {
+          const { unlockedNodeIds } = await nodesApi.update(entityId, {
             content: p.content as string | undefined,
             parentId: parentId === null || parentId === undefined ? undefined : (parentId as string),
             type: p.nodeType as string | undefined,
@@ -195,18 +214,35 @@ async function executeNodeOperation(
             tags: p.tags as string[] | undefined,
             references: p.references as unknown[] | undefined,
           }, { opId });
+          if (unlockedNodeIds?.length) return { unlockedNodeIds };
         } else {
           throw error;
         }
       }
-      break;
+      return;
     }
-    case 'update':
-      await nodesApi.update(entityId, payload as Parameters<typeof nodesApi.update>[1], { opId });
-      break;
-    case 'delete':
-      await nodesApi.delete(entityId, { opId });
-      break;
+    case 'update': {
+      const { unlockedNodeIds } = await nodesApi.update(
+        entityId,
+        payload as Parameters<typeof nodesApi.update>[1],
+        { opId }
+      );
+      if (unlockedNodeIds?.length) return { unlockedNodeIds };
+      return;
+    }
+    case 'delete': {
+      try {
+        await nodesApi.delete(entityId, { opId });
+      } catch (error) {
+        // 幂等：节点已在服务端不存在(404)时视为删除成功，避免阻塞队列
+        if (isNotFoundError(error)) {
+          console.log(`[SyncEngine] 删除节点 ${entityId} 在服务端已不存在，视为成功`);
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
     default:
       throw new Error(`未知的操作类型: ${type}`);
   }
@@ -342,8 +378,15 @@ export function mergeOperations(operations: SyncOperation[]): SyncOperation[] {
     
     // 更新操作合并
     if (op.type === 'update') {
-      if (existing.type === 'create') {
-        // create + update = create (合并 payload)
+      // 检查 update 的 payload 是否含有非空 references 数组
+      // 若有，则不与 create 合并，保留为独立 update
+      // 这样 update 会在所有 create 之后执行，确保被引用的实体节点已创建
+      // 后端 syncMentionEdgesForNode 才能正确建立 MENTION 边
+      const updatePayload = op.payload as Record<string, unknown> | undefined;
+      const hasReferences = Array.isArray(updatePayload?.references) && updatePayload.references.length > 0;
+
+      if (existing.type === 'create' && !hasReferences) {
+        // create + update = create (合并 payload)，但 references 相关的 update 不合并
         merged.set(key, {
           ...existing,
           payload: {
@@ -352,6 +395,10 @@ export function mergeOperations(operations: SyncOperation[]): SyncOperation[] {
           },
           timestamp: op.timestamp,
         });
+      } else if (existing.type === 'create' && hasReferences) {
+        // create + update(with references) = 保留两者
+        // update 作为新操作加入，会在 create 之后执行
+        merged.set(`${key}:update`, op);
       } else if (existing.type === 'update') {
         // update + update = update (合并 payload)
         merged.set(key, {
@@ -394,11 +441,12 @@ export async function executeWithDelay(
 
 /**
  * 带重试的操作执行
+ * @returns 同 executeOperation，可能含 unlockedNodeIds
  */
 export async function executeWithRetry(
   operation: SyncOperation,
   maxRetries: number = DEFAULT_SYNC_CONFIG.retry.maxRetries
-): Promise<void> {
+): Promise<ExecuteResult | void> {
   let lastError: Error | null = null;
   
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -409,8 +457,8 @@ export async function executeWithRetry(
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
       
-      await executeOperation(operation);
-      return; // 成功
+      const result = await executeOperation(operation);
+      return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       

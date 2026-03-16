@@ -16,7 +16,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Hash, Eye, Copy, Check, Pin, PinOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Supertag } from '@/types';
+import type { TagTemplate } from '@/types';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { usePinnedTagsStore, useIsTagPinned } from '@/stores/pinnedTagsStore';
 
@@ -134,7 +134,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
 
 // 单个标签卡片组件
 interface TagCardProps {
-  tag: Supertag;
+  tag: TagTemplate;
   isSelected: boolean;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -144,6 +144,7 @@ const TagCard: React.FC<TagCardProps> = ({ tag, isSelected, onClick, onContextMe
   const [isHovered, setIsHovered] = useState(false);
   const isPinned = useIsTagPinned(tag.id);
   const togglePin = usePinnedTagsStore((state) => state.togglePin);
+  const categoryLabel = tag.category === 'entity' ? '实体' : tag.category === 'action' ? '行动' : null;
   
   const handlePinClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -173,12 +174,17 @@ const TagCard: React.FC<TagCardProps> = ({ tag, isSelected, onClick, onContextMe
         className="flex-shrink-0"
       />
 
-      {/* 标签名称 */}
+      {/* 标签名称 + 分类角标 */}
       <span
-        className="text-sm font-medium truncate flex-1 text-left"
+        className="text-sm font-medium truncate flex-1 text-left flex items-center gap-2"
         style={{ color: tag.color }}
       >
         {tag.name}
+        {categoryLabel && (
+          <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-400 shrink-0">
+            {categoryLabel}
+          </span>
+        )}
       </span>
       
       {/* 图钉按钮 - hover 或已固定时显示 */}
@@ -224,21 +230,33 @@ const TagGalleryGrid: React.FC<TagGalleryGridProps> = ({
   // 从 store 获取数据
   const supertags = useSupertagStore((state) => state.supertags);
 
-  // 排序后的标签列表
-  const sortedTags = useMemo(() => {
-    return Object.values(supertags).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  // 按分类分组：实体 / 行动 / 其他（无 category 的归入其他）
+  const { entityTags, actionTags, otherTags } = useMemo(() => {
+    const sorted = Object.values(supertags).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const entity = sorted.filter((t) => t.category === 'entity');
+    const action = sorted.filter((t) => t.category === 'action');
+    const other = sorted.filter((t) => t.category !== 'entity' && t.category !== 'action');
+    return { entityTags: entity, actionTags: action, otherTags: other };
   }, [supertags]);
 
-  // 搜索过滤
-  const filteredTags = useMemo(() => {
-    if (!searchQuery.trim()) return sortedTags;
+  // 搜索过滤（对分组后的列表分别过滤）
+  const filteredByQuery = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return { entity: entityTags, action: actionTags, other: otherTags };
+    }
     const query = searchQuery.toLowerCase();
-    return sortedTags.filter(
-      (tag) =>
-        tag.name.toLowerCase().includes(query) ||
-        tag.description?.toLowerCase().includes(query)
-    );
-  }, [sortedTags, searchQuery]);
+    const filter = (list: typeof entityTags) =>
+      list.filter(
+        (tag) =>
+          tag.name.toLowerCase().includes(query) ||
+          tag.description?.toLowerCase().includes(query),
+      );
+    return {
+      entity: filter(entityTags),
+      action: filter(actionTags),
+      other: filter(otherTags),
+    };
+  }, [searchQuery, entityTags, actionTags, otherTags]);
   
   // 处理卡片点击 - 跳转到聚焦页面
   const handleCardClick = useCallback((tagId: string) => {
@@ -306,26 +324,73 @@ const TagGalleryGrid: React.FC<TagGalleryGridProps> = ({
         </div>
       </div>
 
-      {/* 内容区域 */}
+      {/* 内容区域：按实体 / 行动 分类展示 */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
         <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-3">
-          {searchQuery.trim() ? `搜索结果 (${filteredTags.length})` : `全部标签 (${filteredTags.length})`}
+          {searchQuery.trim()
+            ? `搜索结果 (${filteredByQuery.entity.length + filteredByQuery.action.length + filteredByQuery.other.length})`
+            : '按分类展示'}
           <span className="ml-2 text-gray-400 dark:text-gray-500">
             点击进入聚焦视图
           </span>
         </p>
-        
-        {filteredTags.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {filteredTags.map((tag) => (
-              <TagCard
-                key={tag.id}
-                tag={tag}
-                isSelected={selectedTagId === tag.id}
-                onClick={() => handleCardClick(tag.id)}
-                onContextMenu={(e) => handleContextMenu(e, tag.id, tag.name)}
-              />
-            ))}
+
+        {(filteredByQuery.entity.length + filteredByQuery.action.length + filteredByQuery.other.length) > 0 ? (
+          <div className="space-y-6">
+            {filteredByQuery.entity.length > 0 && (
+              <section>
+                <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  实体
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {filteredByQuery.entity.map((tag) => (
+                    <TagCard
+                      key={tag.id}
+                      tag={tag}
+                      isSelected={selectedTagId === tag.id}
+                      onClick={() => handleCardClick(tag.id)}
+                      onContextMenu={(e) => handleContextMenu(e, tag.id, tag.name)}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+            {filteredByQuery.action.length > 0 && (
+              <section>
+                <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  行动
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {filteredByQuery.action.map((tag) => (
+                    <TagCard
+                      key={tag.id}
+                      tag={tag}
+                      isSelected={selectedTagId === tag.id}
+                      onClick={() => handleCardClick(tag.id)}
+                      onContextMenu={(e) => handleContextMenu(e, tag.id, tag.name)}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+            {filteredByQuery.other.length > 0 && (
+              <section>
+                <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                  其他
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {filteredByQuery.other.map((tag) => (
+                    <TagCard
+                      key={tag.id}
+                      tag={tag}
+                      isSelected={selectedTagId === tag.id}
+                      onClick={() => handleCardClick(tag.id)}
+                      onContextMenu={(e) => handleContextMenu(e, tag.id, tag.name)}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         ) : (
           <div className="text-center py-12">

@@ -1,326 +1,357 @@
 {
   "$schema": "./preset-tags.schema.json",
-  "description": "预置标签配置文件 v3.5 - 通过 /api/internal/tags/batch 导入",
+  "description": "预置标签 v4.3 - 新增地点/概念/RabbitHole，并统一 AI 描述格式（定义+适用场景+AI触发建议）",
   "tags": [
     {
-      "name": "任务",
+      "name": "事件",
+      "category": "entity",
       "color": "#3B82F6",
-      "icon": "✅",
-      "description": "任务管理标签，包含状态、优先级、截止日期和 AI 进度追踪",
+      "icon": "📅",
+      "description": "时间锚定的事件记录。捕捉发生在特定时间的活动和经历，无状态流转。适用于会议、约会、出行、里程碑。AI应在用户提及具体日期、时间或日程安排时建议此标签。",
       "order": 1,
       "fieldDefinitions": [
         {
-          "id": "task_status_v2",
-          "key": "task_status",
-          "name": "任务状态",
-          "type": "select",
-          "options": ["待启动", "进行中", "已完成", "已取消"]
-        },
-        {
-          "id": "task_priority_v2",
-          "key": "task_priority",
-          "name": "任务优先级",
-          "type": "select",
-          "options": ["P0", "P1", "P2", "Nice To Have"]
-        },
-        {
-          "id": "task_due_date_v2",
-          "key": "due_date",
-          "name": "截止日期",
+          "id": "event_date",
+          "key": "event_date",
+          "name": "时间日期",
           "type": "date"
         },
         {
-          "id": "task_progress_ai",
-          "key": "task_progress",
-          "name": "任务进度",
-          "type": "ai_text",
-          "aiConfig": {
-            "aiType": "extraction",
-            "prompt": "分析当前节点的所有子节点，统计打上[任务]标签的子节点中，任务状态为[已完成]的数量和总任务数量，计算完成百分比。输出格式：X/Y (Z%)，其中 X 是已完成数量，Y 是总任务数量，Z 是完成百分比。如果没有子任务，返回[暂无子任务]",
-            "triggerOn": "manual",
-            "outputFormat": "text",
-            "includeChildren": true,
-            "contextDepth": 1
-          }
+          "id": "event_type",
+          "key": "event_type",
+          "name": "事件类型",
+          "type": "select",
+          "options": ["会议", "沟通", "出行", "专注"]
         }
       ],
-      "templateContent": {
-        "content": "",
-        "children": [
-          { 
-            "content": "子任务1",
-            "tags": ["任务"]
-          }
-        ]
-      },
-      "viewConfig": {
-        "version": "1.0",
-        "layout": {
-          "type": "kanban",
-          "groupByField": "task_status",
-          "sortField": "due_date",
-          "sortOrder": "asc"
-        },
-        "widgets": {
-          "header": [
-            {
-              "id": "standup-report",
-              "type": "ai-aggregation",
-              "props": {
-                "title": "📋 站会播报",
-                "query": {
-                  "filters": [
-                    {
-                      "field": "task_status",
-                      "operator": "nin",
-                      "value": ["已完成", "已取消"]
-                    }
-                  ],
-                  "limit": 20,
-                  "includeChildren": true,
-                  "childDepth": 1
-                },
-                "prompt": "请作为站会主持人，分析以下任务列表并生成简洁的站会播报：\n\n1. **高优预警**：列出已逾期或今天到期的任务，用 [[nodeId]] 格式引用\n2. **进展摘要**：总结进行中任务的整体进度\n3. **阻塞风险**：识别可能存在阻塞或依赖的任务\n\n要求：\n- 语言简洁有力，适合晨会口播\n- 优先级最高的任务放在最前面\n- 每个要点不超过 3 条",
-                "cacheTTL": 600,
-                "showBacklinks": true
-              }
-            }
-          ]
-        },
-        "actions": {
-          "quickCapture": {
-            "defaultFields": {
-              "task_status": "待启动"
-            },
-            "placeholder": "快速添加任务，回车创建..."
-          },
-          "drag": {
-            "targetField": "task_status",
-            "allowedTransitions": {
-              "待启动": ["进行中", "已取消"],
-              "进行中": ["已完成", "待启动"],
-              "已完成": ["进行中"],
-              "已取消": ["待启动"]
-            },
-            "debounceMs": 300
-          }
-        }
-      },
       "isGlobalDefault": true,
       "status": "active"
     },
     {
-      "name": "运动记录",
-      "color": "#EF4444",
-      "icon": "🏃",
-      "description": "运动记录标签，追踪运动类型、地点、卡路里消耗及 AI 消耗总结",
+      "name": "项目",
+      "category": "entity",
+      "color": "#8B5CF6",
+      "icon": "📦",
+      "description": "目标驱动的工作容器。组织围绕特定目标展开的任务和资源，无状态流转。适用于产品迭代、学习计划、跨周期协作。AI应在用户描述多步骤目标或需要协调多方资源时建议此标签。",
       "order": 2,
       "fieldDefinitions": [
         {
-          "id": "exercise_type",
-          "key": "exercise_type",
-          "name": "运动类型",
+          "id": "project_status",
+          "key": "project_status",
+          "name": "项目状态",
           "type": "select",
-          "options": ["有氧", "无氧", "力量"]
+          "options": ["规划", "执行", "复盘", "归档"]
         },
         {
-          "id": "exercise_location",
-          "key": "exercise_location",
-          "name": "运动地点",
-          "type": "select",
-          "options": ["室内", "户外"]
-        },
-        {
-          "id": "exercise_calories",
-          "key": "calories",
-          "name": "消耗卡路里",
-          "type": "number",
-          "format": "千卡"
-        },
-        {
-          "id": "exercise_summary_ai",
-          "key": "calorie_summary",
-          "name": "消耗总结",
-          "type": "ai_text",
-          "aiConfig": {
-            "aiType": "summarization",
-            "prompt": "根据消耗的卡路里数值，将其转换为等价的食物热量。例如：消耗 300 千卡约等于 1 碗米饭（约 230 千卡）+ 1 个苹果（约 70 千卡），或约等于 1 个汉堡（约 300 千卡）。请给出 2-3 种常见食物的等价换算，让用户直观理解运动消耗。如果卡路里字段为空，返回[请先填写消耗卡路里]",
-            "triggerOn": "manual",
-            "outputFormat": "text",
-            "inputFields": ["calories"],
-            "includeChildren": false
-          }
+          "id": "project_owner",
+          "key": "project_owner",
+          "name": "项目负责人",
+          "type": "reference",
+          "targetTagName": "人物",
+          "multiple": true
         }
       ],
-      "templateContent": {
-        "content": "",
-        "children": [
-          { "content": "运动内容：" },
-          { "content": "运动时长：" },
-          { "content": "运动感受：" }
-        ]
-      },
       "isGlobalDefault": true,
       "status": "active"
     },
     {
-      "name": "会议",
-      "color": "#8B5CF6",
-      "icon": "📅",
-      "description": "会议记录标签，包含 AI 信息抽取字段",
+      "name": "人物",
+      "category": "entity",
+      "color": "#10B981",
+      "icon": "👤",
+      "description": "人际关系锚点。记录与特定人物相关的角色、联系方式和互动背景，无状态流转。适用于同事、客户、朋友、专家。AI应在用户提及人名或描述与他人的关系时建议此标签。",
       "order": 3,
       "fieldDefinitions": [
         {
-          "id": "meeting_date",
-          "key": "date",
-          "name": "会议日期",
+          "id": "person_role",
+          "key": "person_role",
+          "name": "角色",
+          "type": "text"
+        }
+      ],
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "Source",
+      "category": "entity",
+      "color": "#F59E0B",
+      "icon": "📚",
+      "description": "外部信息源引用。标记文章、书籍、视频、播客等外部知识来源的链接与摘要，无状态流转。AI应在用户粘贴 URL、引用外部内容或标注出处时建议此标签。",
+      "order": 4,
+      "fieldDefinitions": [
+        {
+          "id": "source_url",
+          "key": "source_url",
+          "name": "URL",
+          "type": "text"
+        },
+        {
+          "id": "source_note",
+          "key": "source_note",
+          "name": "信息说明",
+          "type": "text"
+        }
+      ],
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "地点",
+      "category": "entity",
+      "color": "#0EA5E9",
+      "icon": "🗺️",
+      "description": "地理坐标锚点。标记具体地理位置，捕捉与地点相关的记忆、体验和实用信息，无状态流转。适用于旅行目的地、常去场所、待探索地点。AI应在用户提及地名、地址或坐标时建议此标签。",
+      "order": 5,
+      "fieldDefinitions": [
+        {
+          "id": "place_type",
+          "key": "place_type",
+          "name": "地点类型",
+          "type": "select",
+          "options": ["餐厅", "景点", "住宿", "交通枢纽", "工作场所", "生活", "其他"]
+        },
+        {
+          "id": "place_coordinates",
+          "key": "place_coordinates",
+          "name": "坐标/地址",
+          "type": "text"
+        },
+        {
+          "id": "place_visited_at",
+          "key": "place_visited_at",
+          "name": "到访时间",
           "type": "date"
         },
         {
-          "id": "meeting_time",
-          "key": "time",
-          "name": "会议时间",
-          "type": "text"
-        },
-        {
-          "id": "meeting_participants",
-          "key": "participants",
-          "name": "参会人员",
-          "type": "text"
-        },
-        {
-          "id": "meeting_agenda",
-          "key": "agenda",
-          "name": "议程",
-          "type": "text"
-        },
-        {
-          "id": "meeting_ai_actions",
-          "key": "ai_actions",
-          "name": "AI 行动点",
-          "type": "ai_text",
-          "aiConfig": {
-            "aiType": "extraction",
-            "prompt": "从会议记录中提取所有待办事项和行动点，格式为：- [负责人] 行动内容 (截止日期，如有)",
-            "triggerOn": "manual",
-            "outputFormat": "list",
-            "includeChildren": true,
-            "contextDepth": 3
-          }
-        },
-        {
-          "id": "meeting_ai_decisions",
-          "key": "ai_decisions",
-          "name": "AI 决策摘要",
-          "type": "ai_text",
-          "aiConfig": {
-            "aiType": "extraction",
-            "prompt": "提取会议中达成的关键决策和结论，每条一行",
-            "triggerOn": "manual",
-            "outputFormat": "list",
-            "includeChildren": true,
-            "contextDepth": 3
-          }
+          "id": "place_rating",
+          "key": "place_rating",
+          "name": "评分",
+          "type": "select",
+          "options": ["1", "2", "3", "4", "5"]
         }
       ],
-      "templateContent": {
-        "content": "",
-        "children": [
-          { "content": "议程：" },
-          { "content": "讨论要点：" },
-          { "content": "待办事项：" }
-        ]
-      },
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "概念",
+      "category": "entity",
+      "color": "#7C3AED",
+      "icon": "🧠",
+      "description": "长期积累的知识簇。标记需要反复咀嚼、逐步深化理解的抽象概念或理论框架，无状态流转。适用于专业术语、心智模型、方法论、底层原理。AI应在用户记录定义性知识、理论解释或跨领域抽象概念时建议此标签。",
+      "order": 6,
+      "fieldDefinitions": [
+        {
+          "id": "concept_domain",
+          "key": "concept_domain",
+          "name": "所属领域",
+          "type": "text"
+        },
+        {
+          "id": "concept_maturity",
+          "key": "concept_maturity",
+          "name": "理解程度",
+          "type": "select",
+          "options": ["初识", "熟悉", "精通"]
+        },
+        {
+          "id": "concept_sources",
+          "key": "concept_sources",
+          "name": "信息来源",
+          "type": "reference",
+          "targetTagName": "Source",
+          "multiple": true
+        }
+      ],
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "todo",
+      "category": "action",
+      "color": "#EF4444",
+      "icon": "♟️",
+      "description": "可执行的原子任务。自带 Ready、Locked、Done 三态状态机，存在前置卡点时可自动锁定。适用于可明确定义完成条件的待办事项。AI应在用户表达要做、需要完成、应该执行等明确待办意图时建议此标签。",
+      "order": 7,
+      "fieldDefinitions": [
+        {
+          "id": "todo_status",
+          "key": "todo_status",
+          "name": "当前状态",
+          "type": "status",
+          "statusConfig": {
+            "states": ["Ready", "Locked", "Done"],
+            "initial": "Ready",
+            "doneState": "Done",
+            "blockedStates": ["Locked"],
+            "unblockedStates": ["Ready"],
+            "transitions": {
+              "user_toggle": { "Ready": "Done", "Done": "Ready" },
+              "add_blocker": { "Ready": "Locked" },
+              "all_blockers_resolved": { "Locked": "Ready" }
+            }
+          }
+        },
+        {
+          "id": "todo_deadline",
+          "key": "todo_deadline",
+          "name": "Deadline",
+          "type": "date"
+        },
+        {
+          "id": "todo_deps",
+          "key": "todo_deps",
+          "name": "前置依赖",
+          "type": "reference",
+          "targetTagNames": ["卡点", "todo"],
+          "multiple": true
+        }
+      ],
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "卡点",
+      "category": "action",
+      "color": "#EC4899",
+      "icon": "🪢",
+      "description": "阻塞任务推进的障碍。自带 Open、Resolved 状态机，解决后可解除相关任务阻塞。适用于依赖未满足、外部等待、关键困难。AI应在用户描述阻碍、卡住、等待条件时建议此标签。",
+      "order": 8,
+      "fieldDefinitions": [
+        {
+          "id": "blocker_status",
+          "key": "blocker_status",
+          "name": "当前状态",
+          "type": "status",
+          "statusConfig": {
+            "states": ["Open", "Resolved"],
+            "initial": "Open",
+            "resolvedState": "Resolved",
+            "transitions": {
+              "user_toggle": { "Open": "Resolved", "Resolved": "Open" }
+            }
+          }
+        },
+        {
+          "id": "blocker_priority",
+          "key": "blocker_priority",
+          "name": "优先级",
+          "type": "select",
+          "options": ["P0", "P1", "P2"]
+        },
+        {
+          "id": "blocker_ideas",
+          "key": "blocker_ideas",
+          "name": "有效灵感",
+          "type": "reference",
+          "targetTagName": "灵感",
+          "multiple": true
+        }
+      ],
       "isGlobalDefault": true,
       "status": "active"
     },
     {
       "name": "灵感",
+      "category": "action",
       "color": "#F59E0B",
-      "icon": "💡",
-      "description": "灵感记录标签",
-      "order": 4,
+      "icon": "⚡",
+      "description": "待验证的创意火花。自带孵化、已验证、已丢弃状态机，支持从想法到验证闭环。适用于突发想法、方案假设、创意联想。AI应在用户表达灵光一现、设想或探索性方案时建议此标签。",
+      "order": 9,
       "fieldDefinitions": [
         {
-          "id": "idea_source",
-          "key": "source",
-          "name": "来源",
-          "type": "text"
-        },
-        {
           "id": "idea_status",
-          "key": "status",
-          "name": "状态",
-          "type": "select",
-          "options": ["待整理", "已归档", "已实现"]
+          "key": "idea_status",
+          "name": "当前状态",
+          "type": "status",
+          "statusConfig": {
+            "states": ["孵化", "已验证", "已丢弃"],
+            "initial": "孵化",
+            "transitions": {
+              "user_toggle": { "孵化": "已验证", "已验证": "孵化", "已丢弃": "孵化" }
+            }
+          }
         },
         {
-          "id": "idea_tags",
-          "key": "tags",
-          "name": "标签",
-          "type": "multi-select",
-          "options": ["产品", "技术", "设计", "商业", "生活"]
+          "id": "idea_feasibility",
+          "key": "idea_feasibility",
+          "name": "可行性",
+          "type": "select",
+          "options": ["高", "中", "低"]
+        },
+        {
+          "id": "idea_blockers",
+          "key": "idea_blockers",
+          "name": "关联卡点",
+          "type": "reference",
+          "targetTagName": "卡点",
+          "multiple": true
         }
       ],
       "isGlobalDefault": true,
       "status": "active"
     },
     {
-      "name": "书籍",
-      "color": "#10B981",
-      "icon": "📚",
-      "description": "书籍阅读记录",
-      "order": 5,
+      "name": "快照",
+      "category": "action",
+      "color": "#6B7280",
+      "icon": "📸",
+      "description": "轻量级时刻标记。无额外字段与状态机，用于快速捕捉无需结构化管理的片段记录。适用于短笔记、随手记录、过渡信息。AI应在内容不匹配其他标签但用户仍希望快速标记时建议此标签。",
+      "order": 10,
+      "fieldDefinitions": [],
+      "isGlobalDefault": true,
+      "status": "active"
+    },
+    {
+      "name": "RabbitHole",
+      "category": "action",
+      "color": "#6D28D9",
+      "icon": "🕳️",
+      "description": "深度研究主题。标记引发强烈好奇、需要持续投入的复杂问题，自带研究进度状态机。适用于技术难题、学术课题、长期兴趣深挖。AI应在用户表达以后要深挖、持续研究或复杂待探索主题时建议此标签。",
+      "order": 11,
       "fieldDefinitions": [
         {
-          "id": "book_author",
-          "key": "author",
-          "name": "作者",
-          "type": "text"
-        },
-        {
-          "id": "book_rating",
-          "key": "rating",
-          "name": "评分",
-          "type": "number",
-          "format": "rating"
-        },
-        {
-          "id": "book_status",
-          "key": "status",
-          "name": "阅读状态",
-          "type": "select",
-          "options": ["想读", "在读", "已读"]
-        },
-        {
-          "id": "book_start_date",
-          "key": "start_date",
-          "name": "开始日期",
-          "type": "date"
-        },
-        {
-          "id": "book_ai_summary",
-          "key": "ai_summary",
-          "name": "AI 书评摘要",
-          "type": "ai_text",
-          "aiConfig": {
-            "aiType": "summarization",
-            "prompt": "根据我的阅读笔记，生成一段 100 字以内的书评摘要，包含核心观点和个人收获",
-            "triggerOn": "manual",
-            "outputFormat": "text",
-            "includeChildren": true,
-            "contextDepth": 5
+          "id": "rabbit_status",
+          "key": "rabbit_status",
+          "name": "研究状态",
+          "type": "status",
+          "statusConfig": {
+            "states": ["发现", "挖掘中", "暂停", "挖透"],
+            "initial": "发现",
+            "doneState": "挖透",
+            "blockedStates": ["暂停"],
+            "unblockedStates": ["发现", "挖掘中"],
+            "transitions": {
+              "user_toggle": { "发现": "挖掘中", "挖掘中": "挖透", "挖透": "挖掘中" },
+              "pause": { "挖掘中": "暂停" },
+              "resume": { "暂停": "挖掘中" }
+            }
           }
+        },
+        {
+          "id": "rabbit_depth",
+          "key": "rabbit_depth",
+          "name": "目标深度",
+          "type": "select",
+          "options": ["浅尝辄止", "了解全貌", "系统掌握", "学术级深挖"]
+        },
+        {
+          "id": "rabbit_time_budget",
+          "key": "rabbit_time_budget",
+          "name": "时间预算",
+          "type": "select",
+          "options": ["1小时", "半天", "1-3天", "1周+", "无上限"]
+        },
+        {
+          "id": "rabbit_sources",
+          "key": "rabbit_sources",
+          "name": "参考资料",
+          "type": "reference",
+          "targetTagName": "Source",
+          "multiple": true
         }
       ],
-      "templateContent": {
-        "content": "",
-        "children": [
-          { "content": "核心观点：" },
-          { "content": "个人收获：" },
-          { "content": "摘录：" }
-        ]
-      },
       "isGlobalDefault": true,
       "status": "active"
     }

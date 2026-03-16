@@ -14,7 +14,6 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { usePinnedTagsStore } from '@/stores/pinnedTagsStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { getTodayId } from '@/utils/date-helpers';
-import CommandTemplateManager from './CommandTemplateManager';
 import {
   sidebarContainerStyles,
   avatarStyles,
@@ -47,7 +46,6 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
   const [menuPosition, setMenuPosition] = useState<AdjustedPosition | null>(null);
   const [isMenuVisible, setIsMenuVisible] = useState(false);
-  const [showCommandManager, setShowCommandManager] = useState(false);
   const [expandedTagIds, setExpandedTagIds] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -369,8 +367,8 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
       {/* ============ 第三部分：聚焦区 ============ */}
       <div className="px-3 py-2 sidebar-section">
         <div className="flex items-center gap-2 px-2 py-1.5 mb-1">
-          <Pin size={14} className="text-gray-400" />
-          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">聚焦</span>
+          <Pin size={14} className="text-[#888] dark:text-gray-500" />
+          <span className="text-xs font-semibold text-[#888] dark:text-gray-500 uppercase tracking-wider">聚焦</span>
           <span className="text-[10px] text-gray-400 dark:text-gray-500">Pinned</span>
         </div>
         
@@ -469,7 +467,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         </div>
 
         {/* 笔记本列表（可滚动） */}
-        <div className="overflow-y-auto px-2 pb-2 flex-1">
+        <div className="overflow-y-auto custom-scrollbar px-2 pb-2 flex-1">
           <div className="space-y-0.5 pl-1">
             {/* Daily Notes - 统一使用品牌色 */}
             <div
@@ -574,7 +572,6 @@ const Sidebar: React.FC<SidebarProps> = ({ className, onOpenCommandCenter }) => 
         document.body
       )}
 
-      <CommandTemplateManager open={showCommandManager} onClose={() => setShowCommandManager(false)} />
     </aside>
   );
 };

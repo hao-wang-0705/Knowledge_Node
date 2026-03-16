@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EdgesService } from '../edges/edges.service';
+import { StatusMachineService } from '../status-machine/status-machine.service';
 import {
   CreateNodeDto,
   UpdateNodeDto,
@@ -30,6 +32,14 @@ type NodeApiModel = {
   payload: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
+  blockedBy?: { id: string; content: string }[];
+};
+
+type MentionedByItem = {
+  node: NodeApiModel;
+  breadcrumbs: Array<{ id: string; title: string }>;
+  sourceType: 'reference' | 'field';
+  fieldKey?: string;
 };
 
 type NodeRole = string;
@@ -47,7 +57,11 @@ type CalendarDiagnosticIssue = {
 
 @Injectable()
 export class NodesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private edgesService: EdgesService,
+    private statusMachine: StatusMachineService,
+  ) {}
 
   private async findNodeByExternalId(userId: string, externalId: string) {
     return this.prisma.node.findFirst({
@@ -154,6 +168,185 @@ export class NodesService {
     };
   }
 
+  private extractMentionTargetsFromReferences(references: unknown): string[] {
+    if (!Array.isArray(references)) return [];
+    return references
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const targetNodeId = (item as { targetNodeId?: unknown }).targetNodeId;
+        return typeof targetNodeId === 'string' && targetNodeId.trim() ? targetNodeId.trim() : null;
+      })
+      .filter((id): id is string => !!id);
+  }
+
+  private extractMentionTargetsFromFields(fields: Record<string, unknown>): string[] {
+    const targets: string[] = [];
+    for (const value of Object.values(fields ?? {})) {
+      if (!value) continue;
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        const nodeId = (value as { nodeId?: unknown }).nodeId;
+        if (typeof nodeId === 'string' && nodeId.trim()) {
+          targets.push(nodeId.trim());
+        }
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (!item || typeof item !== 'object') continue;
+          const nodeId = (item as { nodeId?: unknown }).nodeId;
+          if (typeof nodeId === 'string' && nodeId.trim()) {
+            targets.push(nodeId.trim());
+          }
+        }
+      }
+    }
+    return targets;
+  }
+
+  private collectMentionTargetLogicalIds(references: unknown, fields: Record<string, unknown>): string[] {
+    const fromReferences = this.extractMentionTargetsFromReferences(references);
+    const fromFields = this.extractMentionTargetsFromFields(fields);
+    return [...new Set([...fromReferences, ...fromFields])];
+  }
+
+  private inferMentionSourceMeta(
+    sourceNode: { references: unknown; fields: unknown },
+    targetLogicalId: string,
+  ): { sourceType: 'reference' | 'field'; fieldKey?: string } {
+    const fields = (sourceNode.fields as Record<string, unknown>) ?? {};
+    for (const [fieldKey, value] of Object.entries(fields)) {
+      if (!value) continue;
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        const nodeId = (value as { nodeId?: unknown }).nodeId;
+        if (nodeId === targetLogicalId) {
+          return { sourceType: 'field', fieldKey };
+        }
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (!item || typeof item !== 'object') continue;
+          const nodeId = (item as { nodeId?: unknown }).nodeId;
+          if (nodeId === targetLogicalId) {
+            return { sourceType: 'field', fieldKey };
+          }
+        }
+      }
+    }
+
+    const refs = this.extractMentionTargetsFromReferences(sourceNode.references);
+    if (refs.includes(targetLogicalId)) {
+      return { sourceType: 'reference' };
+    }
+
+    return { sourceType: 'reference' };
+  }
+
+  private async syncMentionEdgesForNode(
+    userId: string,
+    sourceLogicalId: string,
+    references: unknown,
+    fields: Record<string, unknown>,
+  ) {
+    const targetLogicalIds = this
+      .collectMentionTargetLogicalIds(references, fields)
+      .filter((targetId) => targetId !== sourceLogicalId);
+    await this.edgesService.syncMentionOutEdgesForSource(userId, sourceLogicalId, targetLogicalIds);
+  }
+
+  private async buildNodeBreadcrumbs(userId: string, nodePhysicalId: string): Promise<Array<{ id: string; title: string }>> {
+    const breadcrumbs: Array<{ id: string; title: string }> = [];
+    let parentPhysicalId = await this.edgesService.getContainsParentPhysicalId(userId, nodePhysicalId);
+
+    while (parentPhysicalId) {
+      const parentNode = await this.prisma.node.findFirst({
+        where: { id: parentPhysicalId, userId },
+        select: { id: true, logicalId: true, content: true },
+      });
+      if (!parentNode) break;
+
+      breadcrumbs.unshift({
+        id: parentNode.logicalId,
+        title: parentNode.content?.trim() || '未命名',
+      });
+      parentPhysicalId = await this.edgesService.getContainsParentPhysicalId(userId, parentNode.id);
+    }
+
+    return breadcrumbs;
+  }
+
+  /**
+   * Write Guard：当 #todo 当前为 Locked 且请求将其置为 Done 时，若有未解除的 BLOCKS 前置则抛 409。（由状态机配置判定“已解除”）
+   */
+  private async assertTodoNotBlockedWhenSettingDone(userId: string, targetPhysicalId: string): Promise<void> {
+    const inEdges = await this.prisma.networkEdge.findMany({
+      where: { targetNodeId: targetPhysicalId, edgeType: 'BLOCKS' },
+      select: { sourceNodeId: true },
+    });
+    if (inEdges.length === 0) return;
+    const sourceIds = inEdges.map((e) => e.sourceNodeId);
+    const sources = await this.prisma.node.findMany({
+      where: { id: { in: sourceIds }, userId },
+      select: {
+        id: true,
+        fields: true,
+        supertag: { select: { name: true } },
+      },
+    });
+    for (const src of sources) {
+      const tagName = src.supertag?.name ?? '';
+      const fields = (src.fields as Record<string, unknown>) ?? {};
+      const fieldKey = await this.statusMachine.getStatusFieldKey(tagName);
+      const statusValue = (fieldKey ? (fields[fieldKey] as string) : undefined) ?? '';
+      const resolved =
+        await this.statusMachine.isResolved(tagName, statusValue) ||
+        (await this.statusMachine.isDone(tagName, statusValue));
+      if (!resolved) {
+        throw new ConflictException('存在未解除的阻塞前置项，无法直接闭环');
+      }
+    }
+  }
+
+  /**
+   * 级联重算下游 todo 状态：找出被该节点 BLOCKS 的所有 todo，对每个重算阻塞状态。
+   * 返回状态从 Locked->Ready（被解锁）的节点 logicalId 列表，用于通知前端刷新。
+   */
+  private async cascadeRecomputeDownstreamTodos(userId: string, blockerNodePhysicalId: string): Promise<string[]> {
+    const todoFieldKey = await this.statusMachine.getStatusFieldKey('todo');
+    const blockedState = await this.statusMachine.getBlockedState('todo').then((s) => s ?? 'Locked');
+    const unblockedState = await this.statusMachine.getUnblockedState('todo').then((s) => s ?? 'Ready');
+
+    const outEdges = await this.prisma.networkEdge.findMany({
+      where: { sourceNodeId: blockerNodePhysicalId, edgeType: 'BLOCKS' },
+      select: { targetNodeId: true },
+    });
+    const targetPhysicalIds = [...new Set(outEdges.map((e) => e.targetNodeId))];
+    const unlockedLogicalIds: string[] = [];
+    for (const targetPhysicalId of targetPhysicalIds) {
+      const before = await this.prisma.node.findFirst({
+        where: { id: targetPhysicalId, userId },
+        select: { logicalId: true, fields: true },
+      });
+      const beforeStatus = (todoFieldKey && before?.fields)
+        ? ((before.fields as Record<string, unknown>)[todoFieldKey] as string | undefined) ?? null
+        : (before?.fields as Record<string, unknown> | undefined)?.todo_status ?? null;
+
+      await this.edgesService['recomputeTodoStatusForTarget']?.(userId, targetPhysicalId as string);
+
+      const after = await this.prisma.node.findFirst({
+        where: { id: targetPhysicalId, userId },
+        select: { logicalId: true, fields: true },
+      });
+      const afterStatus = (todoFieldKey && after?.fields)
+        ? ((after.fields as Record<string, unknown>)[todoFieldKey] as string | undefined) ?? null
+        : (after?.fields as Record<string, unknown> | undefined)?.todo_status ?? null;
+
+      if (beforeStatus === blockedState && afterStatus === unblockedState && after?.logicalId) {
+        unlockedLogicalIds.push(after.logicalId);
+      }
+    }
+    return unlockedLogicalIds;
+  }
+
   private async assertNoCycle(userId: string, nodeId: string, newParentId: string | null) {
     if (!newParentId) return;
     const current = await this.getRawNodeOrThrow(userId, nodeId);
@@ -196,17 +389,44 @@ export class NodesService {
     },
     userId: string,
   ): Promise<NodeApiModel> {
-    const parent = node.parentId
-      ? await this.prisma.node.findFirst({
-          where: { userId, id: node.parentId },
-          select: { logicalId: true },
-        })
-      : null;
-    const children = await this.prisma.node.findMany({
-      where: { userId, parentId: node.id },
-      select: { logicalId: true },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    const [parentPhysicalId, childPhysicalIds] = await Promise.all([
+      this.edgesService.getContainsParentPhysicalId(userId, node.id),
+      this.edgesService.getContainsChildrenPhysicalIds(userId, node.id),
+    ]);
+    const parentLogicalId =
+      parentPhysicalId == null
+        ? null
+        : (await this.prisma.node.findFirst({
+            where: { userId, id: parentPhysicalId },
+            select: { logicalId: true },
+          }))?.logicalId ?? null;
+    const nodes = await this.prisma.node.findMany({
+      where: { userId, id: { in: childPhysicalIds } },
+      select: { id: true, logicalId: true },
     });
+    const idToLogical = new Map(nodes.map((n) => [n.id, n.logicalId]));
+    const childrenIds = childPhysicalIds.map((id) => idToLogical.get(id) ?? id);
+
+    let blockedBy: { id: string; content: string }[] | undefined;
+    if (node.supertagId) {
+      const supertag = await this.prisma.tagTemplate.findUnique({
+        where: { id: node.supertagId },
+        select: { name: true },
+      });
+      if (supertag?.name === 'todo') {
+        const inEdges = await this.prisma.networkEdge.findMany({
+          where: { targetNodeId: node.id, edgeType: 'BLOCKS' },
+          select: { sourceNodeId: true },
+        });
+        if (inEdges.length > 0) {
+          const sourceNodes = await this.prisma.node.findMany({
+            where: { id: { in: inEdges.map((e) => e.sourceNodeId) }, userId },
+            select: { logicalId: true, content: true },
+          });
+          blockedBy = sourceNodes.map((n) => ({ id: n.logicalId, content: n.content ?? '' }));
+        }
+      }
+    }
 
     return {
       id: node.logicalId,
@@ -214,11 +434,11 @@ export class NodesService {
       content: node.content,
       type: node.nodeType,
       nodeRole: node.nodeRole ?? undefined,
-      parentId: parent?.logicalId ?? null,
-      appliedParentId: parent?.logicalId ?? null,
+      parentId: parentLogicalId,
+      appliedParentId: parentLogicalId,
       appliedSortOrder: node.sortOrder,
       sortOrder: node.sortOrder,
-      childrenIds: children.map((c) => c.logicalId),
+      childrenIds,
       isCollapsed: node.isCollapsed,
       tags: node.tags ?? [],
       references: (Array.isArray(node.references) ? node.references : []) as unknown[],
@@ -227,6 +447,7 @@ export class NodesService {
       payload: (node.payload as Record<string, unknown>) ?? {},
       createdAt: node.createdAt.getTime(),
       updatedAt: node.updatedAt.getTime(),
+      blockedBy,
     };
   }
 
@@ -252,27 +473,10 @@ export class NodesService {
   ): Promise<NodeApiModel[]> {
     if (nodes.length === 0) return [];
     const nodePhysicalIds = nodes.map((n) => n.id);
-    const parentPhysicalIds = [...new Set(nodes.map((n) => n.parentId).filter((v): v is string => !!v))];
-    const parentRows = parentPhysicalIds.length
-      ? await this.prisma.node.findMany({
-          where: { userId, id: { in: parentPhysicalIds } },
-          select: { id: true, logicalId: true },
-        })
-      : [];
-    const parentMap = new Map(parentRows.map((p) => [p.id, p.logicalId]));
-
-    const childrenRows = await this.prisma.node.findMany({
-      where: { userId, parentId: { in: nodePhysicalIds } },
-      select: { parentId: true, logicalId: true, sortOrder: true, createdAt: true },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    });
-    const childrenMap = new Map<string, string[]>();
-    childrenRows.forEach((child) => {
-      if (!child.parentId) return;
-      const list = childrenMap.get(child.parentId) ?? [];
-      list.push(child.logicalId);
-      childrenMap.set(child.parentId, list);
-    });
+    const [parentMap, childrenMap] = await Promise.all([
+      this.edgesService.getContainsParentLogicalIds(userId, nodePhysicalIds),
+      this.edgesService.getContainsChildrenLogicalIds(userId, nodePhysicalIds),
+    ]);
 
     return nodes.map((node) => ({
       id: node.logicalId,
@@ -280,8 +484,8 @@ export class NodesService {
       content: node.content,
       type: node.nodeType,
       nodeRole: node.nodeRole ?? undefined,
-      parentId: node.parentId ? parentMap.get(node.parentId) ?? null : null,
-      appliedParentId: node.parentId ? parentMap.get(node.parentId) ?? null : null,
+      parentId: parentMap.get(node.id) ?? null,
+      appliedParentId: parentMap.get(node.id) ?? null,
       appliedSortOrder: node.sortOrder,
       sortOrder: node.sortOrder,
       childrenIds: childrenMap.get(node.id) ?? [],
@@ -383,6 +587,15 @@ export class NodesService {
         references: refsValue,
       },
     });
+    if (createNodeDto.parentId) {
+      await this.edgesService.ensureContainsEdge(userId, createNodeDto.parentId, logicalId);
+    }
+    await this.syncMentionEdgesForNode(
+      userId,
+      logicalId,
+      node.references,
+      ((node.fields as Record<string, unknown>) ?? {}),
+    );
     return this.mapNodeToApiModel(node, userId);
   }
 
@@ -461,13 +674,8 @@ export class NodesService {
     const queue: string[] = [root.id];
     while (queue.length > 0) {
       const currentId = queue.shift()!;
-      const children = await this.prisma.node.findMany({
-        where: { userId, parentId: currentId },
-        select: { id: true },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      });
-      if (children.length > 0) {
-        const childIds = children.map((c) => c.id);
+      const childIds = await this.edgesService.getContainsChildrenPhysicalIds(userId, currentId);
+      if (childIds.length > 0) {
         ids.push(...childIds);
         queue.push(...childIds);
       }
@@ -479,11 +687,22 @@ export class NodesService {
     });
   }
 
-  // 获取根级别节点（parentId 为 null）
+  // 获取根级别节点（无 CONTAINS 入边的节点）
   async findRootNodes(userId: string) {
     await this.ensureStructuralRoots(userId);
+    const userNodeIds = (await this.prisma.node.findMany({
+      where: { userId },
+      select: { id: true },
+    })).map((n) => n.id);
+    if (userNodeIds.length === 0) return [];
+    const withParent = await this.prisma.networkEdge.findMany({
+      where: { edgeType: 'CONTAINS', targetNodeId: { in: userNodeIds } },
+      select: { targetNodeId: true },
+    });
+    const targetSet = new Set(withParent.map((e) => e.targetNodeId));
+    const rootIds = userNodeIds.filter((id) => !targetSet.has(id));
     const nodes = await this.prisma.node.findMany({
-      where: { userId, parentId: null },
+      where: { userId, id: { in: rootIds } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
     return this.mapNodesBatchToApiModel(userId, nodes);
@@ -503,13 +722,16 @@ export class NodesService {
     return this.mapNodeToApiModel(node, userId);
   }
 
-  // 获取节点的所有子节点
+  // 获取节点的所有子节点（按 CONTAINS 出边，顺序同 sortOrder）
   async findChildren(userId: string, parentId: string) {
     const parent = await this.getRawNodeOrThrow(userId, parentId);
+    const childPhysicalIds = await this.edgesService.getContainsChildrenPhysicalIds(userId, parent.id);
+    if (childPhysicalIds.length === 0) return [];
     const nodes = await this.prisma.node.findMany({
-      where: { userId, parentId: parent.id },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      where: { userId, id: { in: childPhysicalIds } },
     });
+    const orderMap = new Map(childPhysicalIds.map((id, i) => [id, i]));
+    nodes.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
     return this.mapNodesBatchToApiModel(userId, nodes);
   }
 
@@ -536,36 +758,47 @@ export class NodesService {
     return root;
   }
 
-  // 更新单个节点
+  // 更新单个节点（切边后层级只维护 CONTAINS 边，不写 Node.parentId）
   async update(userId: string, id: string, updateNodeDto: UpdateNodeDto) {
     const existing = await this.getRawNodeOrThrow(userId, id);
-    let nextParentId = existing.parentId;
 
     if (updateNodeDto.parentId !== undefined) {
       if (updateNodeDto.parentId === null) {
-        nextParentId = null;
+        await this.edgesService.removeContainsInEdgeForTarget(userId, id);
       } else {
-        const parent = await this.getRawNodeOrThrow(userId, updateNodeDto.parentId);
-        nextParentId = parent.id;
-      }
-      await this.assertNoCycle(userId, id, updateNodeDto.parentId ?? null);
-      if (nextParentId !== null) {
-        const parentExists = await this.prisma.node.findFirst({
-          where: { id: nextParentId, userId },
-          select: { id: true },
-        });
-        if (!parentExists) {
-          throw new BadRequestException(
-            `父节点 ${nextParentId} 不存在，无法更新节点 ${id} 的层级关系`,
-          );
-        }
+        await this.edgesService.ensureContainsEdge(userId, updateNodeDto.parentId, id);
       }
     }
 
-    // 显式构建 Prisma data，确保 supertagId / tags 等被正确写入（避免 spread 遗漏或键名不一致）
-    const data: Prisma.NodeUncheckedUpdateInput = {
-      parentId: nextParentId,
-    };
+    // Write Guard：Locked 的 #todo 在存在未解除 BLOCKS 前置时禁止置为 Done（状态字段与取值由状态机配置决定）
+    const todoFieldKey = await this.statusMachine.getStatusFieldKey('todo');
+    const todoDoneState = (await this.statusMachine.getStatusConfig('todo'))?.config.doneState ?? 'Done';
+    const requestedDone = updateNodeDto.fields && todoFieldKey && updateNodeDto.fields[todoFieldKey] === todoDoneState;
+    if (requestedDone) {
+      const current = await this.prisma.node.findFirst({
+        where: { id: existing.id, userId },
+        select: { id: true, fields: true, supertag: { select: { name: true } } },
+      });
+      const tagName = current?.supertag?.name ?? '';
+      const currentFields = (current?.fields as Record<string, unknown>) ?? {};
+      const currentStatus = (todoFieldKey ? currentFields[todoFieldKey] : currentFields.todo_status) as string | undefined;
+      const isLocked = tagName === 'todo' && (await this.statusMachine.isBlocked('todo', currentStatus ?? ''));
+      if (isLocked) {
+        await this.assertTodoNotBlockedWhenSettingDone(userId, existing.id);
+      }
+    }
+
+    // 在 update 前快照旧 fields，用于后续级联判定是否发生状态变更
+    let fieldsBeforeUpdate: Record<string, unknown> | null = null;
+    if (updateNodeDto.fields !== undefined) {
+      const snap = await this.prisma.node.findFirst({
+        where: { id: existing.id, userId },
+        select: { fields: true },
+      });
+      fieldsBeforeUpdate = (snap?.fields as Record<string, unknown>) ?? {};
+    }
+
+    const data: Prisma.NodeUncheckedUpdateInput = {};
     if (updateNodeDto.content !== undefined) data.content = updateNodeDto.content;
     if (updateNodeDto.nodeType !== undefined) data.nodeType = updateNodeDto.nodeType;
     if (updateNodeDto.sortOrder !== undefined) data.sortOrder = updateNodeDto.sortOrder;
@@ -585,49 +818,91 @@ export class NodesService {
       where: { id: existing.id },
       data,
     });
-    return this.mapNodeToApiModel(node, userId);
+
+    if (updateNodeDto.references !== undefined || updateNodeDto.fields !== undefined) {
+      await this.syncMentionEdgesForNode(
+        userId,
+        existing.logicalId,
+        node.references,
+        ((node.fields as Record<string, unknown>) ?? {}),
+      );
+    }
+
+    if (updateNodeDto.fields !== undefined && node.supertagId) {
+      const supertag = await this.prisma.tagTemplate.findUnique({
+        where: { id: node.supertagId },
+        select: { name: true },
+      });
+      const tagName = supertag?.name ?? '';
+      const fields = (node.fields as Record<string, unknown>) ?? {};
+      if (tagName === 'todo' && fields.todo_deps != null) {
+        const deps = Array.isArray(fields.todo_deps) ? fields.todo_deps : [fields.todo_deps];
+        const sourceIds = deps.map((d: unknown) => (typeof d === 'object' && d && 'nodeId' in d ? (d as { nodeId: string }).nodeId : String(d))).filter(Boolean);
+        await this.edgesService.syncBlocksInEdgesForTarget(userId, id, sourceIds);
+      }
+      if (tagName === '灵感' && fields.idea_blockers != null) {
+        const blockers = Array.isArray(fields.idea_blockers) ? fields.idea_blockers : [fields.idea_blockers];
+        const targetIds = blockers.map((b: unknown) => (typeof b === 'object' && b && 'nodeId' in b ? (b as { nodeId: string }).nodeId : String(b))).filter(Boolean);
+        await this.edgesService.syncResolvesOutEdgesForSource(userId, id, targetIds);
+      }
+    }
+
+    let unlockedNodeIds: string[] = [];
+    if (updateNodeDto.fields !== undefined && node.supertagId) {
+      const tagNameForCascade = (await this.prisma.tagTemplate.findUnique({
+        where: { id: node.supertagId },
+        select: { name: true },
+      }))?.name ?? '';
+      const statusFieldKey = await this.statusMachine.getStatusFieldKey(tagNameForCascade);
+      if (statusFieldKey && fieldsBeforeUpdate) {
+        const fieldsBefore = fieldsBeforeUpdate;
+        const fieldsAfterUpdate = (node.fields as Record<string, unknown>) ?? {};
+        const statusBefore = (fieldsBefore[statusFieldKey] as string | undefined) ?? '';
+        const statusAfter = (fieldsAfterUpdate[statusFieldKey] as string | undefined) ?? '';
+        if (statusBefore !== statusAfter) {
+          const hasBlocksOut = await this.prisma.networkEdge.count({
+            where: { sourceNodeId: node.id, edgeType: 'BLOCKS' },
+          });
+          if (hasBlocksOut > 0) {
+            unlockedNodeIds = await this.cascadeRecomputeDownstreamTodos(userId, node.id);
+          }
+        }
+      }
+    }
+
+    const apiNode = await this.mapNodeToApiModel(node, userId);
+    return { node: apiNode, unlockedNodeIds };
   }
 
-  // 批量更新节点
+  // 批量更新节点（单条 update 返回 { node, unlockedNodeIds }，批量只返回 node 数组）
   async batchUpdate(userId: string, batchUpdateDto: BatchUpdateNodesDto) {
     const results = await Promise.all(
       batchUpdateDto.nodes.map(async (node) => {
         const { id, ...updateData } = node;
-        return this.update(userId, id, updateData);
+        const out = await this.update(userId, id, updateData);
+        return out.node;
       })
     );
-
     return results;
   }
 
-  // 删除单个节点（包括其所有子节点）；禁止删除 user_root / daily_root
+  // 删除单个节点（包括其所有子节点）；禁止删除 user_root / daily_root；子节点通过 CONTAINS 边推导
   async remove(userId: string, id: string) {
     const node = await this.getRawNodeOrThrow(userId, id);
     if (node.nodeRole !== 'normal') {
       throw new ConflictException('结构根节点不能通过通用删除接口删除');
     }
 
-    const allNodes = await this.prisma.node.findMany({
-      where: { userId },
-      select: { id: true, parentId: true },
-    });
-    const childrenMap = new Map<string, string[]>();
-    allNodes.forEach((n) => {
-      if (!n.parentId) return;
-      const arr = childrenMap.get(n.parentId) ?? [];
-      arr.push(n.id);
-      childrenMap.set(n.parentId, arr);
-    });
-
     const idsToDelete = new Set<string>([node.id]);
     const queue = [node.id];
     while (queue.length) {
       const current = queue.shift()!;
-      (childrenMap.get(current) ?? []).forEach((child) => {
-        if (idsToDelete.has(child)) return;
-        idsToDelete.add(child);
-        queue.push(child);
-      });
+      const childIds = await this.edgesService.getContainsChildrenPhysicalIds(userId, current);
+      for (const childId of childIds) {
+        if (idsToDelete.has(childId)) continue;
+        idsToDelete.add(childId);
+        queue.push(childId);
+      }
     }
 
     await this.prisma.node.deleteMany({
@@ -649,6 +924,60 @@ export class NodesService {
       orderBy: { createdAt: 'desc' },
     });
     return this.mapNodesBatchToApiModel(userId, nodes);
+  }
+
+  async findMentionedBy(userId: string, id: string): Promise<MentionedByItem[]> {
+    const mentionEdges = await this.edgesService.findMentionInEdgesForTarget(userId, id);
+    if (mentionEdges.length === 0) return [];
+
+    const sourceLogicalIds = [...new Set(mentionEdges.map((e) => e.sourceNodeId).filter(Boolean))];
+    if (sourceLogicalIds.length === 0) return [];
+
+    const sourceNodes = await this.prisma.node.findMany({
+      where: {
+        userId,
+        logicalId: { in: sourceLogicalIds },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        id: true,
+        logicalId: true,
+        content: true,
+        nodeType: true,
+        nodeRole: true,
+        parentId: true,
+        sortOrder: true,
+        isCollapsed: true,
+        supertagId: true,
+        tags: true,
+        references: true,
+        fields: true,
+        payload: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (sourceNodes.length === 0) return [];
+
+    const apiNodes = await this.mapNodesBatchToApiModel(userId, sourceNodes);
+    const logicalIdToApiNode = new Map(apiNodes.map((n) => [n.id, n]));
+
+    const items: MentionedByItem[] = [];
+    for (const sourceNode of sourceNodes) {
+      const apiNode = logicalIdToApiNode.get(sourceNode.logicalId);
+      if (!apiNode) continue;
+
+      const breadcrumbs = await this.buildNodeBreadcrumbs(userId, sourceNode.id);
+      const meta = this.inferMentionSourceMeta(sourceNode, id);
+      items.push({
+        node: apiNode,
+        breadcrumbs,
+        sourceType: meta.sourceType,
+        fieldKey: meta.fieldKey,
+      });
+    }
+
+    return items;
   }
 
   // 搜索节点内容

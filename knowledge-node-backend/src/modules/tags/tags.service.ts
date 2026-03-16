@@ -132,6 +132,7 @@ export class TagsService {
         color: createDto.color ?? '#6366F1',
         icon: createDto.icon,
         description: createDto.description,
+        category: createDto.category ?? undefined,
         fieldDefinitions: createDto.fieldDefinitions ?? [],
         viewConfig: createDto.viewConfig ?? undefined,
         isGlobalDefault: createDto.isGlobalDefault ?? true,
@@ -192,6 +193,7 @@ export class TagsService {
         ...(updateDto.color !== undefined && { color: updateDto.color }),
         ...(updateDto.icon !== undefined && { icon: updateDto.icon }),
         ...(updateDto.description !== undefined && { description: updateDto.description }),
+        ...(updateDto.category !== undefined && { category: updateDto.category }),
         ...(updateDto.fieldDefinitions !== undefined && { fieldDefinitions: updateDto.fieldDefinitions }),
         ...(updateDto.viewConfig !== undefined && { viewConfig: updateDto.viewConfig }),
         ...(updateDto.isGlobalDefault !== undefined && { isGlobalDefault: updateDto.isGlobalDefault }),
@@ -247,8 +249,28 @@ export class TagsService {
   }
 
   /**
+   * 重置标签与节点标签信息（管理员专用）
+   * v4.2: 清空所有节点的 supertagId/fields/tags，删除所有标签与用户订阅，保证数据纯洁性后便于导入新预置
+   */
+  async resetTagsAndNodeTagData(): Promise<{ nodesUpdated: number; tagsDeleted: number; userLibraryDeleted: number }> {
+    const [nodesResult, userLibResult, tagsResult] = await this.prisma.$transaction([
+      this.prisma.node.updateMany({
+        data: { supertagId: null, fields: {}, tags: [] },
+      }),
+      this.prisma.userTagLibrary.deleteMany({}),
+      this.prisma.tagTemplate.deleteMany({}),
+    ]);
+    return {
+      nodesUpdated: nodesResult.count,
+      tagsDeleted: tagsResult.count,
+      userLibraryDeleted: userLibResult.count,
+    };
+  }
+
+  /**
    * 批量导入标签（管理员专用）
    * v3.5: 新增，支持事务原子性和 overwrite 策略
+   * v4.2: 支持 category；支持 fieldDefinitions 中 targetTagName 导入后解析为 targetTagId
    */
   async batchImportTags(batchDto: BatchImportTagsDto): Promise<BatchImportResultDto> {
     const result: BatchImportResultDto = {
@@ -266,7 +288,7 @@ export class TagsService {
             where: { name: tagDto.name },
           });
 
-          if (existing) {
+            if (existing) {
             if (batchDto.overwrite) {
               // 覆盖模式：更新现有标签
               await tx.tagTemplate.update({
@@ -275,6 +297,7 @@ export class TagsService {
                   color: tagDto.color ?? existing.color,
                   icon: tagDto.icon ?? existing.icon,
                   description: tagDto.description ?? existing.description,
+                  category: (tagDto as any).category !== undefined ? (tagDto as any).category : (existing as any).category,
                   fieldDefinitions: tagDto.fieldDefinitions ?? existing.fieldDefinitions ?? undefined,
                   viewConfig: tagDto.viewConfig !== undefined ? tagDto.viewConfig : (existing as any).viewConfig ?? undefined,
                   isGlobalDefault: tagDto.isGlobalDefault ?? existing.isGlobalDefault,
@@ -296,6 +319,7 @@ export class TagsService {
                 color: tagDto.color ?? '#6366F1',
                 icon: tagDto.icon,
                 description: tagDto.description,
+                category: (tagDto as any).category ?? undefined,
                 fieldDefinitions: tagDto.fieldDefinitions ?? [],
                 viewConfig: tagDto.viewConfig ?? undefined,
                 isGlobalDefault: tagDto.isGlobalDefault ?? true,
@@ -316,6 +340,48 @@ export class TagsService {
       }
     });
 
+    // v4.4: 解析 fieldDefinitions 中的 targetTagName(s) → targetTagId(s)
+    const allTags = await this.prisma.tagTemplate.findMany({ select: { id: true, name: true } });
+    const nameToId = new Map<string, string>(allTags.map((t) => [t.name, t.id]));
+
+    const resolveFieldDefs = (defs: any[]): any[] => {
+      if (!Array.isArray(defs)) return defs;
+      return defs.map((d) => {
+        if (!d) return d;
+        // 多目标：targetTagNames: string[] → targetTagIds: string[]
+        if (Array.isArray((d as any).targetTagNames)) {
+          const ids = ((d as any).targetTagNames as string[])
+            .map((name: string) => nameToId.get(name))
+            .filter((id): id is string => !!id);
+          const { targetTagNames, ...rest } = d as any;
+          return ids.length ? { ...rest, targetTagIds: ids } : rest;
+        }
+        // 单目标（向后兼容）：targetTagName: string → targetTagId: string
+        if ((d as any).targetTagName) {
+          const id = nameToId.get((d as any).targetTagName);
+          const { targetTagName, ...rest } = d as any;
+          return id ? { ...rest, targetTagId: id } : rest;
+        }
+        return d;
+      });
+    };
+
+    const needsResolve = (d: any) => d?.targetTagName || Array.isArray(d?.targetTagNames);
+
+    for (const tag of allTags) {
+      const row = await this.prisma.tagTemplate.findUnique({
+        where: { id: tag.id },
+        select: { fieldDefinitions: true },
+      });
+      const defs = row?.fieldDefinitions as any[] | undefined;
+      if (Array.isArray(defs) && defs.some(needsResolve)) {
+        await this.prisma.tagTemplate.update({
+          where: { id: tag.id },
+          data: { fieldDefinitions: resolveFieldDefs(defs) },
+        });
+      }
+    }
+
     return result;
   }
 
@@ -328,6 +394,7 @@ export class TagsService {
       color: string;
       icon: string | null;
       description: string | null;
+      category: string | null;
       fieldDefinitions: unknown;
       order: number;
       templateContent: unknown;
@@ -346,6 +413,7 @@ export class TagsService {
       color: tag.color,
       icon: tag.icon,
       description: tag.description,
+      category: tag.category ?? undefined,
       fieldDefinitions: tag.fieldDefinitions,
       order: tag.order,
       templateContent: tag.templateContent,

@@ -180,27 +180,14 @@ const CommandCenter: React.FC<CommandCenterProps> = ({ open, onOpenChange }) => 
   const searchResults = useMemo((): SearchResultItem[] => {
     const allNodes = Object.values(nodes);
     
-    // 判断节点是否在 search_root 子树中
-    const isInSearchRootSubtree = (node: Node): boolean => {
-      let current: Node | undefined = node;
-      while (current) {
-        if (current.nodeRole === 'search_root') return true;
-        current = current.parentId ? nodes[current.parentId] : undefined;
-      }
-      return false;
-    };
-    
     // 判断是否为系统预置节点（需要过滤）
     const isSystemNode = (node: Node): boolean => {
-      // 1. 根节点（user_root, daily_root, search_root）
+      // 1. 根节点（user_root, daily_root 等）
       if (node.nodeRole && node.nodeRole !== 'normal') return true;
       
       // 2. 日期节点（带系统标签）
       const systemDateTags = [SYSTEM_TAGS.YEAR, SYSTEM_TAGS.MONTH, SYSTEM_TAGS.WEEK, SYSTEM_TAGS.DAY];
       if (node.tags?.some(tag => systemDateTags.includes(tag as typeof SYSTEM_TAGS.YEAR))) return true;
-      
-      // 3. search_root 子树中的节点
-      if (isInSearchRootSubtree(node)) return true;
       
       return false;
     };

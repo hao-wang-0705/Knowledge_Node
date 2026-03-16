@@ -1,69 +1,68 @@
-# Knowledge Node Backend Dockerfile
-# 版本: 3.0
-FROM node:20-alpine AS base
+# Knowledge Node Backend - Docker 构建与运行
+# 多阶段：deps -> builder -> runner
 
-# 构建时间戳参数（用于破坏缓存）
+FROM node:20-alpine AS base
 ARG BUILD_TIMESTAMP=default
 
-# Install dependencies only when needed
+# -----------------------------------------------------------------------------
+# 阶段 1: 依赖安装 + Prisma 生成
+# -----------------------------------------------------------------------------
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Copy package files
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
 
-# Install dependencies
-RUN npm ci
+RUN npm ci --omit=dev \
+  && npx prisma generate
 
-# Generate Prisma client
-RUN npx prisma generate
-
-# Build the source code
+# -----------------------------------------------------------------------------
+# 阶段 2: 编译
+# -----------------------------------------------------------------------------
 FROM base AS builder
 ARG BUILD_TIMESTAMP=default
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
 
-# 复制所有源代码（在 BUILD_TIMESTAMP 之后以确保重新复制）
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma/
+RUN npm ci
+
 COPY . .
+RUN echo "BUILD_TIMESTAMP=$BUILD_TIMESTAMP" > .build-info \
+  && echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .build-info
 
-# 写入构建信息
-RUN echo "BUILD_TIMESTAMP=$BUILD_TIMESTAMP" > .build-info && \
-    echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .build-info
+RUN npx prisma generate \
+  && npm run build
 
-# Build the application
-RUN npm run build
-
-# Production image
+# -----------------------------------------------------------------------------
+# 阶段 3: 生产镜像（仅生产依赖）
+# -----------------------------------------------------------------------------
 FROM base AS runner
 WORKDIR /app
 
-# Install openssl for Prisma (Alpine 3.23+ 使用 openssl3)
-RUN apk add --no-cache openssl3-libs || apk add --no-cache openssl
+RUN apk add --no-cache openssl3-libs 2>/dev/null || apk add --no-cache openssl
 
 ENV NODE_ENV=production
+ENV PORT=4000
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nestjs
+RUN addgroup --system --gid 1001 nodejs \
+  && adduser --system --uid 1001 nestjs
 
-# Copy built application
+COPY --from=builder /app/package.json /app/package-lock.json* ./
+COPY --from=builder /app/prisma ./prisma/
+RUN npm ci --omit=dev && npx prisma generate \
+  && chown -R nestjs:nodejs /app
+
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nestjs:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=nestjs:nodejs /app/.build-info ./.build-info
 
 USER nestjs
 
 EXPOSE 4000
 
-ENV PORT=4000
-
-# 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget -q --spider http://localhost:4000/health/ready || exit 1
+  CMD wget -q --spider http://localhost:4000/health/ready || exit 1
 
-# migrations are executed in deployment pipeline before service startup
-CMD ["node", "dist/main"]
+# 启动前执行迁移；若数据库已存在且未做 baseline（P3005）则仅打日志并继续启动
+CMD ["sh", "-c", "npx prisma migrate deploy || echo 'Warning: migrate deploy failed (e.g. P3005 existing DB), starting app anyway.'; exec node dist/main.js"]

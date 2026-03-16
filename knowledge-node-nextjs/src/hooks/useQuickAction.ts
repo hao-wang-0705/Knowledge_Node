@@ -2,34 +2,28 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useSupertagStore } from '@/stores/supertagStore';
+import { useDeconstructPreviewStore } from '@/stores/deconstructPreviewStore';
+import { useExpandPreviewStore } from '@/stores/expandPreviewStore';
 import type { Node } from '@/types';
-import type { 
-  QuickActionType, 
+import type {
+  QuickActionType,
   QuickActionEvent,
   QuickActionNodeEvent,
   QuickActionReplaceEvent,
   QuickActionContext,
 } from '@/types/quick-action';
 
-/**
- * 快捷动作执行状态
- */
 interface QuickActionExecutionState {
-  /** 是否正在执行 */
   isExecuting: boolean;
-  /** 当前执行的动作类型 */
   actionType: QuickActionType | null;
-  /** 已生成的节点数量 */
   generatedNodeCount: number;
-  /** 替换内容（仅 inline_rewrite） */
   replacedContent: string;
-  /** 错误信息 */
+  /** 智能扩写流式内容，用于幽灵区实时展示 */
+  expandedContent: string;
   error: string | null;
 }
 
-/**
- * 快捷动作执行结果
- */
 interface QuickActionResult {
   success: boolean;
   nodeCount: number;
@@ -37,129 +31,96 @@ interface QuickActionResult {
 }
 
 /**
- * v4.1: 快捷动作 Hook
- * 提供节点级快捷 AI 动作的执行能力
+ * 快捷动作 Hook：仅支持智能扩写(expand)与智能解构(deconstruct)
  */
 export function useQuickAction(nodeId: string) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateNode = useNodeStore((s) => s.updateNode);
   const addNode = useNodeStore((s) => s.addNode);
 
+  const supertags = useSupertagStore((s) => s.supertags);
+  const getFieldDefinitions = useSupertagStore((s) => s.getFieldDefinitions);
+  const setPreview = useDeconstructPreviewStore((s) => s.setPreview);
+  const setExpandPreview = useExpandPreviewStore((s) => s.setPreview);
+
   const [state, setState] = useState<QuickActionExecutionState>({
     isExecuting: false,
     actionType: null,
     generatedNodeCount: 0,
     replacedContent: '',
+    expandedContent: '',
     error: null,
   });
 
-  // AbortController 引用
   const abortControllerRef = useRef<AbortController | null>(null);
-  // tempId 到 realId 的映射
   const tempIdMapRef = useRef<Map<string, string>>(new Map());
+  const streamedContentRef = useRef<string>('');
 
-  /**
-   * 收集节点上下文
-   * v4.1.1: 简化上下文收集，只保留当前节点内容，避免混入其他节点
-   */
   const collectContext = useCallback((): QuickActionContext => {
-    if (!node) {
-      return { nodeContent: '' };
-    }
-
-    // 只收集当前节点内容，不再收集兄弟和祖先节点
-    return {
-      nodeContent: node.content || '',
-    };
+    if (!node) return { nodeContent: '' };
+    return { nodeContent: node.content || '' };
   }, [node]);
 
-  /**
-   * 处理节点创建事件
-   */
   const handleNodeEvent = useCallback((event: QuickActionNodeEvent['data']) => {
     const { tempId, parentTempId, content, nodeType, supertagId, fields } = event;
-
-    // 确定父节点 ID
-    let realParentId = nodeId; // 默认作为目标节点的子节点
+    let realParentId = nodeId;
     if (parentTempId) {
       realParentId = tempIdMapRef.current.get(parentTempId) || nodeId;
     }
-
-    // 创建新节点
     const newNodeId = addNode(realParentId);
-    
-    // 更新节点属性
-    const updates: Partial<Node> = {
-      content,
-      type: nodeType,
-    };
-    
-    if (supertagId) {
-      updates.supertagId = supertagId;
-    }
-    
-    if (fields && Object.keys(fields).length > 0) {
-      updates.fields = fields as Record<string, unknown>;
-    }
-    
+    const updates: Partial<Node> = { content, type: nodeType };
+    if (supertagId) updates.supertagId = supertagId;
+    if (fields && Object.keys(fields).length > 0) updates.fields = fields as Record<string, unknown>;
     updateNode(newNodeId, updates);
-
-    // 记录 tempId 映射
     tempIdMapRef.current.set(tempId, newNodeId);
-
-    // 更新状态
-    setState((prev) => ({
-      ...prev,
-      generatedNodeCount: prev.generatedNodeCount + 1,
-    }));
+    setState((prev) => ({ ...prev, generatedNodeCount: prev.generatedNodeCount + 1 }));
   }, [nodeId, addNode, updateNode]);
 
-  /**
-   * 处理内容替换事件
-   */
   const handleReplaceEvent = useCallback((event: QuickActionReplaceEvent['data']) => {
     const { content, isFinal } = event;
-
-    if (isFinal) {
-      // 最终内容，更新节点
-      updateNode(nodeId, { content });
-    }
-
-    // 更新状态
-    setState((prev) => ({
-      ...prev,
-      replacedContent: isFinal ? content : prev.replacedContent + content,
-    }));
+    if (isFinal) updateNode(nodeId, { content });
+    setState((prev) => ({ ...prev, replacedContent: isFinal ? content : prev.replacedContent + content }));
   }, [nodeId, updateNode]);
 
-  /**
-   * 执行快捷动作
-   */
-  const executeAction = useCallback(async (
-    actionType: QuickActionType
-  ): Promise<QuickActionResult> => {
+  const executeAction = useCallback(async (actionType: QuickActionType): Promise<QuickActionResult> => {
     if (!node || state.isExecuting) {
       return { success: false, nodeCount: 0, error: '节点不存在或正在执行中' };
     }
 
-    // 重置状态
     setState({
       isExecuting: true,
       actionType,
       generatedNodeCount: 0,
       replacedContent: '',
+      expandedContent: '',
       error: null,
     });
     tempIdMapRef.current.clear();
-
-    // 创建 AbortController
+    streamedContentRef.current = '';
     abortControllerRef.current = new AbortController();
 
-    try {
-      // 收集上下文
-      const context = collectContext();
+    const context = collectContext();
 
-      // 调用 API
+    let params: Record<string, unknown> = {};
+    if (actionType === 'deconstruct') {
+      const supertagSchemas = Object.values(supertags)
+        .filter((t) => (t as { status?: string }).status !== 'deprecated')
+        .map((t) => ({
+          id: t.id,
+          name: t.name,
+          icon: t.icon,
+          description: t.description,
+          fields: getFieldDefinitions(t.id).map((f) => ({
+            key: f.key,
+            name: f.name,
+            type: f.type,
+            options: f.options,
+          })),
+        }));
+      params = { supertags: supertagSchemas };
+    }
+
+    try {
       const response = await fetch('/api/ai/quick-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -167,6 +128,7 @@ export function useQuickAction(nodeId: string) {
           nodeId,
           actionType,
           context,
+          params,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -176,11 +138,8 @@ export function useQuickAction(nodeId: string) {
         throw new Error(errorData.error || `请求失败 (${response.status})`);
       }
 
-      // 处理 SSE 流
       const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('无法读取响应流');
-      }
+      if (!reader) throw new Error('无法读取响应流');
 
       const decoder = new TextDecoder();
       let buffer = '';
@@ -189,16 +148,14 @@ export function useQuickAction(nodeId: string) {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-
           try {
-            const eventData: QuickActionEvent = JSON.parse(line.slice(6));
+            const eventData = JSON.parse(line.slice(6)) as { event: string; data: unknown };
             const { event, data } = eventData;
 
             switch (event) {
@@ -206,106 +163,67 @@ export function useQuickAction(nodeId: string) {
                 handleNodeEvent(data as QuickActionNodeEvent['data']);
                 nodeCount++;
                 break;
-
               case 'replace':
                 handleReplaceEvent(data as QuickActionReplaceEvent['data']);
-                if ((data as QuickActionReplaceEvent['data']).isFinal) {
-                  nodeCount = 1;
+                if ((data as QuickActionReplaceEvent['data']).isFinal) nodeCount = 1;
+                break;
+              case 'chunk':
+                if (actionType === 'expand' && typeof (data as { content?: string }).content === 'string') {
+                  streamedContentRef.current += (data as { content: string }).content;
+                  setState((prev) => ({ ...prev, expandedContent: streamedContentRef.current }));
                 }
                 break;
-
-              case 'done':
-                console.log('[useQuickAction] Done:', data);
+              case 'done': {
+                const doneData = data as { success?: boolean; actionType?: string; content?: string; nodes?: Array<{ tempId: string; content: string; parentTempId: string | null; supertagId: string | null; fields: Record<string, unknown>; confidence: number; isAIExtracted: boolean }> };
+                if (actionType === 'expand') {
+                  const finalContent = streamedContentRef.current || doneData.content || '';
+                  if (finalContent) {
+                    setExpandPreview(nodeId, finalContent);
+                    nodeCount = 1;
+                  }
+                }
+                if (doneData.actionType === 'deconstruct' && Array.isArray(doneData.nodes)) {
+                  setPreview(nodeId, doneData.nodes);
+                  nodeCount = doneData.nodes.length;
+                }
                 break;
-
+              }
               case 'error':
-                const errorData = data as { code: string; message: string };
-                throw new Error(errorData.message || '执行失败');
+                throw new Error((data as { message?: string }).message || '执行失败');
             }
           } catch (parseError) {
-            if (parseError instanceof Error && parseError.message !== '执行失败') {
-              console.warn('[useQuickAction] Failed to parse SSE event:', line);
-            } else {
-              throw parseError;
-            }
+            if (parseError instanceof Error && parseError.message !== '执行失败') throw parseError;
           }
         }
       }
 
-      // 执行成功
-      setState((prev) => ({
-        ...prev,
-        isExecuting: false,
-        actionType: null,
-      }));
-
+      setState((prev) => ({ ...prev, isExecuting: false, actionType: null, expandedContent: '' }));
       return { success: true, nodeCount };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      
-      // 检查是否为取消操作
       if (error instanceof Error && error.name === 'AbortError') {
-        setState((prev) => ({
-          ...prev,
-          isExecuting: false,
-          actionType: null,
-          error: '操作已取消',
-        }));
+        setState((prev) => ({ ...prev, isExecuting: false, actionType: null, expandedContent: '', error: '操作已取消' }));
         return { success: false, nodeCount: 0, error: '操作已取消' };
       }
-
-      setState((prev) => ({
-        ...prev,
-        isExecuting: false,
-        actionType: null,
-        error: errorMessage,
-      }));
-
+      setState((prev) => ({ ...prev, isExecuting: false, actionType: null, expandedContent: '', error: errorMessage }));
       return { success: false, nodeCount: 0, error: errorMessage };
     } finally {
       abortControllerRef.current = null;
     }
-  }, [node, state.isExecuting, nodeId, collectContext, handleNodeEvent, handleReplaceEvent]);
+  }, [node, state.isExecuting, nodeId, collectContext, supertags, getFieldDefinitions, setPreview, setExpandPreview, handleNodeEvent, handleReplaceEvent, updateNode]);
 
-  /**
-   * 取消执行
-   */
   const cancelAction = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    abortControllerRef.current?.abort();
   }, []);
 
-  /**
-   * 便捷方法：提取为待办
-   */
-  const extractTasks = useCallback(() => executeAction('extract_tasks'), [executeAction]);
-
-  /**
-   * 便捷方法：结构化提炼
-   */
-  const structuredSummary = useCallback(() => executeAction('structured_summary'), [executeAction]);
-
-  /**
-   * 便捷方法：原地重写
-   */
-  const inlineRewrite = useCallback(() => executeAction('inline_rewrite'), [executeAction]);
-
   return {
-    // 状态
     isExecuting: state.isExecuting,
     actionType: state.actionType,
     generatedNodeCount: state.generatedNodeCount,
     replacedContent: state.replacedContent,
+    expandedContent: state.expandedContent,
     error: state.error,
-    
-    // 方法
     executeAction,
     cancelAction,
-    
-    // 便捷方法
-    extractTasks,
-    structuredSummary,
-    inlineRewrite,
   };
 }

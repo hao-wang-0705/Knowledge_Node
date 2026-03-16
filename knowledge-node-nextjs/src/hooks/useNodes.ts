@@ -99,8 +99,16 @@ export function useUpdateNode() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateNodeRequest }) =>
-      nodesApi.update(id, data),
+    mutationFn: async ({ id, data }: { id: string; data: UpdateNodeRequest }) => {
+      const out = await nodesApi.update(id, data);
+      if (out.unlockedNodeIds?.length && typeof window !== 'undefined') {
+        const { useNodeStore } = await import('@/stores/nodeStore');
+        const nodes = await Promise.all(out.unlockedNodeIds.map((nodeId) => nodesApi.getById(nodeId)));
+        const store = useNodeStore.getState() as any;
+        nodes.forEach((n) => store.mergeNodeFromServer?.(n));
+      }
+      return out.node;
+    },
 
     // 乐观更新
     onMutate: async ({ id, data }) => {

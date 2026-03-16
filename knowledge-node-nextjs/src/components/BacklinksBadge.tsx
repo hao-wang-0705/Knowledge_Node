@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Link2, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSplitPaneStore } from '@/stores/splitPaneStore';
-import { Node } from '@/types';
 import { analyzeNavigationTarget } from '@/utils/navigation';
-import { findBacklinks, findBacklinksFromFields, getPlainTextWithoutReferences } from '@/utils/reference-helpers';
+import { getPlainTextWithoutReferences } from '@/utils/reference-helpers';
 import CompactBreadcrumb from './CompactBreadcrumb';
+import { nodesApi } from '@/services/api/nodes';
 
 interface BacklinksBadgeProps {
   nodeId: string;
@@ -37,88 +37,57 @@ const BacklinksBadge: React.FC<BacklinksBadgeProps> = ({
   onNodeClick,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  
+  const [unifiedBacklinks, setUnifiedBacklinks] = useState<UnifiedBacklink[]>([]);
+
+  const incomingRefCount = useNodeStore((state) => {
+    let count = 0;
+    for (const n of Object.values(state.nodes)) {
+      if (n.references?.some((ref) => ref.targetNodeId === nodeId)) count += 1;
+    }
+    return count;
+  });
+
   const nodes = useNodeStore((state) => state.nodes);
-  const getNodePath = useNodeStore((state) => state.getNodePath);
   const setFocusedNode = useNodeStore((state) => state.setFocusedNode);
   const setHoistedNode = useNodeStore((state) => state.setHoistedNode);
   // 右侧面板状态
   const splitPaneIsOpen = useSplitPaneStore((state) => state.isOpen);
   const openPanel = useSplitPaneStore((state) => state.openPanel);
   const navigateInPanel = useSplitPaneStore((state) => state.navigateInPanel);
-  
-  const currentNode = nodes[nodeId];
-  const targetTitle = currentNode?.content?.trim().slice(0, 50);
 
-  // 查找所有反向链接（正文/独立引用/双链）
-  const backlinkNodeIds = useMemo(() => {
-    return findBacklinks(nodeId, nodes, targetTitle);
-  }, [nodeId, nodes, targetTitle]);
-
-  // v2.1: 通过引用字段引用此节点的节点
-  const fieldBacklinks = useMemo(() => {
-    return findBacklinksFromFields(nodeId, nodes);
-  }, [nodeId, nodes]);
-
-  // 合并所有反向链接为统一数据结构
-  const unifiedBacklinks: UnifiedBacklink[] = useMemo(() => {
-    const result: UnifiedBacklink[] = [];
-    
-    // 处理普通反向链接（去重：排除已在字段引用中的节点）
-    const fieldNodeIds = new Set(fieldBacklinks.map(fb => fb.nodeId));
-    
-    backlinkNodeIds.forEach((id) => {
-      // 如果这个节点已经在字段引用中，跳过（避免重复显示）
-      if (fieldNodeIds.has(id)) return;
-      
-      const node = nodes[id];
-      if (!node) return;
-      
-      const path = getNodePath(id);
-      const breadcrumbs = path.slice(0, -1).map((n) => {
-        const content = n.content || '未命名';
-        return content.length > 12 ? content.slice(0, 12) + '…' : content;
-      }).slice(-2);
-      
-      const plainContent = getPlainTextWithoutReferences(node.content);
-      const displayContent = plainContent.length > 50 ? plainContent.slice(0, 50) + '…' : plainContent;
-      
-      result.push({
-        id: node.id,
-        content: displayContent,
-        breadcrumbs,
-        sourceType: 'mention',
-        createdAt: node.createdAt,
+  useEffect(() => {
+    let cancelled = false;
+    nodesApi
+      .getMentionedBy(nodeId)
+      .then((items) => {
+        if (cancelled) return;
+        const mapped = items
+          .filter((item) => item.node.id !== nodeId)
+          .map((item) => {
+            const plainContent = getPlainTextWithoutReferences(item.node.content || '');
+            const displayContent = plainContent.length > 50 ? `${plainContent.slice(0, 50)}…` : plainContent;
+            return {
+              id: item.node.id,
+              content: displayContent,
+              breadcrumbs: item.breadcrumbs.map((crumb) => {
+                const content = crumb.title || '未命名';
+                return content.length > 12 ? `${content.slice(0, 12)}…` : content;
+              }).slice(-2),
+              sourceType: item.sourceType,
+              fieldKey: item.fieldKey,
+              createdAt: item.node.createdAt,
+            } as UnifiedBacklink;
+          })
+          .sort((a, b) => b.createdAt - a.createdAt);
+        setUnifiedBacklinks(mapped);
+      })
+      .catch(() => {
+        if (!cancelled) setUnifiedBacklinks([]);
       });
-    });
-    
-    // 处理字段引用
-    fieldBacklinks.forEach(({ nodeId: id, fieldKey }) => {
-      const node = nodes[id];
-      if (!node) return;
-      
-      const path = getNodePath(id);
-      const breadcrumbs = path.slice(0, -1).map((n) => {
-        const content = n.content || '未命名';
-        return content.length > 12 ? content.slice(0, 12) + '…' : content;
-      }).slice(-2);
-      
-      const plainContent = getPlainTextWithoutReferences(node.content);
-      const displayContent = plainContent.length > 50 ? plainContent.slice(0, 50) + '…' : plainContent;
-      
-      result.push({
-        id,
-        content: displayContent,
-        breadcrumbs,
-        sourceType: 'field',
-        fieldKey,
-        createdAt: node.createdAt,
-      });
-    });
-    
-    // 按创建时间倒序排列
-    return result.sort((a, b) => b.createdAt - a.createdAt);
-  }, [backlinkNodeIds, fieldBacklinks, nodes, getNodePath]);
+    return () => {
+      cancelled = true;
+    };
+  }, [nodeId, incomingRefCount]);
 
   const totalCount = unifiedBacklinks.length;
 

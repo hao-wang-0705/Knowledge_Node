@@ -67,15 +67,28 @@ export const nodesApi = {
   },
 
   /**
-   * 更新节点
+   * 更新节点；返回 node 与级联解锁的节点 id 列表（卡点 Resolved 时）
    */
-  update: async (id: string, data: UpdateNodeRequest): Promise<Node> => {
-    const res = await fetchApi<Node>(`/nodes/${id}`, {
-      method: 'PUT',
+  update: async (
+    id: string,
+    data: UpdateNodeRequest
+  ): Promise<{ node: Node; unlockedNodeIds: string[] }> => {
+    const res = await fetch(`${API_BASE}/nodes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!res.data) throw new Error('更新失败');
-    return res.data;
+    const json = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(json?.error ?? json?.message ?? '更新失败');
+    const node = json?.data ?? json;
+    const unlockedHeader = res.headers.get('X-Unlocked-Node-Ids');
+    const unlockedNodeIds = unlockedHeader
+      ? unlockedHeader
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    return { node, unlockedNodeIds };
   },
 
   /**

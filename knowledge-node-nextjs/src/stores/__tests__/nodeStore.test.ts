@@ -3,6 +3,7 @@ import { useNodeStore } from '@/stores/nodeStore';
 import { getCalendarPath } from '@/utils/date-helpers';
 
 const queueOperationMock = vi.fn();
+const pruneResultsMock = vi.fn();
 
 vi.mock('@/stores/syncStore', () => ({
   useSyncStore: {
@@ -18,6 +19,18 @@ vi.mock('@/stores/syncStore', () => ({
   },
 }));
 
+vi.mock('@/stores/searchNodeStore', () => ({
+  useSearchNodeStore: {
+    getState: () => ({
+      pruneResultsForDeletedNodes: pruneResultsMock,
+      resultsBySearchNodeId: {},
+      loadingBySearchNodeId: {},
+      errorBySearchNodeId: {},
+    }),
+    setState: vi.fn(),
+  },
+}));
+
 describe('nodeStore', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -27,6 +40,7 @@ describe('nodeStore', () => {
       rootIds: [],
       focusedNodeId: null,
       hoistedNodeId: null,
+      collapseOverlay: {},
     });
   });
 
@@ -108,6 +122,11 @@ describe('nodeStore', () => {
     expect(state.nodes[childId]).toBeUndefined();
     expect(state.nodes[grandChildId]).toBeUndefined();
     expect(state.rootIds).toEqual([]);
+
+    // 删除时应通知搜索结果 Store 清理对应节点
+    expect(pruneResultsMock).toHaveBeenCalledTimes(1);
+    const arg = pruneResultsMock.mock.calls[0]?.[0] as string[];
+    expect(arg).toEqual(expect.arrayContaining([rootId, childId, grandChildId]));
   });
 
   it('删除多根场景下某一子树后 rootIds 正确收缩（Edge Case）', () => {
@@ -134,6 +153,53 @@ describe('nodeStore', () => {
 
     expect(after.rootIds).toEqual(before.rootIds);
     expect(after.nodes[rootId]).toBeDefined();
+  });
+
+  describe('折叠状态按视图隔离（collapseOverlay）', () => {
+    it('getCollapseState 无 overlay 时返回 node.isCollapsed', () => {
+      const store = useNodeStore.getState();
+      const id = store.addNode(null);
+      useNodeStore.setState((s) => ({
+        nodes: { ...s.nodes, [id]: { ...s.nodes[id], isCollapsed: true } },
+      }));
+      expect(useNodeStore.getState().getCollapseState('main', id)).toBe(true);
+      useNodeStore.setState((s) => ({
+        nodes: { ...s.nodes, [id]: { ...s.nodes[id], isCollapsed: false } },
+      }));
+      expect(useNodeStore.getState().getCollapseState('main', id)).toBe(false);
+    });
+
+    it('setCollapseState 与 getCollapseState 按 viewKey 隔离', () => {
+      const store = useNodeStore.getState();
+      const id = store.addNode(null);
+      store.setCollapseState('main', id, true);
+      store.setCollapseState('search:s1', id, false);
+      expect(store.getCollapseState('main', id)).toBe(true);
+      expect(store.getCollapseState('search:s1', id)).toBe(false);
+    });
+
+    it('toggleCollapse 只更新 overlay 不写 nodes', () => {
+      const store = useNodeStore.getState();
+      const id = store.addNode(null);
+      const nodeBefore = useNodeStore.getState().nodes[id];
+      store.toggleCollapse('main', id);
+      const state = useNodeStore.getState();
+      expect(state.getCollapseState('main', id)).toBe(!nodeBefore.isCollapsed);
+      expect(state.nodes[id].isCollapsed).toBe(nodeBefore.isCollapsed);
+    });
+
+    it('updateNode 含 isCollapsed 时 queueOperation 的 payload 不包含 isCollapsed', () => {
+      queueOperationMock.mockClear();
+      const store = useNodeStore.getState();
+      const id = store.addNode(null);
+      store.updateNode(id, { content: 'x', isCollapsed: true });
+      const call = queueOperationMock.mock.calls.find(
+        (c: unknown[]) => c[0]?.type === 'update' && c[0]?.entityType === 'node' && c[0]?.entityId === id
+      );
+      expect(call).toBeDefined();
+      expect(call?.[0]?.payload).toHaveProperty('content', 'x');
+      expect(call?.[0]?.payload).not.toHaveProperty('isCollapsed');
+    });
   });
 
   // 跳过此测试：scope/notebookId 字段继承功能尚未在核心类型中实现

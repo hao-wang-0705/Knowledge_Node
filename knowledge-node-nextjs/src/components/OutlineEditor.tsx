@@ -2,22 +2,32 @@
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { Calendar, ChevronRight, Book, X, Plus } from 'lucide-react';
+import { Calendar, CalendarDays, ChevronLeft, ChevronRight, Book, X, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSupertagStore } from '@/stores/supertagStore';
 import { useSyncStore } from '@/stores/syncStore';
+import { useSearchNodeStore } from '@/stores/searchNodeStore';
 import { useAuthErrorHandler } from '@/hooks/useAuthErrorHandler';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import NodeComponent from './NodeComponent';
 import FieldEditor from './FieldEditor';
 import { formatDate } from '@/utils/helpers';
-import { getCalendarNodeType, getTodayId } from '@/utils/date-helpers';
+import { getCalendarNodeType, getCalendarPath, getTodayId, parseDayId } from '@/utils/date-helpers';
+import { findCalendarNodeActualId } from '@/utils/calendarNodeId';
 import QuickInputNode from './QuickInputNode';
 import { CaptureBar } from './capture';
 import { getTagStyle } from '@/utils/tag-styles';
 import { OfflineToast } from './OfflineToast';
+import { useSyncCycleErrorToast } from '@/hooks/useSyncCycleErrorToast';
+import MentionedBySection from '@/components/node/MentionedBySection';
+import { Calendar as DayPickerCalendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 /**
  * 笔记编辑器主组件
@@ -32,6 +42,7 @@ const OutlineEditor: React.FC = () => {
   
   // 初始化网络状态检测
   useNetworkStatus();
+  useSyncCycleErrorToast();
   
   // 同步状态
   const pendingOperations = useSyncStore((state) => state.pendingOperations);
@@ -51,6 +62,10 @@ const OutlineEditor: React.FC = () => {
   const getFieldDefinitions = useSupertagStore((state) => state.getFieldDefinitions);
   
   const isInDailyTree = useNodeStore((state) => state.isInDailyTree);
+
+  // 搜索节点结果（用于搜索节点聚焦视图）
+  const searchResultsById = useSearchNodeStore((state) => state.resultsBySearchNodeId);
+  const executeSearch = useSearchNodeStore((state) => state.executeSearch);
 
   const { data: session } = useSession();
   const userRootId = useMemo(
@@ -99,29 +114,78 @@ const OutlineEditor: React.FC = () => {
     }
   }, [isInitialized, nodes, hasInitialNavigated, goToToday]);
 
-  // 获取当前显示的节点 ID 列表（统一树：直接使用 hoisted 的子节点）
-  // 过滤掉 search_root（智能搜索仅在查询面板显示）
-  const displayedNodeIds = useMemo(() => {
-    if (hoistedNodeId) {
-      const hoistedNode = nodes[hoistedNodeId];
-      const childIds = hoistedNode?.childrenIds ?? [];
-      // 在用户根节点视图中，过滤掉 search_root 节点
-      return childIds.filter((id) => {
-        const child = nodes[id];
-        return child && child.nodeRole !== 'search_root';
-      });
-    }
-    return rootIds;
-  }, [hoistedNodeId, nodes, rootIds]);
-
   const hoistedNode = useMemo(() => {
     return hoistedNodeId ? nodes[hoistedNodeId] : null;
   }, [hoistedNodeId, nodes]);
+
+  const isSearchNodeFocus = useMemo(
+    () => !!hoistedNode && hoistedNode.type === 'search',
+    [hoistedNode]
+  );
+
+  // 搜索节点聚焦时，自动执行一次搜索（有有效配置时）
+  useEffect(() => {
+    if (!hoistedNodeId || !isSearchNodeFocus || !hoistedNode) return;
+    const config = hoistedNode.payload as import('@/types/search').SearchConfig | undefined;
+    if (!config || !config.conditions || config.conditions.length === 0) return;
+    void executeSearch(hoistedNodeId, config);
+  }, [hoistedNodeId, isSearchNodeFocus, hoistedNode, executeSearch]);
+
+  // 获取当前显示的节点 ID 列表
+  // 普通节点：使用 hoisted 的子节点；搜索节点：使用搜索结果列表
+  const displayedNodeIds = useMemo(() => {
+    if (hoistedNodeId && isSearchNodeFocus) {
+      return searchResultsById[hoistedNodeId] ?? [];
+    }
+
+    if (hoistedNodeId) {
+      const current = nodes[hoistedNodeId];
+      return current?.childrenIds ?? [];
+    }
+
+    return rootIds;
+  }, [hoistedNodeId, isSearchNodeFocus, searchResultsById, nodes, rootIds]);
 
   const isCalendarView = useMemo(
     () => (hoistedNodeId ? isInDailyTree(hoistedNodeId) : false),
     [hoistedNodeId, isInDailyTree]
   );
+
+  /** 有日笔记的日期 ID 列表（用于日历仅可点有笔记的日期） */
+  const existingDayIds = useMemo(
+    () => Object.keys(nodes).filter((id) => id.startsWith('day-')),
+    [nodes]
+  );
+
+  /** 当前聚焦的日期（若在日笔记上） */
+  const currentDayDate = useMemo(() => {
+    if (!hoistedNodeId || getCalendarNodeType(hoistedNodeId) !== 'day') return null;
+    return parseDayId(hoistedNodeId);
+  }, [hoistedNodeId]);
+
+  /** 有笔记的日期按日期倒序（用于前一天：找当前之前最近一天） */
+  const existingDaysSortedDesc = useMemo(() => {
+    const list = existingDayIds
+      .map((dayId) => ({ dayId, date: parseDayId(dayId) }))
+      .filter((x): x is { dayId: string; date: Date } => x.date !== null);
+    list.sort((a, b) => b.date.getTime() - a.date.getTime());
+    return list;
+  }, [existingDayIds]);
+
+  /** 是否存在早于当前聚焦日期的有笔记日期（用于前一天按钮是否可点） */
+  const hasPrevDay = useMemo(() => {
+    if (!currentDayDate) return false;
+    const t = currentDayDate.getTime();
+    return existingDaysSortedDesc.some((x) => x.date.getTime() < t);
+  }, [currentDayDate, existingDaysSortedDesc]);
+
+  /** 是否存在晚于当前聚焦日期的有笔记日期（用于后一天按钮置灰） */
+  const hasNextDay = useMemo(() => {
+    if (!currentDayDate) return false;
+    const t = currentDayDate.getTime();
+    return existingDaysSortedDesc.some((x) => x.date.getTime() > t);
+  }, [currentDayDate, existingDaysSortedDesc]);
+
   const activeNotebookNodeId = useMemo(() => {
     if (!hoistedNodeId || !userRootId) return null;
     let cur: string | undefined = hoistedNodeId;
@@ -204,11 +268,11 @@ const OutlineEditor: React.FC = () => {
   }, [isDayView, hoistedNodeId]);
 
   // 是否可以添加节点：
-  // 解锁所有层级的添加能力，包括年/月/周/日各层级
+  // 普通节点：解锁所有层级的添加能力；搜索节点聚焦时禁止添加子节点
   const canAddNode = useMemo(() => {
-    // 任何情况下都允许添加节点
+    if (isSearchNodeFocus) return false;
     return true;
-  }, []);
+  }, [isSearchNodeFocus]);
 
   // 聚焦节点的标签列表
   const hoistedNodeTags = useMemo(() => {
@@ -316,6 +380,39 @@ const OutlineEditor: React.FC = () => {
     setIsEditingTitle(false);
   }, [hoistedNodeId, activeNotebookNodeId, editingTitleValue, updateNode]);
 
+  /** 日期切换：前一天（跳转到当前之前最近一个有笔记的日期） */
+  const handlePrevDay = useCallback(() => {
+    if (!currentDayDate) return;
+    const t = currentDayDate.getTime();
+    const prevEntry = existingDaysSortedDesc.find((x) => x.date.getTime() < t);
+    if (!prevEntry) return;
+    const actualId = findCalendarNodeActualId(prevEntry.dayId, nodes);
+    if (actualId) navigateToNode(actualId);
+  }, [currentDayDate, existingDaysSortedDesc, nodes, navigateToNode]);
+
+  /** 日期切换：后一天（跳转到当前之后最近一个有笔记的日期；无更晚日期时按钮已置灰） */
+  const handleNextDay = useCallback(() => {
+    if (!currentDayDate) return;
+    const t = currentDayDate.getTime();
+    // 倒序列表中新日期在前，取第一个严格大于当前日期的即为“之后最近一天”
+    const nextEntry = [...existingDaysSortedDesc]
+      .reverse()
+      .find((x) => x.date.getTime() > t);
+    if (!nextEntry) return;
+    const actualId = findCalendarNodeActualId(nextEntry.dayId, nodes);
+    if (actualId) navigateToNode(actualId);
+  }, [currentDayDate, existingDaysSortedDesc, nodes, navigateToNode]);
+
+  /** 日历选择日期（仅可点有笔记的日期） */
+  const handleCalendarSelectDate = useCallback(
+    (date: Date) => {
+      const dayId = getCalendarPath(date).dayId;
+      const actualId = findCalendarNodeActualId(dayId, nodes);
+      if (actualId) navigateToNode(actualId);
+    },
+    [nodes, navigateToNode]
+  );
+
   // 聚焦标题输入框
   useEffect(() => {
     if (isEditingTitle && titleInputRef.current) {
@@ -327,15 +424,18 @@ const OutlineEditor: React.FC = () => {
   return (
     <>
       {/* 主内容区 */}
-      <main className="flex-1 overflow-y-auto pb-32">
-        <div className="max-w-3xl mx-auto px-6 py-8">
+      <main className="flex-1 overflow-y-auto custom-scrollbar pb-32 text-[#555] dark:text-gray-400">
+        <div
+          className="w-full p-10 lg:px-20 xl:px-28"
+          style={{ maxWidth: 'min(72%, 1400px)' }}
+        >
           {/* 统一面包屑：用户昵称(全部笔记) > Daily notes / 笔记本 > 年/周/日 或 笔记n */}
-          <div className="flex items-center gap-1 text-sm text-gray-500 mb-4 flex-wrap">
+          <div className="flex items-center gap-1 text-[13px] text-[#888] dark:text-gray-500 mb-8 flex-wrap">
             {unifiedBreadcrumbItems.map((item, index) => (
               <React.Fragment key={item.id}>
-                {index > 0 && <ChevronRight size={14} className="text-gray-400" />}
+                {index > 0 && <ChevronRight size={14} className="text-[#ccc] dark:text-gray-500" />}
                 {index === unifiedBreadcrumbItems.length - 1 ? (
-                  <span className="text-gray-800 font-medium flex items-center gap-1">
+                  <span className="text-[#111] dark:text-gray-100 font-medium flex items-center gap-1">
                     {activeNotebookNodeId && index > 0 && <Book size={14} />}
                     {item.label}
                   </span>
@@ -343,8 +443,8 @@ const OutlineEditor: React.FC = () => {
                   <button
                     onClick={() => navigateToNode(item.id)}
                     className={cn(
-                      "hover:underline flex items-center gap-1",
-                      item.isUserRoot ? "hover:text-[var(--brand-primary)]" : "hover:text-blue-600"
+                      "hover:underline flex items-center gap-1 text-[#666] dark:text-gray-400 hover:text-[#111] dark:hover:text-gray-100",
+                      item.isUserRoot && "hover:text-[var(--brand-primary)]"
                     )}
                   >
                     {activeNotebookNodeId && index === 1 && <Book size={14} />}
@@ -354,7 +454,7 @@ const OutlineEditor: React.FC = () => {
               </React.Fragment>
             ))}
             {unifiedBreadcrumbItems.length === 0 && activeNotebookNodeId && (
-              <span className="text-gray-800 font-medium flex items-center gap-1">
+              <span className="text-[#111] dark:text-gray-100 font-medium flex items-center gap-1">
                 <Book size={14} />
                 {notebookName || '笔记本'}
               </span>
@@ -374,12 +474,12 @@ const OutlineEditor: React.FC = () => {
                   if (e.key === 'Enter') handleSaveTitle();
                   if (e.key === 'Escape') setIsEditingTitle(false);
                 }}
-                className="text-2xl font-bold text-gray-800 dark:text-gray-100 bg-transparent border-none outline-none w-full"
+                className="text-[34px] font-bold text-[#111] dark:text-gray-100 tracking-tight bg-transparent border-none outline-none w-full"
               />
             ) : (
               <h2 
                 className={cn(
-                  "text-2xl font-bold text-gray-800 dark:text-gray-100 mb-1",
+                  "text-[34px] font-bold text-[#111] dark:text-gray-100 tracking-tight mb-4",
                   activeNotebookNodeId && "cursor-text hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 -mx-1"
                 )}
                 onClick={handleTitleClick}
@@ -444,6 +544,69 @@ const OutlineEditor: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* 日期切换栏：仅在日历视图（日笔记）显示 */}
+            {isCalendarView && (
+              <div className="flex items-center space-x-[2px] mb-8">
+                <div className="flex items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-gray-700 rounded-md p-[2px] shadow-sm text-[13px]">
+                  <button
+                    type="button"
+                    onClick={handlePrevDay}
+                    disabled={!hasPrevDay}
+                    className={cn(
+                      'w-7 h-6 flex items-center justify-center rounded-[4px] transition-colors text-[#888] dark:text-gray-400',
+                      hasPrevDay && 'hover:bg-gray-100 dark:hover:bg-gray-700',
+                      !hasPrevDay && 'opacity-50 cursor-not-allowed'
+                    )}
+                    title="前一天"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNextDay}
+                    disabled={!hasNextDay}
+                    className={cn(
+                      'w-7 h-6 flex items-center justify-center rounded-[4px] transition-colors text-[#888] dark:text-gray-400',
+                      hasNextDay && 'hover:bg-gray-100 dark:hover:bg-gray-700',
+                      !hasNextDay && 'opacity-50 cursor-not-allowed'
+                    )}
+                    title="后一天"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  </button>
+                  <div className="w-[1px] h-3 bg-gray-200 dark:bg-gray-600 mx-1" />
+                  <button
+                    type="button"
+                    onClick={() => void goToToday()}
+                    className="px-2.5 h-6 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-[4px] transition-colors font-medium text-[#333] dark:text-gray-200"
+                  >
+                    Today
+                  </button>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          'w-7 h-6 flex items-center justify-center rounded-[4px] transition-colors ml-[2px]',
+                          'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                        )}
+                        title="打开日历"
+                      >
+                        <CalendarDays className="w-3.5 h-3.5" strokeWidth={2} />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <DayPickerCalendar
+                        existingDayIds={existingDayIds}
+                        selectedDate={currentDayDate}
+                        onSelectDate={handleCalendarSelectDate}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            )}
             
             {/* 日历节点的特殊提示 - 仅在今天的日记页面展示 */}
             {isToday && (
@@ -455,7 +618,7 @@ const OutlineEditor: React.FC = () => {
             )}
           </div>
 
-          {/* 节点列表 */}
+          {/* 节点列表 / 搜索结果列表 */}
           <div className="space-y-1">
             {displayedNodeIds.length > 0 ? (
               displayedNodeIds.map((nodeId) => (
@@ -468,21 +631,27 @@ const OutlineEditor: React.FC = () => {
             ) : (
               <div className="text-center py-12">
                 <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                  {isCalendarView ? (
+                  {isSearchNodeFocus ? (
+                    <Search size={32} className="text-teal-400" />
+                  ) : isCalendarView ? (
                     <Calendar size={32} className="text-green-400" />
                   ) : (
                     <Book size={32} className="text-blue-400" />
                   )}
                 </div>
-                <p className="text-gray-500 dark:text-gray-400 mb-2">
-                  {hasBrokenCalendarChain
-                    ? '检测到日历层级关系异常'
-                    : (hoistedNodeId ? '这里还没有内容' : '暂无内容')}
+                <p className="text-[15px] text-[#333] dark:text-gray-300 mb-2">
+                  {isSearchNodeFocus
+                    ? '这里还没有搜索结果'
+                    : hasBrokenCalendarChain
+                      ? '检测到日历层级关系异常'
+                      : (hoistedNodeId ? '这里还没有内容' : '暂无内容')}
                 </p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">
-                  {hasBrokenCalendarChain
-                    ? '请点击「今日笔记」触发结构初始化后重试'
-                    : (canAddNode ? '点击下方按钮添加第一条内容' : '展开子节点查看更多内容')}
+                <p className="text-[13px] text-[#888] dark:text-gray-500 mb-4">
+                  {isSearchNodeFocus
+                    ? '请检查搜索条件，或在其他页面修改搜索配置'
+                    : hasBrokenCalendarChain
+                      ? '请点击「今日笔记」触发结构初始化后重试'
+                      : (canAddNode ? '点击下方按钮添加第一条内容' : '展开子节点查看更多内容')}
                 </p>
                 {canAddNode && (
                   <Button onClick={handleAddNode} variant="outline">
@@ -493,6 +662,14 @@ const OutlineEditor: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* 圆点聚焦页：当前聚焦节点的“被提及节点”区域（默认收起） */}
+          {hoistedNodeId && (
+            <MentionedBySection
+              targetNodeId={hoistedNodeId}
+              className="mt-8"
+            />
+          )}
 
           {/* 末尾常驻空节点输入框 */}
           {canAddNode && (

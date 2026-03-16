@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { 
   Type, Hash, CalendarDays, List, Circle, X, 
-  AlertCircle, CheckCircle2, ChevronDown, Link2, Sparkles
+  AlertCircle, CheckCircle2, ChevronDown, Link2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FieldDefinition, FieldType } from '@/types';
@@ -46,6 +46,12 @@ const FIELD_TYPE_CONFIG: Record<FieldType, FieldTypeConfig> = {
     bgColor: 'bg-purple-50',
     placeholder: 'Select option'
   },
+  status: {
+    icon: <List size={14} />,
+    color: 'text-purple-500',
+    bgColor: 'bg-purple-50',
+    placeholder: '状态'
+  },
   'multi-select': { 
     icon: <List size={14} />, 
     color: 'text-pink-500',
@@ -57,18 +63,6 @@ const FIELD_TYPE_CONFIG: Record<FieldType, FieldTypeConfig> = {
     color: 'text-cyan-500',
     bgColor: 'bg-cyan-50',
     placeholder: 'Select node'
-  },
-  ai_text: {
-    icon: <Sparkles size={14} />,
-    color: 'text-violet-500',
-    bgColor: 'bg-violet-50',
-    placeholder: 'AI generated text'
-  },
-  ai_select: {
-    icon: <Sparkles size={14} />,
-    color: 'text-violet-500',
-    bgColor: 'bg-violet-50',
-    placeholder: 'AI generated selection'
   },
 };
 
@@ -154,16 +148,20 @@ const TanaStyleFieldRow: React.FC<TanaStyleFieldRowProps> = ({
 
   const config = FIELD_TYPE_CONFIG[fieldDef.type];
   
-  // Reference 类型的候选节点
+  const targetIds = useMemo(() =>
+    fieldDef.targetTagIds ?? (fieldDef.targetTagId ? [fieldDef.targetTagId] : []),
+    [fieldDef.targetTagIds, fieldDef.targetTagId],
+  );
+
   const referenceCandidates = useMemo(() => {
-    if (fieldDef.type !== 'reference' || !fieldDef.targetTagId) return [];
+    if (fieldDef.type !== 'reference' || targetIds.length === 0) return [];
     const list = Object.values(nodes).filter(
-      (n) => n.supertagId === fieldDef.targetTagId && n.id !== nodeId
+      (n) => targetIds.some(tid => n.supertagId === tid) && n.id !== nodeId
     );
     if (!refSearch.trim()) return list.slice(0, 20);
     const q = refSearch.trim().toLowerCase();
     return list.filter((n) => (n.content || '').toLowerCase().includes(q)).slice(0, 20);
-  }, [nodes, fieldDef.type, fieldDef.targetTagId, nodeId, refSearch]);
+  }, [nodes, fieldDef.type, targetIds, nodeId, refSearch]);
 
   // 获取选项列表（包括清除选项）
   const getOptions = useCallback(() => {

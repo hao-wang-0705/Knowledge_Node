@@ -1,14 +1,11 @@
 /**
- * 引用相关的工具函数
- * 
- * 支持两种引用格式:
- * 1. @{node_id:节点标题} - 原有格式，用于程序化引用
- * 2. [[节点标题]] - 双链格式，类似 Roam/Obsidian 风格
- * 
- * 例如: 
- * - @{abc123:2026年规划}
- * - [[2026年规划]]
+ * 引用相关工具函数
+ * 说明：
+ * - 行内渲染已升级为实体引用模型（references + anchorOffset）
+ * - 仍保留少量 @{} / [[]] 文本兼容函数，仅用于纯文本展示与反向链接统计
  */
+
+import type { Node, NodeReference } from '@/types';
 
 // 原有引用格式的正则表达式: @{nodeId:title}
 export const REFERENCE_REGEX = /@\{([^:]+):([^}]+)\}/g;
@@ -16,209 +13,43 @@ export const REFERENCE_REGEX = /@\{([^:]+):([^}]+)\}/g;
 // 双链格式的正则表达式: [[title]]
 export const DOUBLE_BRACKET_REGEX = /\[\[([^\]]+)\]\]/g;
 
-// 组合正则：匹配两种格式
-export const COMBINED_REFERENCE_REGEX = /(@\{([^:]+):([^}]+)\}|\[\[([^\]]+)\]\])/g;
 
-// 检测双链触发器: [[
-export const DOUBLE_BRACKET_TRIGGER = '[[';
-
-// 解析后的引用对象
-export interface ParsedReference {
-  fullMatch: string;    // 完整匹配文本
-  nodeId: string;       // 节点 ID（双链格式时为空，需要通过标题查找）
-  title: string;        // 节点标题
-  startIndex: number;   // 在原文中的起始位置
-  endIndex: number;     // 在原文中的结束位置
-  format: 'at' | 'bracket'; // 引用格式类型
+/** 是否为日历结构节点 id（年/周/日），用于兜底：API 未返回 type/tags 时的兼容 */
+function isCalendarStructureId(nodeId: string): boolean {
+  const suffix = nodeId.includes('_') ? nodeId.split('_').pop() ?? nodeId : nodeId;
+  return (
+    suffix.startsWith('year-') ||
+    suffix.startsWith('week-') ||
+    suffix.startsWith('day-')
+  );
 }
 
 /**
- * 解析文本中的所有引用（支持两种格式）
+ * 判断节点是否可作为引用目标（统一屏蔽规则）。
+ * 规则：排除自身 → 无内容 → 结构根 → 日历结构节点 → 可选笔记本 → 通过。
+ * 日历节点判定：优先 type/tags（后端语义），兜底 payload.level 与 id 格式（兼容历史数据或未同步字段）。
  */
-export function parseReferences(text: string): ParsedReference[] {
-  const references: ParsedReference[] = [];
-  
-  // 解析 @{nodeId:title} 格式
-  const atRegex = new RegExp(REFERENCE_REGEX.source, 'g');
-  let match;
-  
-  while ((match = atRegex.exec(text)) !== null) {
-    references.push({
-      fullMatch: match[0],
-      nodeId: match[1],
-      title: match[2],
-      startIndex: match.index,
-      endIndex: match.index + match[0].length,
-      format: 'at',
-    });
-  }
-  
-  // 解析 [[title]] 格式
-  const bracketRegex = new RegExp(DOUBLE_BRACKET_REGEX.source, 'g');
-  
-  while ((match = bracketRegex.exec(text)) !== null) {
-    references.push({
-      fullMatch: match[0],
-      nodeId: '', // 双链格式需要通过标题查找 nodeId
-      title: match[1],
-      startIndex: match.index,
-      endIndex: match.index + match[0].length,
-      format: 'bracket',
-    });
-  }
-  
-  // 按位置排序
-  return references.sort((a, b) => a.startIndex - b.startIndex);
+export function isReferenceableNode(
+  node: Node,
+  options?: { excludeNodeId?: string }
+): boolean {
+  if (options?.excludeNodeId && node.id === options.excludeNodeId) return false;
+  if (!node.content?.trim()) return false;
+  if (node.nodeRole && node.nodeRole !== 'normal') return false;
+  // 日历结构节点：主判据（后端返回的语义字段）
+  if (node.type === 'daily') return false;
+  if (node.tags?.some((t) => String(t).startsWith('sys:calendar:'))) return false;
+  // 兜底：payload.level（后端日历节点必有）与 id 格式（兼容未同步 type/tags 的节点）
+  const level = (node.payload as { level?: string } | undefined)?.level;
+  if (level === 'year' || level === 'week' || level === 'day') return false;
+  if (isCalendarStructureId(node.id)) return false;
+  const scope = (node as { scope?: string }).scope;
+  const notebookId = (node as { notebookId?: string }).notebookId;
+  if (scope === 'notebook' || notebookId) return false;
+  return true;
 }
 
-/**
- * 仅解析原有 @{} 格式的引用
- */
-export function parseAtReferences(text: string): ParsedReference[] {
-  const references: ParsedReference[] = [];
-  const regex = new RegExp(REFERENCE_REGEX.source, 'g');
-  let match;
-  
-  while ((match = regex.exec(text)) !== null) {
-    references.push({
-      fullMatch: match[0],
-      nodeId: match[1],
-      title: match[2],
-      startIndex: match.index,
-      endIndex: match.index + match[0].length,
-      format: 'at',
-    });
-  }
-  
-  return references;
-}
 
-/**
- * 仅解析双链 [[]] 格式的引用
- */
-export function parseBracketReferences(text: string): ParsedReference[] {
-  const references: ParsedReference[] = [];
-  const regex = new RegExp(DOUBLE_BRACKET_REGEX.source, 'g');
-  let match;
-  
-  while ((match = regex.exec(text)) !== null) {
-    references.push({
-      fullMatch: match[0],
-      nodeId: '',
-      title: match[1],
-      startIndex: match.index,
-      endIndex: match.index + match[0].length,
-      format: 'bracket',
-    });
-  }
-  
-  return references;
-}
-
-/**
- * 检查文本是否包含引用（任意格式）
- */
-export function hasReferences(text: string): boolean {
-  const atRegex = new RegExp(REFERENCE_REGEX.source);
-  const bracketRegex = new RegExp(DOUBLE_BRACKET_REGEX.source);
-  return atRegex.test(text) || bracketRegex.test(text);
-}
-
-/**
- * 检查文本是否包含双链触发器 [[
- */
-export function hasDoubleBracketTrigger(text: string, cursorPosition: number): boolean {
-  // 检查光标前两个字符是否是 [[
-  if (cursorPosition < 2) return false;
-  const beforeCursor = text.slice(0, cursorPosition);
-  return beforeCursor.endsWith(DOUBLE_BRACKET_TRIGGER);
-}
-
-/**
- * 获取双链输入状态（用于触发搜索弹窗）
- */
-export function getDoubleBracketState(text: string, cursorPosition: number): {
-  isActive: boolean;
-  searchQuery: string;
-  triggerStart: number;
-} {
-  // 查找最近的 [[ 位置
-  const beforeCursor = text.slice(0, cursorPosition);
-  const lastTriggerIndex = beforeCursor.lastIndexOf(DOUBLE_BRACKET_TRIGGER);
-  
-  if (lastTriggerIndex === -1) {
-    return { isActive: false, searchQuery: '', triggerStart: -1 };
-  }
-  
-  // 检查 [[ 之后是否有 ]]（说明已完成引用）
-  const afterTrigger = text.slice(lastTriggerIndex + 2, cursorPosition);
-  if (afterTrigger.includes(']]')) {
-    return { isActive: false, searchQuery: '', triggerStart: -1 };
-  }
-  
-  // 检查是否在同一行（不允许跨行）
-  if (afterTrigger.includes('\n')) {
-    return { isActive: false, searchQuery: '', triggerStart: -1 };
-  }
-  
-  return {
-    isActive: true,
-    searchQuery: afterTrigger,
-    triggerStart: lastTriggerIndex,
-  };
-}
-
-/**
- * 创建引用文本（原有 @{} 格式）
- */
-export function createReferenceText(nodeId: string, title: string): string {
-  // 清理标题中的特殊字符，避免破坏格式
-  const cleanTitle = title.replace(/[{}:]/g, '').trim() || '未命名节点';
-  return `@{${nodeId}:${cleanTitle}}`;
-}
-
-/**
- * 创建双链引用文本
- */
-export function createBracketReferenceText(title: string): string {
-  // 清理标题中的方括号
-  const cleanTitle = title.replace(/[\[\]]/g, '').trim() || '未命名节点';
-  return `[[${cleanTitle}]]`;
-}
-
-/**
- * 将双链格式转换为原有 @{} 格式
- * 需要提供节点查找函数
- */
-export function convertBracketToAtFormat(
-  text: string,
-  findNodeByTitle: (title: string) => { id: string; content: string } | undefined
-): string {
-  return text.replace(DOUBLE_BRACKET_REGEX, (match, title) => {
-    const node = findNodeByTitle(title);
-    if (node) {
-      return createReferenceText(node.id, title);
-    }
-    // 如果找不到节点，保留原格式
-    return match;
-  });
-}
-
-/**
- * 替换双链触发器为完整引用
- */
-export function replaceDoubleBracketTrigger(
-  text: string,
-  triggerStart: number,
-  cursorPosition: number,
-  nodeId: string,
-  title: string
-): string {
-  const before = text.slice(0, triggerStart);
-  const after = text.slice(cursorPosition);
-  const reference = createReferenceText(nodeId, title);
-  return before + reference + after;
-}
 
 /**
  * 获取纯文本（移除引用标记，只保留标题）
@@ -231,51 +62,36 @@ export function getPlainTextWithoutReferences(text: string): string {
   return result;
 }
 
-/**
- * 将文本分割为普通文本和引用块
- */
-export interface TextSegment {
-  type: 'text' | 'reference';
-  content: string;
-  nodeId?: string;
-  title?: string;
-  format?: 'at' | 'bracket';
-}
 
-export function splitTextWithReferences(text: string): TextSegment[] {
-  const segments: TextSegment[] = [];
-  const references = parseReferences(text);
-  let lastIndex = 0;
-  
-  for (const ref of references) {
-    // 添加引用前的普通文本
-    if (ref.startIndex > lastIndex) {
-      segments.push({
-        type: 'text',
-        content: text.slice(lastIndex, ref.startIndex),
-      });
+/**
+ * 基于实体引用（NodeReference.anchorOffset）将纯文本 content 拆分为文本段和引用段
+ * 实体化引用模型下，行内胶囊应优先使用此函数，而不是基于 @{} 文本解析
+ */
+export function splitContentWithInlineReferences(
+  content: string,
+  references: NodeReference[] | undefined,
+): Array<{ type: 'text'; text: string } | { type: 'reference'; ref: NodeReference }> {
+  if (!references || references.length === 0) {
+    return content ? [{ type: 'text', text: content }] : [];
+  }
+
+  const sorted = [...references].sort((a, b) => (a.anchorOffset ?? 0) - (b.anchorOffset ?? 0));
+  const segments: Array<{ type: 'text'; text: string } | { type: 'reference'; ref: NodeReference }> = [];
+  let cursor = 0;
+
+  for (const ref of sorted) {
+    const offset = Math.max(0, Math.min(ref.anchorOffset ?? 0, content.length));
+    if (offset > cursor) {
+      segments.push({ type: 'text', text: content.slice(cursor, offset) });
     }
-    
-    // 添加引用
-    segments.push({
-      type: 'reference',
-      content: ref.fullMatch,
-      nodeId: ref.nodeId,
-      title: ref.title,
-      format: ref.format,
-    });
-    
-    lastIndex = ref.endIndex;
+    segments.push({ type: 'reference', ref });
+    cursor = offset;
   }
-  
-  // 添加最后的普通文本
-  if (lastIndex < text.length) {
-    segments.push({
-      type: 'text',
-      content: text.slice(lastIndex),
-    });
+
+  if (cursor < content.length) {
+    segments.push({ type: 'text', text: content.slice(cursor) });
   }
-  
+
   return segments;
 }
 

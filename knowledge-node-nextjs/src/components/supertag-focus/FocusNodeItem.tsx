@@ -98,7 +98,7 @@ const FocusNodeItem: React.FC<FocusNodeItemProps> = ({
                 'hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors'
               )}
             >
-              <ContentWithReferences content={node.content} />
+              <ContentWithReferences content={node.content} references={node.references} />
             </span>
             
             {/* 字段胶囊 */}

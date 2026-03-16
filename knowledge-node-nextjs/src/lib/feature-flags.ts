@@ -15,13 +15,6 @@
  */
 export const FEATURE_FLAGS = {
   /**
-   * AI 指令节点功能
-   * - 包括：侧边栏入口、右键菜单、/ai 快捷指令、指令节点执行/设置按钮
-   * - v4.0: 临时禁用新建能力，已有节点保留展示和执行能力
-   */
-  AI_COMMAND_NODE: false,
-
-  /**
    * 语音转写功能
    * - 包括：麦克风录音按钮、语音转写 API 调用
    * - MVP 版本暂时禁用
@@ -34,6 +27,13 @@ export const FEATURE_FLAGS = {
    * - 包括：斜杠命令、右键菜单、搜索节点查询与渲染
    */
   SEARCH_NODE: true,
+
+  /**
+   * 统一输入内核（Lexical）
+   * - 包括：NodeComponent 与 QuickInput 的编辑输入层
+   * - 开启后使用 UnifiedNodeEditor，关闭后回退原生 contentEditable
+   */
+  UNIFIED_INPUT_KERNEL: true,
 } as const;
 
 /**
@@ -54,9 +54,9 @@ export function isFeatureEnabled(flag: FeatureFlag): boolean {
  * 禁用功能的提示信息
  */
 export const DISABLED_FEATURE_MESSAGES = {
-  AI_COMMAND_NODE: '此功能暂未开放',
   VOICE_TRANSCRIPTION: '语音转写功能暂未开放',
   SEARCH_NODE: '搜索节点功能暂未开放',
+  UNIFIED_INPUT_KERNEL: '统一输入内核暂未开放',
 } as const;
 
 /**

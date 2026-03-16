@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
+import { StatusMachineModule } from './modules/status-machine/status-machine.module';
 import { NodesModule } from './modules/nodes/nodes.module';
+import { EdgesModule } from './modules/edges/edges.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { UsersModule } from './modules/users/users.module';
-import { AIModule } from './modules/ai/ai.module';
+import { AgentModule } from './modules/agent/agent.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -15,10 +17,12 @@ import { HealthController } from './health.controller';
       envFilePath: '.env',
     }),
     PrismaModule,
+    StatusMachineModule,
     NodesModule,
+    EdgesModule,
     TagsModule,
     UsersModule,
-    AIModule,
+    AgentModule,
   ],
 })
 export class AppModule {}

@@ -2,44 +2,21 @@
  * AI 智能捕获 API 端点
  * POST /api/ai/smart-capture
  * 
- * v3.5: 合并"文本格式化整理"与"意图及标签预测"能力
- * 在单次 AI 调用中同时完成：
- * 1. 文本降噪与格式化（树形节点拆分）
- * 2. 意图识别与标签匹配（单标签策略）
- * 3. 槽位填充（Slot Filling）
- * 
- * 支持 SSE 流式输出，逐个推送带标签的格式化节点
+ * 透传到后端 Agent API，支持 SSE 流式输出
  */
 
 import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { 
-  AIClient, 
-  AIServiceError,
-} from '@/services/ai';
-import { 
-  SMART_CAPTURE_SYSTEM_PROMPT,
-  buildSmartCapturePrompt,
-  type SmartCaptureTagSchema,
-} from '@/services/ai/prompts';
-import { 
-  SmartCaptureParser,
-  applyConfidenceThreshold,
-} from '@/utils/smart-capture-parser';
-import type { SmartCaptureNode } from '@/types';
+import { type SmartCaptureTagSchema } from '@/services/ai/prompts';
 
 // ============================================================================
 // 类型定义
 // ============================================================================
 
-/** 请求体 */
 interface SmartCaptureRequest {
-  /** 用户输入的文本 */
   text: string;
-  /** 可用的 Supertag Schema 列表 */
   supertags: SmartCaptureTagSchema[];
-  /** 置信度阈值（默认 0.8） */
   confidenceThreshold?: number;
 }
 
@@ -47,18 +24,8 @@ interface SmartCaptureRequest {
 // SSE 工具函数
 // ============================================================================
 
-/**
- * 创建 SSE 事件字符串
- */
 function createSSEEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-}
-
-/**
- * 创建 SSE 错误响应
- */
-function createSSEError(code: string, message: string): string {
-  return createSSEEvent('error', { code, message });
 }
 
 // ============================================================================
@@ -66,8 +33,6 @@ function createSSEError(code: string, message: string): string {
 // ============================================================================
 
 export async function POST(request: NextRequest) {
-  const requestId = `smart_capture_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  
   // 验证用户身份
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
@@ -76,7 +41,7 @@ export async function POST(request: NextRequest) {
       { status: 401, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  
+
   // 解析请求体
   let body: SmartCaptureRequest;
   try {
@@ -87,7 +52,7 @@ export async function POST(request: NextRequest) {
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  
+
   // 验证输入
   if (!body.text?.trim()) {
     return new Response(
@@ -95,155 +60,208 @@ export async function POST(request: NextRequest) {
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  
-  // 创建 AI 客户端
-  const client = new AIClient();
-  
-  // 检查服务可用性
-  if (!client.isAvailable()) {
-    const validation = client.getValidation();
-    return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: 'AI 服务不可用',
-        details: validation.errors.join('; '),
+
+  // 调用后端 Agent API（流式）
+  const backendUrl = process.env.BACKEND_API_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+
+  try {
+    const response = await fetch(`${backendUrl}/api/agent/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: session.user.id,
+        prompt: body.text.trim(),
+        options: {
+          stream: true,
+          forceTool: 'smart_capture',
+        },
+        context: {
+          metadata: {
+            text: body.text.trim(),
+            supertags: body.supertags || [],
+            confidenceThreshold: body.confidenceThreshold ?? 0.8,
+          },
+        },
       }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: '后端请求失败' }));
+      return new Response(
+        JSON.stringify({ success: false, error: errorData.message || 'AI 服务请求失败' }),
+        { status: response.status, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 转发 SSE 流
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const reader = response.body?.getReader();
+        if (!reader) {
+          controller.close();
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+
+              const raw = line.slice(6);
+
+              // 后端 Agent 网关通过 sendSSE 输出 { event, data } 结构
+              let eventObj: { event?: string; data?: any };
+              try {
+                eventObj = JSON.parse(raw);
+              } catch {
+                // 无法解析的行原样透传，避免中断连接
+                controller.enqueue(encoder.encode(`data: ${raw}\n\n`));
+                continue;
+              }
+
+              const event = eventObj.event;
+              const data = eventObj.data;
+
+              if (!event) {
+                controller.enqueue(encoder.encode(`data: ${raw}\n\n`));
+                continue;
+              }
+
+              switch (event) {
+                case 'step_chunk': {
+                  // 智能捕获的中间文本块，目前前端 UI 不强依赖，可视为进度信息
+                  controller.enqueue(encoder.encode(`data: ${raw}\n\n`));
+                  break;
+                }
+                case 'done': {
+                  // AgentGateway.done 的 data.content 中应包含完整的 JSON 字符串
+                  const content = (data as { content?: string })?.content;
+                  if (content) {
+                    try {
+                      const nodes = JSON.parse(content || '[]');
+                      if (Array.isArray(nodes)) {
+                        for (const node of nodes) {
+                          controller.enqueue(encoder.encode(createSSEEvent('node', node)));
+                        }
+                        controller.enqueue(
+                          encoder.encode(
+                            createSSEEvent('done', {
+                              success: true,
+                              nodeCount: nodes.length,
+                            }),
+                          ),
+                        );
+                      } else {
+                        controller.enqueue(
+                          encoder.encode(
+                            createSSEEvent('done', {
+                              success: true,
+                            }),
+                          ),
+                        );
+                      }
+                    } catch {
+                      controller.enqueue(
+                        encoder.encode(
+                          createSSEEvent('done', {
+                            success: true,
+                          }),
+                        ),
+                      );
+                    }
+                  } else {
+                    controller.enqueue(
+                      encoder.encode(
+                        createSSEEvent('done', {
+                          success: true,
+                        }),
+                      ),
+                    );
+                  }
+                  break;
+                }
+                case 'error': {
+                  const message =
+                    (data as { message?: string })?.message ||
+                    (data as { error?: string })?.error ||
+                    '智能捕获执行失败';
+                  controller.enqueue(
+                    encoder.encode(
+                      createSSEEvent('error', {
+                        message,
+                      }),
+                    ),
+                  );
+                  break;
+                }
+                default: {
+                  // 其他事件（started/plan_created/step_started/plan_completed 等）保持透传
+                  controller.enqueue(encoder.encode(`data: ${raw}\n\n`));
+                }
+              }
+            }
+          }
+        } catch (error) {
+          controller.enqueue(encoder.encode(createSSEEvent('error', { message: error instanceof Error ? error.message : '流处理失败' })));
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : '处理失败' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  
-  // 置信度阈值
-  const confidenceThreshold = body.confidenceThreshold ?? 0.8;
-  
-  // 构建 Prompt
-  const userPrompt = buildSmartCapturePrompt({
-    text: body.text.trim(),
-    supertags: body.supertags || [],
-  });
-  
-  // 创建流式响应
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const parser = new SmartCaptureParser();
-      let nodeCount = 0;
-      let taggedNodeCount = 0;
-      
-      try {
-        // 使用 AI 客户端的流式接口
-        const aiStream = client.stream({
-          prompt: userPrompt,
-          systemPrompt: SMART_CAPTURE_SYSTEM_PROMPT,
-          requestId,
-          maxTokens: 4000,
-          temperature: 0.3, // 低温度以获得更稳定的结构化输出
-          stream: true,
-        });
-        
-        // 处理流式响应
-        for await (const chunk of aiStream) {
-          // 将 chunk 传递给解析器
-          const newNodes = parser.addChunk(chunk);
-          
-          // 应用置信度阈值过滤
-          const filteredNodes = applyConfidenceThreshold(newNodes, confidenceThreshold);
-          
-          // 推送新解析出的节点
-          for (const node of filteredNodes) {
-            nodeCount++;
-            if (node.supertagId) {
-              taggedNodeCount++;
-            }
-            
-            const sseEvent = createSSEEvent('node', node);
-            controller.enqueue(encoder.encode(sseEvent));
-          }
-        }
-        
-        // 如果解析器没有得到任何节点，提供兜底方案
-        if (nodeCount === 0) {
-          // AI 可能返回了完整的 JSON，但格式不完全是流式的
-          // 这里我们发送原文作为单个节点的兜底方案
-          const fallbackNode: SmartCaptureNode = {
-            tempId: '1',
-            content: body.text.trim(),
-            parentTempId: null,
-            supertagId: null,
-            fields: {},
-            confidence: 0.5,
-            isAIExtracted: true,
-          };
-          const sseEvent = createSSEEvent('node', fallbackNode);
-          controller.enqueue(encoder.encode(sseEvent));
-          nodeCount = 1;
-        }
-        
-        // 发送完成事件
-        const doneEvent = createSSEEvent('done', { 
-          success: true, 
-          nodeCount,
-          taggedNodeCount,
-          requestId,
-        });
-        controller.enqueue(encoder.encode(doneEvent));
-        
-        console.log(`[Smart Capture] 完成，共 ${nodeCount} 个节点，${taggedNodeCount} 个带标签`);
-        
-      } catch (error) {
-        console.error('[Smart Capture API Error]', error);
-        
-        let errorMessage = '智能捕获失败，请重试';
-        let errorCode = 'UNKNOWN_ERROR';
-        
-        if (error instanceof AIServiceError) {
-          errorMessage = error.message;
-          errorCode = error.code;
-        } else if (error instanceof Error) {
-          errorMessage = error.message;
-        }
-        
-        // 发送错误事件
-        const errorEvent = createSSEError(errorCode, errorMessage);
-        controller.enqueue(encoder.encode(errorEvent));
-      } finally {
-        controller.close();
-      }
-    },
-  });
-  
-  // 返回 SSE 响应
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Request-Id': requestId,
-    },
-  });
 }
 
 // GET 请求用于健康检查
 export async function GET() {
-  const client = new AIClient();
-  const validation = client.getValidation();
-  
-  return new Response(
-    JSON.stringify({
-      service: 'ai-smart-capture',
-      version: '3.5',
-      available: validation.valid,
-      errors: validation.errors,
-      features: [
-        'text-formatting',
-        'tag-matching',
-        'field-extraction',
-        'streaming-output',
-      ],
-      timestamp: Date.now(),
-    }),
-    { 
-      status: 200, 
-      headers: { 'Content-Type': 'application/json' } 
-    }
-  );
+  const backendUrl = process.env.BACKEND_API_URL || process.env.BACKEND_URL || 'http://localhost:4000';
+
+  try {
+    const response = await fetch(`${backendUrl}/api/agent/health`);
+    const data = await response.json();
+
+    return new Response(
+      JSON.stringify({
+        service: 'ai-smart-capture',
+        version: '4.0',
+        available: data.status === 'ok',
+        features: ['text-formatting', 'tag-matching', 'field-extraction', 'streaming-output'],
+        timestamp: Date.now(),
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  } catch {
+    return new Response(
+      JSON.stringify({
+        service: 'ai-smart-capture',
+        available: false,
+        error: '后端服务不可用',
+        timestamp: Date.now(),
+      }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 }

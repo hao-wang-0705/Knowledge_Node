@@ -3,9 +3,11 @@
 import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import { FieldDefinition, Node } from '@/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Hash, List, Circle, CalendarDays, X, AlertCircle, CheckCircle2, Link2, Plus, Sparkles, Loader2, Star, StarHalf, Percent, DollarSign, ListChecks } from 'lucide-react';
+import { Hash, List, Circle, CalendarDays, X, AlertCircle, CheckCircle2, Link2, Plus, Star, StarHalf, Percent, DollarSign, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useSupertagStore } from '@/stores/supertagStore';
+import { isReferenceableNode } from '@/utils/reference-helpers';
 import ReferenceFieldPill from './ReferenceFieldPill';
 
 // 日期状态类型
@@ -49,8 +51,8 @@ interface FieldEditorProps {
   nodeId?: string;
   tagId?: string;
   className?: string;
-  /** AI 字段手动触发回调 */
-  onTriggerAI?: (fieldId: string) => Promise<void>;
+   /** 只读模式：显示当前值但不允许用户交互修改 */
+  readOnly?: boolean;
 }
 
 // 获取数字格式化显示
@@ -98,14 +100,12 @@ const getFieldIcon = (type: string) => {
     case 'number':
       return <Hash size={14} className="text-gray-400" />;
     case 'select':
+    case 'status':
       return <List size={14} className="text-gray-400" />;
     case 'multi-select':
       return <ListChecks size={14} className="text-gray-400" />;
     case 'reference':
       return <Link2 size={14} className="text-gray-400" />;
-    case 'ai_text':
-    case 'ai_select':
-      return <Sparkles size={14} className="text-pink-400" />;
     case 'text':
     default:
       return <Circle size={14} className="text-gray-400" />;
@@ -124,50 +124,88 @@ const formatDate = (dateStr: string) => {
   return date.toLocaleDateString('zh-CN', options);
 };
 
-const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, className, nodeId, tagId, onTriggerAI }) => {
+const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, className, nodeId, tagId, readOnly }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [selectOpen, setSelectOpen] = useState(false);
   const [multiSelectOpen, setMultiSelectOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [refSearch, setRefSearch] = useState('');
   const [refPopoverOpen, setRefPopoverOpen] = useState(false);
-  const [isAIProcessing, setIsAIProcessing] = useState(false);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const selectMenuRef = useRef<HTMLDivElement>(null);
   const nodes = useNodeStore((s) => s.nodes);
+  const getAllSupertags = useSupertagStore((s) => s.getAllSupertags);
 
-  const referenceCandidates = useMemo(() => {
+  const referenceGroups = useMemo(() => {
     if (fieldDef.type !== 'reference') return [];
-    
-    // 如果有 targetTagId，则筛选该标签下的节点；否则显示所有有内容的节点
-    let list = Object.values(nodes).filter((n) => {
-      if (n.id === nodeId) return false; // 排除自己
-      if (!n.content?.trim()) return false; // 排除空节点
-      if (fieldDef.targetTagId) {
-        return n.supertagId === fieldDef.targetTagId || n.tags?.includes(fieldDef.targetTagId);
-      }
-      return true; // 没有指定 targetTagId 时显示所有有内容的节点
-    });
-    
-    if (!refSearch.trim()) return list.slice(0, 30);
-    const q = refSearch.trim().toLowerCase();
-    return list.filter((n) => (n.content || '').toLowerCase().includes(q)).slice(0, 30);
-  }, [nodes, fieldDef.type, fieldDef.targetTagId, nodeId, refSearch]);
 
-  // 获取选项列表（包括清除选项）
+    const allSupertags = getAllSupertags();
+    const tagOrder = new Map<string, number>(allSupertags.map((t, idx) => [t.id, idx]));
+    const tagNameById = new Map<string, string>(allSupertags.map((t) => [t.id, t.name]));
+
+    const searchText = refSearch.trim().toLowerCase();
+
+    const targetIds = fieldDef.targetTagIds ?? (fieldDef.targetTagId ? [fieldDef.targetTagId] : []);
+
+    const isValidReferenceTarget = (n: Node): boolean => {
+      if (!isReferenceableNode(n, { excludeNodeId: nodeId })) return false;
+      if (targetIds.length > 0) {
+        return targetIds.some(tid => n.supertagId === tid || n.tags?.includes(tid));
+      }
+      return true;
+    };
+
+    const filtered = Object.values(nodes).filter((n) => {
+      if (!isValidReferenceTarget(n)) return false;
+      if (!searchText) return true;
+      return (n.content || '').toLowerCase().includes(searchText);
+    });
+
+    type Group = { tagId: string | null; tagName: string; order: number; nodes: Node[] };
+    const buckets = new Map<string, Group>();
+
+    for (const n of filtered) {
+      const primaryTagId = targetIds.length === 1
+        ? targetIds[0]
+        : n.supertagId || n.tags?.[0] || null;
+      const key = primaryTagId ?? '__uncategorized__';
+      const existing = buckets.get(key);
+      if (!existing) {
+        const tagName = primaryTagId ? tagNameById.get(primaryTagId) || '未命名标签' : '未分类';
+        const order = primaryTagId ? tagOrder.get(primaryTagId) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER + 1;
+        buckets.set(key, { tagId: primaryTagId, tagName, order, nodes: [n] });
+      } else {
+        existing.nodes.push(n);
+      }
+    }
+
+    const groups = Array.from(buckets.values());
+    groups.sort((a, b) => a.order - b.order || a.tagName.localeCompare(b.tagName, 'zh-CN'));
+    for (const g of groups) {
+      g.nodes.sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt));
+    }
+    return groups;
+  }, [nodes, fieldDef, nodeId, refSearch, getAllSupertags]);
+
+  // 获取选项列表（status 用 statusConfig.states，select 用 options；包括清除选项）
+  const optionsForSelect = useMemo(
+    () =>
+      fieldDef.type === 'status' && fieldDef.statusConfig?.states
+        ? fieldDef.statusConfig.states
+        : (fieldDef.options || []),
+    [fieldDef.type, fieldDef.statusConfig?.states, fieldDef.options],
+  );
   const getOptions = useCallback(() => {
-    const options = fieldDef.options || [];
-    return value ? [...options, '__clear__'] : options;
-  }, [fieldDef.options, value]);
+    return value ? [...optionsForSelect, '__clear__'] : optionsForSelect;
+  }, [optionsForSelect, value]);
 
   // 重置选中索引当打开时
   useEffect(() => {
     if (selectOpen) {
-      const options = fieldDef.options || [];
-      const currentIndex = options.indexOf(value);
+      const currentIndex = optionsForSelect.indexOf(value);
       setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
     }
-  }, [selectOpen, value, fieldDef.options]);
+  }, [selectOpen, value, optionsForSelect]);
 
   const handleChange = useCallback((newValue: any) => {
     onChange(newValue);
@@ -340,15 +378,25 @@ const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, cl
         );
 
       case 'select':
-        const options = fieldDef.options || [];
+      case 'status': {
+        const options = fieldDef.type === 'status' && fieldDef.statusConfig?.states
+          ? fieldDef.statusConfig.states
+          : (fieldDef.options || []);
         return (
-          <Popover open={selectOpen} onOpenChange={setSelectOpen}>
+          <Popover
+            open={readOnly ? false : selectOpen}
+            onOpenChange={readOnly ? undefined : setSelectOpen}
+          >
             <PopoverTrigger asChild>
               <button
+                type="button"
+                disabled={!!readOnly}
                 className={cn(
                   "text-left rounded px-1.5 py-0.5 -mx-1 transition-colors text-sm",
-                  value ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 hover:bg-gray-100"
+                  value ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 hover:bg-gray-100",
+                  readOnly && "cursor-not-allowed opacity-60 hover:bg-transparent"
                 )}
+                title={readOnly ? '状态已锁定，无法修改' : undefined}
               >
                 {value || 'Select option'}
               </button>
@@ -391,6 +439,7 @@ const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, cl
             </PopoverContent>
           </Popover>
         );
+      }
 
       case 'reference': {
         const refValue = value && typeof value === 'object' && 'nodeId' in value ? value as { nodeId: string; title: string } : null;
@@ -449,37 +498,47 @@ const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, cl
                   placeholder="搜索节点…"
                   className="w-full px-2 py-1.5 text-sm border rounded mb-2"
                 />
-                <div className="max-h-48 overflow-auto space-y-0.5">
-                  {referenceCandidates.length === 0 && (
+                <div className="max-h-64 overflow-auto space-y-1">
+                  {referenceGroups.length === 0 && (
                     <div className="text-sm text-gray-500 py-2">无匹配节点（需带目标标签）</div>
                   )}
-                  {referenceCandidates.map((n) => {
-                    const isSelected = refValues.some((r) => r?.nodeId === n.id);
-                    return (
-                      <button
-                        key={n.id}
-                        type="button"
-                        onClick={() => {
-                          if (fieldDef.multiple) {
-                            const next = isSelected
-                              ? refValues.filter((r) => r.nodeId !== n.id)
-                              : [...refValues, { nodeId: n.id, title: (n.content || '').trim() || '(无标题)' }];
-                            handleChange(next);
-                          } else {
-                            handleChange({ nodeId: n.id, title: (n.content || '').trim() || '(无标题)' });
-                            setRefPopoverOpen(false);
-                          }
-                        }}
-                        className={cn(
-                          "w-full text-left px-2 py-1.5 text-sm rounded flex items-center gap-2",
-                          isSelected ? "bg-blue-100 text-blue-800" : "hover:bg-gray-100"
-                        )}
-                      >
-                        <span className="flex-1 truncate">{n.content || '(无标题)'}</span>
-                        {isSelected && <CheckCircle2 size={14} className="text-blue-600" />}
-                      </button>
-                    );
-                  })}
+                  {referenceGroups.map((group) => (
+                    <div key={group.tagId ?? 'uncategorized'}>
+                      <div className="px-1.5 py-0.5 text-[11px] font-medium text-gray-500 uppercase tracking-wide">
+                        {group.tagName}
+                      </div>
+                      <div className="space-y-0.5">
+                        {group.nodes.map((n) => {
+                          const isSelected = refValues.some((r) => r?.nodeId === n.id);
+                          return (
+                            <button
+                              key={n.id}
+                              type="button"
+                              onClick={() => {
+                                const title = (n.content || '').trim() || '(无标题)';
+                                if (fieldDef.multiple) {
+                                  const next = isSelected
+                                    ? refValues.filter((r) => r.nodeId !== n.id)
+                                    : [...refValues, { nodeId: n.id, title }];
+                                  handleChange(next);
+                                } else {
+                                  handleChange({ nodeId: n.id, title });
+                                  setRefPopoverOpen(false);
+                                }
+                              }}
+                              className={cn(
+                                "w-full text-left px-2 py-1.5 text-sm rounded flex items-center gap-2",
+                                isSelected ? "bg-blue-100 text-blue-800" : "hover:bg-gray-100"
+                              )}
+                            >
+                              <span className="flex-1 truncate">{n.content || '(无标题)'}</span>
+                              {isSelected && <CheckCircle2 size={14} className="text-blue-600" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </PopoverContent>
             </Popover>
@@ -569,121 +628,6 @@ const FieldEditor: React.FC<FieldEditorProps> = ({ fieldDef, value, onChange, cl
                 </div>
               </PopoverContent>
             </Popover>
-          </div>
-        );
-      }
-
-      // ai_text: AI 文本字段
-      case 'ai_text': {
-        const handleTriggerAI = async () => {
-          if (!onTriggerAI || isAIProcessing) return;
-          setIsAIProcessing(true);
-          try {
-            await onTriggerAI(fieldDef.id);
-          } finally {
-            setIsAIProcessing(false);
-          }
-        };
-
-        return (
-          <div className="flex items-center gap-2 group/ai">
-            {/* 显示值或占位符 */}
-            <span className={cn(
-              "flex-1 text-sm",
-              value ? "text-gray-700" : "text-gray-400 italic"
-            )}>
-              {value || '等待 AI 生成...'}
-            </span>
-            
-            {/* AI 触发按钮 */}
-            <button
-              onClick={handleTriggerAI}
-              disabled={isAIProcessing || !onTriggerAI}
-              className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-all",
-                isAIProcessing 
-                  ? "bg-pink-100 text-pink-600 cursor-wait"
-                  : "bg-pink-50 text-pink-500 hover:bg-pink-100 hover:text-pink-600",
-                "opacity-0 group-hover/ai:opacity-100",
-                value && "opacity-50 group-hover/ai:opacity-100"
-              )}
-              title="点击触发 AI 生成"
-            >
-              {isAIProcessing ? (
-                <>
-                  <Loader2 size={12} className="animate-spin" />
-                  <span>生成中</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles size={12} />
-                  <span>{value ? '重新生成' : '生成'}</span>
-                </>
-              )}
-            </button>
-          </div>
-        );
-      }
-
-      // ai_select: AI 选项字段
-      case 'ai_select': {
-        const aiOptions = fieldDef.aiConfig?.options || fieldDef.options || [];
-        
-        const handleTriggerAI = async () => {
-          if (!onTriggerAI || isAIProcessing) return;
-          setIsAIProcessing(true);
-          try {
-            await onTriggerAI(fieldDef.id);
-          } finally {
-            setIsAIProcessing(false);
-          }
-        };
-
-        return (
-          <div className="flex items-center gap-2 group/ai">
-            {/* 显示当前值 */}
-            <span className={cn(
-              "px-2 py-0.5 rounded-full text-xs",
-              value 
-                ? "bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300"
-                : "text-gray-400 italic"
-            )}>
-              {value || '等待 AI 判定...'}
-            </span>
-            
-            {/* 可选值预览 */}
-            {aiOptions.length > 0 && !value && (
-              <span className="text-[10px] text-gray-400">
-                ({aiOptions.join(' / ')})
-              </span>
-            )}
-            
-            {/* AI 触发按钮 */}
-            <button
-              onClick={handleTriggerAI}
-              disabled={isAIProcessing || !onTriggerAI}
-              className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-all",
-                isAIProcessing 
-                  ? "bg-pink-100 text-pink-600 cursor-wait"
-                  : "bg-pink-50 text-pink-500 hover:bg-pink-100 hover:text-pink-600",
-                "opacity-0 group-hover/ai:opacity-100",
-                value && "opacity-50 group-hover/ai:opacity-100"
-              )}
-              title="点击触发 AI 判定"
-            >
-              {isAIProcessing ? (
-                <>
-                  <Loader2 size={12} className="animate-spin" />
-                  <span>判定中</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles size={12} />
-                  <span>{value ? '重新判定' : '判定'}</span>
-                </>
-              )}
-            </button>
           </div>
         );
       }

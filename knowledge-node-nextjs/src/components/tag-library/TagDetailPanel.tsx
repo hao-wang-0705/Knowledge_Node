@@ -24,13 +24,11 @@ import {
   FileText,
   Settings,
   Sparkles,
-  Cpu,
   ListChecks,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Supertag, FieldDefinition, FieldType } from '@/types';
 import { useSupertagStore } from '@/stores/supertagStore';
-import AIFieldConfigPanel from './AIFieldConfigPanel';
 
 interface TagDetailPanelProps {
   tag: Supertag;
@@ -43,10 +41,9 @@ const FIELD_TYPE_ICONS: Record<FieldType, React.ReactNode> = {
   number: <Hash size={14} />,
   date: <Calendar size={14} />,
   select: <List size={14} />,
+  status: <List size={14} />,
   'multi-select': <ListChecks size={14} />,
   reference: <Link2 size={14} />,
-  ai_text: <Cpu size={14} />,
-  ai_select: <Cpu size={14} />,
 };
 
 // 字段类型颜色映射
@@ -55,10 +52,9 @@ const FIELD_TYPE_COLORS: Record<FieldType, string> = {
   number: 'bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400',
   date: 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400',
   select: 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400',
+  status: 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400',
   'multi-select': 'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400',
   reference: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400',
-  ai_text: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400',
-  ai_select: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400',
 };
 
 // 字段类型名称映射
@@ -67,10 +63,9 @@ const FIELD_TYPE_NAMES: Record<FieldType, string> = {
   number: '数字',
   date: '日期',
   select: '单选',
+  status: '状态',
   'multi-select': '多选',
   reference: '引用',
-  ai_text: 'AI 文本',
-  ai_select: 'AI 选项',
 };
 
 // 折叠区块组件
@@ -126,22 +121,15 @@ interface FieldRowProps {
 }
 
 const FieldRow: React.FC<FieldRowProps> = ({ field, supertags }) => {
-  const [isAIConfigExpanded, setIsAIConfigExpanded] = useState(false);
   const targetTag = field.targetTagId ? supertags[field.targetTagId] : null;
-  const isAIField = field.type === 'ai_text' || field.type === 'ai_select';
-  const hasAIConfig = isAIField && field.aiConfig;
 
   return (
     <div className="space-y-2">
       <div
         className={cn(
           "flex items-center gap-3 px-3 py-2.5 rounded-lg",
-          isAIField
-            ? "bg-pink-50/50 dark:bg-pink-900/10"
-            : "bg-gray-50 dark:bg-gray-800/50",
-          hasAIConfig && "cursor-pointer hover:bg-pink-50/70 dark:hover:bg-pink-900/20"
+          "bg-gray-50 dark:bg-gray-800/50"
         )}
-        onClick={() => hasAIConfig && setIsAIConfigExpanded(!isAIConfigExpanded)}
       >
         {/* 字段类型图标 */}
         <span
@@ -159,11 +147,6 @@ const FieldRow: React.FC<FieldRowProps> = ({ field, supertags }) => {
             <span className="text-sm font-medium truncate text-gray-700 dark:text-gray-300">
               {field.name}
             </span>
-            {isAIField && (
-              <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300">
-                AI
-              </span>
-            )}
           </div>
 
           {/* 字段配置详情 */}
@@ -185,15 +168,6 @@ const FieldRow: React.FC<FieldRowProps> = ({ field, supertags }) => {
                 {field.multiple && ' (多选)'}
               </span>
             )}
-            {isAIField && field.aiConfig && (
-              <span className="ml-2">
-                {field.aiConfig.aiType === 'extraction' && '信息抽取'}
-                {field.aiConfig.aiType === 'summarization' && '总结重写'}
-                {field.aiConfig.aiType === 'classification' && '自动分类'}
-                {' · '}
-                {field.aiConfig.triggerOn === 'create' ? '创建时触发' : field.aiConfig.triggerOn === 'update' ? '更新时触发' : '手动触发'}
-              </span>
-            )}
             {/* 数字格式化显示 */}
             {field.type === 'number' && field.format && field.format !== 'default' && (
               <span className="ml-2">
@@ -202,21 +176,7 @@ const FieldRow: React.FC<FieldRowProps> = ({ field, supertags }) => {
             )}
           </div>
         </div>
-
-        {/* AI 字段展开/收起指示 */}
-        {hasAIConfig && (
-          <span className="text-gray-400 flex-shrink-0">
-            {isAIConfigExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </span>
-        )}
       </div>
-
-      {/* AI 字段配置详情展开 */}
-      {hasAIConfig && isAIConfigExpanded && field.aiConfig && (
-        <div className="ml-10 pb-2">
-          <AIFieldConfigPanel aiConfig={field.aiConfig} />
-        </div>
-      )}
     </div>
   );
 };
@@ -227,7 +187,6 @@ const TagDetailPanel: React.FC<TagDetailPanelProps> = ({ tag, onClose }) => {
 
   // 统计数据
   const fieldCount = tag.fieldDefinitions?.length || 0;
-  const aiFieldCount = tag.fieldDefinitions?.filter(f => f.type === 'ai_text' || f.type === 'ai_select').length || 0;
   const hasTemplateContent =
     tag.templateContent &&
     (Array.isArray(tag.templateContent)
@@ -277,12 +236,6 @@ const TagDetailPanel: React.FC<TagDetailPanelProps> = ({ tag, onClose }) => {
                     系统预置
                   </span>
                 )}
-                {aiFieldCount > 0 && (
-                  <span className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-400">
-                    <Cpu size={10} />
-                    {aiFieldCount} 个 AI 字段
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -323,11 +276,6 @@ const TagDetailPanel: React.FC<TagDetailPanelProps> = ({ tag, onClose }) => {
           {fieldCount > 0 && (
             <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4 text-xs text-gray-400">
               <span>共 {fieldCount} 个字段</span>
-              {aiFieldCount > 0 && (
-                <span className="text-pink-500">
-                  含 {aiFieldCount} 个 AI 字段
-                </span>
-              )}
             </div>
           )}
         </CollapsibleSection>

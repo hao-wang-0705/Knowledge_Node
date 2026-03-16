@@ -1,8 +1,16 @@
 /**
  * AI 网关层
  * 统一的 AI 请求入口，提供日志、限流、重试等能力
+ *
+ * @deprecated v4.1 - AI 请求已统一迁移到后端 Agent 服务处理
+ * 后端 Agent 已内置限流、重试、日志等能力，无需前端网关层
  * 
- * 所有 AI 请求应通过此网关层进行，而非直接调用 AIClient
+ * 迁移说明:
+ * - 前端 API 路由现在直接调用后端 Agent 的 Tool 接口
+ * - 限流、重试、监控等由后端 Agent 统一管理
+ * - 此文件将在 v5.0 版本中移除
+ * 
+ * @see knowledge-node-backend/src/modules/agent - 后端 Agent 服务
  */
 
 import { AIClient, AIRequestParams, AIResponse, TranscribeParams, TranscribeResponse, transcribeAudio as clientTranscribe } from './client';

@@ -52,6 +52,7 @@ interface TagItem {
   color: string;
   type: 'type';
   icon?: string;
+  category?: 'entity' | 'action';
 }
 
 // ============================================
@@ -120,7 +121,7 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open, onClose]);
   
-  // 构建标签列表 (v3.4: 简化为扁平列表)
+  // 构建标签列表（v4.2: 含 category 用于实体/行动分组）
   const allTags = useMemo((): TagItem[] => {
     return Object.values(supertags)
       .filter((tag) => !excludeTagIds.includes(tag.id))
@@ -131,6 +132,7 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
         color: tag.color,
         type: 'type' as const,
         icon: tag.icon,
+        category: tag.category,
       }));
   }, [supertags, excludeTagIds]);
   
@@ -154,7 +156,9 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
         search: filteredTags,
         aiRecommended: [],
         recent: [],
-        all: [],
+        entityTags: [],
+        actionTags: [],
+        otherTags: [],
       };
     }
     
@@ -169,22 +173,27 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
       .filter(Boolean)
       .slice(0, 5) as TagItem[];
     
-    // 排除 AI 推荐和最近使用的标签
+    // 排除 AI 推荐和最近使用的标签后，按实体/行动分组
     const excludeIds = new Set([
       ...aiRecommended.map((t) => t.id),
       ...recent.map((t) => t.id),
     ]);
-    const all = allTags.filter((t) => !excludeIds.has(t.id));
+    const remaining = allTags.filter((t) => !excludeIds.has(t.id));
+    const entityTags = remaining.filter((t) => t.category === 'entity');
+    const actionTags = remaining.filter((t) => t.category === 'action');
+    const otherTags = remaining.filter((t) => t.category !== 'entity' && t.category !== 'action');
     
     return {
       search: [],
       aiRecommended,
       recent,
-      all,
+      entityTags,
+      actionTags,
+      otherTags,
     };
   }, [searchTerm, filteredTags, allTags, aiRecommendations, recentTags]);
   
-  // 平铺的列表（用于键盘导航）(v3.4: 简化)
+  // 平铺的列表（用于键盘导航）(v4.2: 实体 → 行动 → 其他）
   const flatList = useMemo(() => {
     const list: TagItem[] = [];
     
@@ -193,7 +202,9 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
     } else {
       list.push(...groupedTags.aiRecommended);
       list.push(...groupedTags.recent);
-      list.push(...groupedTags.all);
+      list.push(...groupedTags.entityTags);
+      list.push(...groupedTags.actionTags);
+      list.push(...groupedTags.otherTags);
     }
     
     return list;
@@ -248,6 +259,7 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
   return (
     <div
       ref={containerRef}
+      data-editing-popover
       className="fixed z-50 min-w-[280px] max-w-[320px] bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
       style={{
         left: Math.min(position.x, viewport.width - 340),
@@ -318,14 +330,50 @@ const UnifiedTagSelector: React.FC<UnifiedTagSelectorProps> = ({
                   />
                 )}
                 
-                {/* 全部标签 (v3.4: 简化，不再按分类分组) */}
-                {groupedTags.all.length > 0 && (
+                {/* 实体 (v4.2: 显式分类展示) */}
+                {groupedTags.entityTags.length > 0 && (
                   <TagGroup
-                    title="全部标签"
-                    icon={<Hash size={12} className="text-gray-400" />}
-                    items={groupedTags.all}
+                    title="实体"
+                    icon={<Hash size={12} className="text-blue-500" />}
+                    items={groupedTags.entityTags}
                     selectedIndex={selectedIndex}
-                    startIndex={groupedTags.aiRecommended.length + groupedTags.recent.length}
+                    startIndex={
+                      groupedTags.aiRecommended.length +
+                      groupedTags.recent.length
+                    }
+                    onSelect={handleSelect}
+                  />
+                )}
+                
+                {/* 行动 */}
+                {groupedTags.actionTags.length > 0 && (
+                  <TagGroup
+                    title="行动"
+                    icon={<Hash size={12} className="text-amber-500" />}
+                    items={groupedTags.actionTags}
+                    selectedIndex={selectedIndex}
+                    startIndex={
+                      groupedTags.aiRecommended.length +
+                      groupedTags.recent.length +
+                      groupedTags.entityTags.length
+                    }
+                    onSelect={handleSelect}
+                  />
+                )}
+                
+                {/* 其他（无 category 的标签） */}
+                {groupedTags.otherTags.length > 0 && (
+                  <TagGroup
+                    title="其他"
+                    icon={<Hash size={12} className="text-gray-400" />}
+                    items={groupedTags.otherTags}
+                    selectedIndex={selectedIndex}
+                    startIndex={
+                      groupedTags.aiRecommended.length +
+                      groupedTags.recent.length +
+                      groupedTags.entityTags.length +
+                      groupedTags.actionTags.length
+                    }
                     onSelect={handleSelect}
                   />
                 )}

@@ -1,13 +1,13 @@
 'use client';
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { AtSign, ExternalLink } from 'lucide-react';
+import { Link2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useSplitPaneStore } from '@/stores/splitPaneStore';
-import { Node } from '@/types';
+import { Node, NodeReference } from '@/types';
 import { analyzeNavigationTarget } from '@/utils/navigation';
-import { splitTextWithReferences, TextSegment } from '@/utils/reference-helpers';
+import { splitContentWithInlineReferences } from '@/utils/reference-helpers';
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import ReferencePreview from './ReferencePreview';
 
@@ -16,16 +16,18 @@ interface ReferenceChipProps {
   title: string;
   onClick?: () => void;
   showPreview?: boolean;  // 是否显示悬停预览
+  interactive?: boolean;
 }
 
 /**
- * 引用块组件 - 显示为蓝色胶囊按钮，支持悬停预览
+ * 引用组件 - 行内蓝色高亮，支持悬停预览与点击跳转
  */
 export const ReferenceChip: React.FC<ReferenceChipProps> = ({ 
   nodeId, 
   title, 
   onClick,
-  showPreview = true 
+  showPreview = true,
+  interactive = true,
 }) => {
   const nodes = useNodeStore((state) => state.nodes);
   const setFocusedNode = useNodeStore((state) => state.setFocusedNode);
@@ -83,40 +85,59 @@ export const ReferenceChip: React.FC<ReferenceChipProps> = ({
   };
   
   const cleanTitle = getCleanTitle(displayTitle);
-  const truncatedTitle = cleanTitle.length > 30 ? cleanTitle.slice(0, 30) + '...' : cleanTitle;
-  
-  // 引用块按钮
-  const chipButton = (
+  const truncatedTitle = cleanTitle.length > 30 ? cleanTitle.slice(0, 30) + '…' : cleanTitle;
+
+  // 行内胶囊触发器
+  const inlineClassName = cn(
+    'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap select-none border transition-colors',
+    isValidReference
+      ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 border-blue-100 dark:border-blue-800'
+      : 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-200 dark:border-gray-700 line-through',
+    interactive && isValidReference
+      ? 'hover:bg-blue-100 dark:hover:bg-blue-900/60 cursor-pointer'
+      : 'cursor-default'
+  );
+
+  const inlineContent = (
+    <>
+      {isValidReference && (
+        <span className="flex-shrink-0 text-blue-500/70 dark:text-blue-300/70">
+          <Link2 size={10} />
+        </span>
+      )}
+      <span className="truncate max-w-[160px]">{truncatedTitle}</span>
+    </>
+  );
+
+  const inlineTrigger = interactive ? (
     <button
+      type="button"
       onClick={handleClick}
       data-reference-chip="true"
-      className={cn(
-        "inline-flex items-center gap-0.5 px-2 py-0.5 mx-0.5 rounded-full text-sm font-medium transition-all cursor-pointer",
-        "select-none whitespace-nowrap border",
-        isValidReference
-          ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-sm"
-          : "bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-200 dark:border-gray-700 line-through cursor-not-allowed"
-      )}
-      title={isValidReference ? `点击跳转 · ⌘+点击侧栏打开: ${cleanTitle}` : '引用的节点已删除'}
+      className={inlineClassName}
+      title={isValidReference ? `跳转到: ${cleanTitle}` : '引用的节点已删除'}
     >
-      <AtSign size={12} className="flex-shrink-0 opacity-70" />
-      <span>{truncatedTitle}</span>
-      {isValidReference && (
-        <ExternalLink size={10} className="flex-shrink-0 opacity-50 ml-0.5" />
-      )}
+      {inlineContent}
     </button>
+  ) : (
+    <span
+      data-reference-chip="true"
+      contentEditable={false}
+      className={inlineClassName}
+      title={isValidReference ? `引用: ${cleanTitle}` : '引用的节点已删除'}
+    >
+      {inlineContent}
+    </span>
   );
   
-  // 如果不显示预览或节点不存在，直接返回按钮
   if (!showPreview || !isValidReference) {
-    return chipButton;
+    return inlineTrigger;
   }
-  
-  // 带悬停预览的引用块
+
   return (
     <HoverCard open={isHoverOpen} onOpenChange={setIsHoverOpen} openDelay={300} closeDelay={100}>
       <HoverCardTrigger asChild>
-        {chipButton}
+        {inlineTrigger}
       </HoverCardTrigger>
       <HoverCardContent 
         className="w-80 p-3" 
@@ -138,33 +159,45 @@ export const ReferenceChip: React.FC<ReferenceChipProps> = ({
 
 interface ContentWithReferencesProps {
   content: string;
+  references?: NodeReference[];
   className?: string;
+  /** 只读模式下设为 false，点击芯片不跳转，由行点击统一进入编辑 */
+  interactive?: boolean;
 }
 
 /**
  * 带引用渲染的内容组件
- * 将文本中的引用标记渲染为可点击的引用块
+ * 实体化引用模型：优先使用 references + anchorOffset 渲染行内胶囊
  */
-export const ContentWithReferences: React.FC<ContentWithReferencesProps> = ({ content, className }) => {
-  const segments = useMemo(() => splitTextWithReferences(content), [content]);
-  
+export const ContentWithReferences: React.FC<ContentWithReferencesProps> = ({
+  content,
+  references,
+  className,
+  interactive = true,
+}) => {
+  const segments = useMemo(
+    () => splitContentWithInlineReferences(content, references),
+    [content, references],
+  );
+
   if (segments.length === 0) {
     return <span className={className}>{content}</span>;
   }
-  
+
   return (
     <span className={className}>
       {segments.map((segment, index) => {
-        if (segment.type === 'reference' && segment.nodeId && segment.title) {
+        if ('ref' in segment) {
           return (
-            <ReferenceChip 
-              key={index} 
-              nodeId={segment.nodeId} 
-              title={segment.title} 
+            <ReferenceChip
+              key={segment.ref.id ?? index}
+              nodeId={segment.ref.targetNodeId}
+              title={segment.ref.title}
+              interactive={interactive}
             />
           );
         }
-        return <span key={index}>{segment.content}</span>;
+        return <span key={index}>{segment.text}</span>;
       })}
     </span>
   );

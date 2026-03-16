@@ -55,18 +55,49 @@ model Node {
   @@index([createdAt])
   @@index([userId, nodeRole, parentId])
   @@index([userId, parentId, sortOrder])
+  edgesAsSource  NetworkEdge[] @relation("EdgeSource")
+  edgesAsTarget  NetworkEdge[] @relation("EdgeTarget")
+
   @@map("nodes")
+}
+
+// 拓扑边表：节点间多对多有向关系（DAG）
+// 切边后树结构由 CONTAINS 表达，BLOCKS/RESOLVES 表达业务依赖
+enum EdgeType {
+  CONTAINS  // 包含：大纲父子
+  BLOCKS    // 阻塞：执行先决
+  RESOLVES  // 解决：灵感→卡点
+  MENTION   // 提及：source 在内容/字段中引用 target
+}
+
+model NetworkEdge {
+  id           String   @id @default(cuid())
+  sourceNodeId String
+  targetNodeId String
+  edgeType     EdgeType
+  createdAt    DateTime @default(now())
+
+  sourceNode Node @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode Node @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceNodeId, targetNodeId, edgeType])
+  @@index([sourceNodeId])
+  @@index([targetNodeId])
+  @@index([edgeType])
+  @@map("network_edges")
 }
 
 // 标签模版表 - 系统预置标签库
 // v3.4: 移除 parentId 继承关系，移除 categoryId 分类关系
 // v3.6: 新增 viewConfig 视图配置字段
+// v4.2: 新增 category 实体/行动双轨（entity | action）
 model TagTemplate {
   id               String           @id @default(cuid())
   name             String
   color            String           @default("#6366F1")
   icon             String?
   description      String?
+  category         String?          // v4.2: 'entity' | 'action' 实体标签 / 行动标签
   fieldDefinitions Json             @default("[]")
   viewConfig       Json?            // v3.6: 视图配置（声明式驱动 Pinned 页面渲染）
   isGlobalDefault  Boolean          @default(true)

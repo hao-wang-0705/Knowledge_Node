@@ -9,21 +9,18 @@ import { cn } from '@/lib/utils';
  * 统一管理导航项的状态样式
  */
 const navItemVariants = cva(
-  // 基础样式
-  'group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 cursor-pointer',
+  'group w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-all duration-150 cursor-pointer',
   {
     variants: {
-      /** 状态变体 */
       variant: {
-        default: 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800',
-        active: 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] dark:bg-[var(--brand-primary)]/15',
+        default: 'text-[#666] dark:text-gray-400 hover:bg-black/5 dark:hover:bg-gray-800 hover:text-[#111] dark:hover:text-gray-100',
+        active: 'bg-black/5 dark:bg-gray-800 text-[#111] dark:text-gray-100 font-medium',
         disabled: 'text-gray-400 dark:text-gray-500 opacity-50 cursor-not-allowed',
       },
-      /** 尺寸变体 */
       size: {
         default: 'text-sm',
-        sm: 'text-xs py-2',
-        lg: 'text-base py-3',
+        sm: 'text-[13px] py-1',
+        lg: 'text-base py-2',
       },
     },
     defaultVariants: {
@@ -41,7 +38,7 @@ const navIconVariants = cva(
   {
     variants: {
       variant: {
-        default: 'text-gray-400',
+        default: 'text-[#666] dark:text-gray-400',
         active: 'text-[var(--brand-primary)]',
         disabled: 'text-gray-400',
       },

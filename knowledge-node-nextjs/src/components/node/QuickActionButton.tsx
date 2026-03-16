@@ -1,24 +1,21 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Sparkles, CheckSquare, ListTree, Wand2, Loader2 } from 'lucide-react';
+import { Sparkles, ListTree, Wand2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuickAction } from '@/hooks/useQuickAction';
 import { QUICK_ACTIONS, type QuickActionType } from '@/types/quick-action';
 
 interface QuickActionButtonProps {
   nodeId: string;
-  /** 节点类型，仅非 command 节点显示快捷动作 */
-  nodeType?: string;
   /** 节点是否有内容 */
   hasContent?: boolean;
   /** 额外的样式类名 */
   className?: string;
 }
 
-// 图标映射
+// 图标映射（仅 expand / deconstruct）
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  CheckSquare,
   ListTree,
   Wand2,
 };
@@ -29,7 +26,6 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
  */
 export default function QuickActionButton({
   nodeId,
-  nodeType = 'text',
   hasContent = false,
   className,
 }: QuickActionButtonProps) {
@@ -77,11 +73,6 @@ export default function QuickActionButton({
     }
   }, [executeAction]);
 
-  // 指令节点不显示快捷动作
-  if (nodeType === 'command') {
-    return null;
-  }
-
   // 没有内容的节点不显示（或显示禁用状态）
   if (!hasContent) {
     return null;
@@ -98,9 +89,9 @@ export default function QuickActionButton({
           'flex items-center justify-center w-6 h-6 rounded transition-all',
           'text-gray-400 hover:text-purple-500 hover:bg-purple-50',
           'dark:text-gray-500 dark:hover:text-purple-400 dark:hover:bg-purple-900/30',
-          'opacity-0 group-hover:opacity-100',
-          isExecuting && 'opacity-100 cursor-wait',
-          isOpen && 'opacity-100 text-purple-500 bg-purple-50 dark:text-purple-400 dark:bg-purple-900/30'
+          'opacity-0 translate-x-1 pointer-events-none group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto',
+          isExecuting && 'opacity-100 cursor-wait translate-x-0 pointer-events-auto',
+          isOpen && 'opacity-100 translate-x-0 pointer-events-auto text-purple-500 bg-purple-50 dark:text-purple-400 dark:bg-purple-900/30'
         )}
         title="AI 快捷动作"
       >
@@ -116,7 +107,7 @@ export default function QuickActionButton({
         <div
           ref={menuRef}
           className={cn(
-            'absolute left-0 top-full mt-1 z-50',
+            'absolute right-0 top-full mt-1 z-50',
             'min-w-[200px] py-1 rounded-lg shadow-lg',
             'bg-white dark:bg-gray-800',
             'border border-gray-200 dark:border-gray-700',
@@ -171,7 +162,7 @@ export default function QuickActionButton({
       {isExecuting && (
         <div
           className={cn(
-            'absolute left-0 top-full mt-1 z-50',
+            'absolute right-0 top-full mt-1 z-50',
             'px-3 py-2 rounded-lg shadow-lg',
             'bg-white dark:bg-gray-800',
             'border border-purple-200 dark:border-purple-700',
@@ -182,9 +173,8 @@ export default function QuickActionButton({
           <div className="flex items-center gap-2">
             <Loader2 size={14} className="animate-spin" />
             <span>
-              {executingActionType === 'extract_tasks' && '正在提取任务...'}
-              {executingActionType === 'structured_summary' && '正在结构化提炼...'}
-              {executingActionType === 'inline_rewrite' && '正在扩写润色...'}
+              {executingActionType === 'expand' && '正在智能扩写...'}
+              {executingActionType === 'deconstruct' && '正在智能解构...'}
             </span>
             {generatedNodeCount > 0 && (
               <span className="text-xs opacity-75">
@@ -205,7 +195,7 @@ export default function QuickActionButton({
       {error && !isExecuting && (
         <div
           className={cn(
-            'absolute left-0 top-full mt-1 z-50',
+            'absolute right-0 top-full mt-1 z-50',
             'px-3 py-2 rounded-lg shadow-lg',
             'bg-red-50 dark:bg-red-900/30',
             'border border-red-200 dark:border-red-700',

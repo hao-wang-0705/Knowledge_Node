@@ -12,6 +12,7 @@ import { useSupertagStore } from '@/stores/supertagStore';
 import { Node } from '@/types';
 import { FIXED_TAG_IDS } from '@/utils/mockData';
 import { SYSTEM_TAGS } from '@/utils/date-helpers';
+import { isReferenceableNode } from '@/utils/reference-helpers';
 
 interface MentionPopoverProps {
   open: boolean;
@@ -100,10 +101,9 @@ const MentionPopover: React.FC<MentionPopoverProps> = ({
     if (open) {
       setQuery('');
       setSelectedIndex(0);
-      // 延迟聚焦，确保组件已渲染
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         inputRef.current?.focus();
-      }, 50);
+      });
     }
   }, [open]);
   
@@ -181,14 +181,15 @@ const MentionPopover: React.FC<MentionPopoverProps> = ({
     return score;
   }, [isContainerNode]);
   
-  // 搜索结果
+  // 搜索结果（与引用字段统一：仅展示可引用节点，屏蔽根/日历/无内容等）
   const searchResults = useMemo((): SearchResultItem[] => {
-    const allNodes = Object.values(nodes).filter(n => n.id !== excludeNodeId);
-    
+    const allNodes = Object.values(nodes).filter((n) =>
+      isReferenceableNode(n, { excludeNodeId })
+    );
+
     if (!query.trim()) {
       // 默认显示最近的节点
       const recentNodes = allNodes
-        .filter(node => node.content.trim())
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, 8);
       
@@ -202,13 +203,10 @@ const MentionPopover: React.FC<MentionPopoverProps> = ({
       }));
     }
     
-    // 模糊搜索
+    // 模糊搜索（allNodes 已由 isReferenceableNode 过滤，含内容非空）
     const q = query.toLowerCase();
     const matched = allNodes
-      .filter(node => 
-        node.content.toLowerCase().includes(q) && 
-        node.content.trim()
-      )
+      .filter((node) => node.content.toLowerCase().includes(q))
       .map(node => ({
         id: node.id,
         content: node.content,
@@ -297,6 +295,7 @@ const MentionPopover: React.FC<MentionPopoverProps> = ({
   return (
     <div
       ref={popoverRef}
+      data-editing-popover
       className="fixed z-[100] w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden"
       style={{ 
         left: adjustedPosition.x, 

@@ -81,6 +81,18 @@ describe('syncEngine', () => {
     expect(mockedNodesApi.create).toHaveBeenCalledTimes(1);
   });
 
+  it('delete 节点在服务端已不存在(404)时视为成功，不阻塞队列', async () => {
+    const notFoundError = Object.assign(new Error('Not Found'), { status: 404 });
+    mockedNodesApi.delete.mockRejectedValueOnce(notFoundError);
+
+    await expect(
+      executeOperation(
+        createOperation({ type: 'delete', entityType: 'node', entityId: 'node-gone' })
+      )
+    ).resolves.toBeUndefined();
+    expect(mockedNodesApi.delete).toHaveBeenCalledWith('node-gone', expect.any(Object));
+  });
+
   it('连续操作可正确合并', () => {
     const ops: SyncOperation[] = [
       createOperation({ id: '1', type: 'create', payload: { content: 'a' } }),

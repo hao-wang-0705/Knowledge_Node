@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { ToastProvider } from "@/components/ui/toast";
 import { SessionProvider } from "@/components/SessionProvider";
 import { QueryProvider } from "@/components/QueryProvider";
 import { GlobalLayout } from "@/components/layout";
 import { BRAND } from "@/lib/brand";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: BRAND.metaTitle,
@@ -17,8 +24,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
-      <body className="antialiased">
+    <html lang="zh-CN" suppressHydrationWarning className={inter.variable}>
+      <body className={`${inter.className} antialiased`}>
         <SessionProvider>
           <QueryProvider>
             <ToastProvider>

@@ -4,9 +4,6 @@ import type { ViewConfig } from './view-config';
 // 导出同步相关类型
 export * from './sync';
 
-// 导出查询面板相关类型
-export * from './query';
-
 // 导出 ViewConfig 相关类型 (v3.6)
 export * from './view-config';
 
@@ -14,109 +11,10 @@ export * from './view-config';
 export * from './quick-action';
 
 // 节点类型
-// - text: 普通文本节点
-// - heading: 标题节点
-// - todo: 待办节点
-// - command: 指令节点 (AI Command)
-// - daily: 每日笔记节点
-// - search: 搜索节点 (Search Node)
-export type NodeType = 'text' | 'heading' | 'todo' | 'command' | 'daily' | 'search';
+export type NodeType = 'text' | 'heading' | 'todo' | 'daily' | 'search';
 
-/** 节点结构角色（统一树：user_root / daily_root / search_root 为结构节点，其余为 normal） */
-export type NodeRole = 'normal' | 'user_root' | 'daily_root' | 'search_root';
-
-// =============================================================================
-// 指令节点系统 (Command Node System) - v4.0 重构：前端极简 + 后端意图接管
-// =============================================================================
-
-/**
- * 指令分类
- * - web_search: 联网搜索，调用 Google Search grounding 获取实时信息
- */
-export type CommandCategory = 'productivity' | 'analysis' | 'creative' | 'summary' | 'search' | 'expansion' | 'web_search';
-
-/**
- * 表层配置（用户可见）- v4.0 极简设计
- */
-export interface CommandSurface {
-  /** 指令名称 */
-  name: string;
-  /** 用户自然语言 Prompt */
-  userPrompt: string;
-}
-
-/**
- * 上下文查询 DSL（后端使用）
- */
-export interface ContextQueryDSL {
-  /** 按标签筛选（从 Prompt 中解析 # 标签） */
-  tags?: string[];
-  /** 按时间范围筛选 */
-  dateRange?: 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | string;
-  /** 搜索范围 */
-  scope?: 'relative' | 'global';
-  /** 相对范围时的祖先节点 ID */
-  ancestorId?: string;
-  /** 遍历深度 */
-  depth?: number;
-  /** 关键词（从 Prompt 解析） */
-  keywords?: string[];
-}
-
-/**
- * 深层配置（后端推导）- 对用户隐藏
- */
-export interface CommandCoreConfig {
-  /** 自动推断的指令分类 */
-  commandCategory: CommandCategory;
-  /** 是否需要上下文数据 */
-  requiresContext: boolean;
-  /** 上下文查询 DSL */
-  contextQueryDSL?: ContextQueryDSL;
-  /** 系统提示词（后端生成） */
-  systemPrompt: string;
-  /** 动作策略 */
-  actionStrategy?: 'append_children' | 'replace_content' | 'create_sibling';
-}
-
-/**
- * 指令节点配置 - v4.0 重构版
- */
-export interface CommandConfig {
-  /** 表层配置：用户输入 */
-  surface: CommandSurface;
-  /** 深层配置：后端推导（可选，首次执行时后端填充） */
-  coreConfig?: CommandCoreConfig;
-  /** 最近一次执行时间 */
-  lastExecutedAt?: number;
-  /** 最近一次执行状态 */
-  lastExecutionStatus?: 'success' | 'error' | 'pending';
-  /** 最近一次执行错误信息 */
-  lastError?: string;
-}
-
-/**
- * @deprecated v4.0: 上下文筛选条件已移至后端 ContextQueryDSL
- */
-export interface ContextFilter {
-  supertagIds?: string[];
-  dateRange?: { start: Date; end: Date };
-  ancestorId?: string;
-  depth?: number;
-}
-
-/**
- * @deprecated v4.0: 指令模板已移除，改为后端意图分析
- */
-export interface CommandTemplate {
-  id: string;
-  name: string;
-  description: string;
-  prompt: string;
-  icon: string;
-  category: CommandCategory;
-  suggestedFilter?: Partial<ContextFilter>;
-}
+/** 节点结构角色（统一树：user_root / daily_root 为结构节点，其余为 normal） */
+export type NodeRole = 'normal' | 'user_root' | 'daily_root';
 
 // =============================================================================
 // 每日笔记系统 (Daily Notes System)
@@ -150,55 +48,18 @@ export interface DailyNotePayload {
 // 超级标签体系 (Supertag System)
 // =============================================================================
 
-// 字段类型 - v3.5 新增 multi-select 多选类型
-export type FieldType = 'text' | 'number' | 'date' | 'select' | 'multi-select' | 'reference' | 'ai_text' | 'ai_select';
+// 字段类型 - v3.5 新增 multi-select 多选类型；v4.3 新增 status 行动标签状态机
+export type FieldType = 'text' | 'number' | 'date' | 'select' | 'status' | 'multi-select' | 'reference';
 
-/**
- * AI 字段预设类型
- * v3.5: 简化为 3 种预设类型
- * - extraction: 信息抽取型（从内容中提取关键信息）
- * - summarization: 总结重写型（生成 TL;DR 或格式化重写）
- * - classification: 自动分类/判定型（根据内容特征自动分类）
- * 
- * 保留旧类型用于向后兼容：
- * - urgency_score: (deprecated) 使用 classification
- * - subtask_split: (deprecated) 使用 extraction
- * - custom: (deprecated) 使用 extraction/summarization/classification
- */
-export type AIFieldPresetType = 'extraction' | 'summarization' | 'classification' | 'urgency_score' | 'subtask_split' | 'custom';
-
-/**
- * AI 字段触发时机
- * v3.5: 保留字段用于未来扩展，当前版本仅实现 manual
- */
-export type AIFieldTrigger = 'manual' | 'create' | 'update';
-
-/**
- * AI 字段输出格式
- */
-export type AIFieldOutputFormat = 'text' | 'select' | 'list';
-
-/**
- * AI 字段配置
- * v3.5: 扩展支持子节点上下文收集
- */
-export interface AIFieldConfig {
-  /** AI 字段预设类型（决定使用哪个系统 Prompt） */
-  aiType: AIFieldPresetType;
-  /** 用户自定义 Prompt（必填，与系统 Prompt 组合使用） */
-  prompt: string;
-  /** 触发时机（当前版本仅 manual 有效，create/update 为预留接口） */
-  triggerOn: AIFieldTrigger;
-  /** 依赖的输入字段（从节点 content 或其他字段获取） */
-  inputFields?: string[];
-  /** 输出格式 */
-  outputFormat: AIFieldOutputFormat;
-  /** select 类型的选项列表 */
-  options?: string[];
-  /** v3.5: 是否包含子节点内容作为上下文 */
-  includeChildren?: boolean;
-  /** v3.5: 子节点遍历深度（默认 1） */
-  contextDepth?: number;
+/** 行动标签状态机配置（与后端 preset-tags 中 type: "status" 的 statusConfig 一致） */
+export interface StatusConfig {
+  states: string[];
+  initial: string;
+  doneState?: string;
+  blockedStates?: string[];
+  unblockedStates?: string[];
+  resolvedState?: string;
+  transitions?: Record<string, Record<string, string>>;
 }
 
 /**
@@ -221,12 +82,14 @@ export interface FieldDefinition {
   name: string;          // 字段显示名称 (中文)，例如 "作者", "截止日期"
   type: FieldType;
   options?: string[];    // 用于 'select' / 'multi-select' 类型的选项列表
-  /** v2.1: reference 类型时的目标 Supertag ID */
+  /** v4.3: 行动标签状态机配置（仅 type === 'status'） */
+  statusConfig?: StatusConfig;
+  /** v2.1: reference 类型时的目标 Supertag ID（单目标，向后兼容） */
   targetTagId?: string;
+  /** v4.4: reference 类型时的目标 Supertag ID 列表（多目标） */
+  targetTagIds?: string[];
   /** v2.1: reference 是否允许多选 */
   multiple?: boolean;
-  /** v3.4: AI 字段配置（仅 ai_text/ai_select 类型） */
-  aiConfig?: AIFieldConfig;
   /** v3.5: 数字字段格式化显示 */
   format?: 'currency' | 'percent' | 'rating' | 'default';
   displayConfig?: Record<string, unknown>;
@@ -240,6 +103,7 @@ export interface FieldDefinition {
  * 标签模版定义 (系统预置标签)
  * v3.4: 移除父子继承关系和分类系统
  * v3.6: 新增 viewConfig 视图配置
+ * v4.2: 新增 category 实体/行动双轨
  */
 export interface TagTemplate {
   id: string;
@@ -247,6 +111,8 @@ export interface TagTemplate {
   color: string;             // 标签颜色
   icon?: string;             // 标签图标 (如 ☑️, 📅, 💡)
   description?: string;      // 标签描述
+  /** v4.2: 实体 entity / 行动 action */
+  category?: 'entity' | 'action';
   fieldDefinitions: FieldDefinition[];
   /** v3.3: 是否为全局默认标签（系统预置） */
   isGlobalDefault: boolean;
@@ -298,6 +164,8 @@ export interface NodeReference {
   title: string;         // 引用时的节点标题快照
   createdAt: number;     // 引用创建时间
   note?: string;         // 可选的引用批注/备注
+  /** 行内引用锚点位置（基于纯文本 content 的字符索引） */
+  anchorOffset?: number;
 }
 
 // 核心单元：节点
@@ -316,14 +184,15 @@ export interface Node {
   // ===================================
   /** Supertag 定义的字段值。reference 类型时为 { nodeId, title } 或该数组 */
   fields: Record<string, any>;
+  /** 仅当为 #todo 且有 BLOCKS 入边时由后端附带：阻塞该节点的前置节点 id + content */
+  blockedBy?: { id: string; content: string }[];
   createdAt: number;
   updatedAt?: number;    // 更新时间
   // ========== 独立引用系统 ==========
   references?: NodeReference[];  // 独立的引用列表（与 content 分离）
   // ===================================
-  // ========== 指令节点系统 ==========
-  payload?: CommandConfig | DailyNotePayload | SearchConfig | Record<string, any>;  // 扩展数据
-  // ===================================
+  payload?: DailyNotePayload | SearchConfig | Record<string, any>;
+
 }
 
 // Store 类型定义
@@ -336,13 +205,18 @@ export interface NodeStore {
   addNode: (parentId: string | null, afterId?: string) => string;
   addSearchNode: (parentId: string | null, config?: import('./search').SearchConfig, afterId?: string) => string;
   updateNode: (id: string, updates: Partial<Node>) => void;
+  /** 仅用于从后端拉回的最新节点数据进行合并，不触发同步队列 */
+  mergeNodeFromServer: (node: Node) => void;
   deleteNode: (id: string) => void;
   
   // 树形操作
   indentNode: (id: string) => void;      // Tab 缩进
   outdentNode: (id: string) => void;     // Shift+Tab 反缩进
-  toggleCollapse: (id: string) => void;
-  
+  /** 按视图折叠，viewKey 如 'main' | `search:${searchNodeId}`，仅写 overlay 不同步 */
+  toggleCollapse: (viewKey: string, id: string) => void;
+  getCollapseState: (viewKey: string, nodeId: string) => boolean;
+  setCollapseState: (viewKey: string, nodeId: string, value: boolean) => void;
+
   // 焦点管理
   setFocusedNode: (id: string | null) => void;
   

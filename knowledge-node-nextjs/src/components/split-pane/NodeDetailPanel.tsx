@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo } from 'react';
 import { X, ChevronRight, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -12,8 +12,6 @@ import Backlinks from '@/components/Backlinks';
 import { ContentWithReferences } from '@/components/ReferenceChip';
 import { getPlainTextWithoutReferences } from '@/utils/reference-helpers';
 import { getTagStyle } from '@/utils/tag-styles';
-import type { FieldDefinition } from '@/types';
-import type { AIFieldProcessResult } from '@/services/ai/field-processor';
 
 interface NodeDetailPanelProps {
   className?: string;
@@ -72,49 +70,6 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ className }) => {
       },
     });
   };
-
-  // AI 字段加载状态
-  const [loadingFields, setLoadingFields] = useState<Set<string>>(new Set());
-
-  // AI 字段触发回调 - 通过 API 调用
-  const handleTriggerAI = useCallback(async (fieldId: string, allFieldDefs: FieldDefinition[]) => {
-    if (!node || !panelNodeId) return;
-    
-    const fieldDef = allFieldDefs.find(f => f.id === fieldId);
-    if (!fieldDef) return;
-
-    // 设置加载状态
-    setLoadingFields(prev => new Set(prev).add(fieldId));
-
-    try {
-      const response = await fetch('/api/ai/field', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nodeContent: node.content || '',
-          fieldDef,
-          existingFields: node.fields,
-          nodeId: panelNodeId, // 传递 nodeId，让后端查询子节点上下文
-        }),
-      });
-
-      const result: AIFieldProcessResult = await response.json();
-
-      if (result.success && result.value !== null) {
-        handleFieldChange(result.fieldKey, result.value);
-      } else if (result.error) {
-        console.error('[NodeDetailPanel] AI 处理失败:', result.error);
-      }
-    } catch (error) {
-      console.error('[NodeDetailPanel] AI 请求失败:', error);
-    } finally {
-      setLoadingFields(prev => {
-        const next = new Set(prev);
-        next.delete(fieldId);
-        return next;
-      });
-    }
-  }, [node, panelNodeId]);
 
   // 处理子节点点击
   const handleChildClick = (childId: string, e: React.MouseEvent) => {
@@ -192,7 +147,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ className }) => {
         
         {/* 节点标题 */}
         <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 leading-snug">
-          <ContentWithReferences content={node.content} />
+          <ContentWithReferences content={node.content} references={node.references} />
         </h2>
         
         {/* 标签 */}
@@ -236,11 +191,6 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ className }) => {
                     nodeId={panelNodeId!}
                     tagId={tag.id}
                     className="!py-1"
-                    onTriggerAI={
-                      fieldDef.type === 'ai_text' || fieldDef.type === 'ai_select'
-                        ? (fieldId) => handleTriggerAI(fieldId, fieldDefs)
-                        : undefined
-                    }
                   />
                 ));
               })}

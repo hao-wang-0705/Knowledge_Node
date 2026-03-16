@@ -9,11 +9,10 @@
 
 /**
  * 快捷动作类型
- * - extract_tasks: 提取为待办，从文本中识别任务项生成 todo 子节点
- * - structured_summary: 结构化提炼，提取核心论点生成大纲树
- * - inline_rewrite: 原地重写，扩写润色当前节点内容
+ * - expand: 智能扩写，将简短内容扩写为更完整表述
+ * - deconstruct: 智能解构，将长文本拆成层级化子节点树并挂载标签与字段（幽灵预览后确认）
  */
-export type QuickActionType = 'extract_tasks' | 'structured_summary' | 'inline_rewrite';
+export type QuickActionType = 'expand' | 'deconstruct';
 
 /**
  * 快捷动作配置
@@ -31,27 +30,21 @@ export interface QuickActionConfig {
 }
 
 /**
- * 预置快捷动作列表
+ * 预置快捷动作列表（仅保留智能扩写与智能解构）
  */
 export const QUICK_ACTIONS: QuickActionConfig[] = [
   {
-    type: 'extract_tasks',
-    label: '提取为待办',
-    icon: 'CheckSquare',
-    description: '从文本中提取任务项，生成带标签的待办节点',
-  },
-  {
-    type: 'structured_summary',
-    label: '结构化提炼',
-    icon: 'ListTree',
-    description: '提取核心论点，生成层次清晰的大纲',
-  },
-  {
-    type: 'inline_rewrite',
-    label: '扩写润色',
+    type: 'expand',
+    label: '智能扩写',
     icon: 'Wand2',
-    description: '将简短想法扩写为专业完整的表述',
+    description: '扩写当前节点内容为更专业完整的表述',
     isDestructive: true,
+  },
+  {
+    type: 'deconstruct',
+    label: '智能解构',
+    icon: 'ListTree',
+    description: '将长文本解构为结构化子节点并挂载标签与字段',
   },
 ];
 
@@ -132,15 +125,26 @@ export interface QuickActionReplaceEvent {
 
 /**
  * 完成事件
+ * 智能解构时 data.nodes 为与 SmartCaptureNode 同构的节点树
  */
 export interface QuickActionDoneEvent {
   event: 'done';
   data: {
     success: boolean;
     /** 生成的节点数量 */
-    nodeCount: number;
+    nodeCount?: number;
     /** 动作类型 */
-    actionType: QuickActionType;
+    actionType?: QuickActionType;
+    /** 智能解构返回的节点树（仅 deconstruct），与 types.SmartCaptureNode 同构 */
+    nodes?: Array<{
+      tempId: string;
+      content: string;
+      parentTempId: string | null;
+      supertagId: string | null;
+      fields: Record<string, unknown>;
+      confidence: number;
+      isAIExtracted: boolean;
+    }>;
   };
 }
 

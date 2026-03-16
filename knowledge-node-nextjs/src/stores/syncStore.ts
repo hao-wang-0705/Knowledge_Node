@@ -54,6 +54,7 @@ const initialState: SyncStoreState = {
     queueSize: 0,
   },
   isInitialized: false,
+  deferProcessQueue: false,
 };
 
 // =============================================================================
@@ -216,6 +217,10 @@ export const useSyncStore = create<SyncStore>((set, get) => {
       }
     },
 
+    setDeferProcessQueue: (value: boolean) => {
+      set({ deferProcessQueue: value });
+    },
+
     // =========================================================================
     // 队列操作
     // =========================================================================
@@ -311,8 +316,8 @@ export const useSyncStore = create<SyncStore>((set, get) => {
       // 持久化队列
       debouncedPersist();
 
-      // 如果在线且不是正在同步，立即尝试处理
-      if (isOnline && get().status !== 'syncing') {
+      // 如果在线且不是正在同步，且未处于「推迟 processQueue」模式（如智能捕获），则立即尝试处理
+      if (isOnline && get().status !== 'syncing' && !get().deferProcessQueue) {
         // 使用 setTimeout 避免同步调用导致的状态问题
         setTimeout(() => {
           get().processQueue();
@@ -423,17 +428,39 @@ export const useSyncStore = create<SyncStore>((set, get) => {
         }));
 
         try {
-          await executeWithRetry(op, DEFAULT_SYNC_CONFIG.retry.maxRetries);
+          const result = await executeWithRetry(op, DEFAULT_SYNC_CONFIG.retry.maxRetries);
 
           // 成功：从队列移除
           set((state) => ({
             pendingOperations: state.pendingOperations.filter((o) => o.id !== op.id),
           }));
           successCount++;
-          
+
+          // 同步最新节点状态到 nodeStore（包括 todo_status 的即时 Locked/Ready 变更）
+          if (op.entityType === 'node' && (op.type === 'update' || op.type === 'create')) {
+            const { nodesApi } = await import('@/services/api');
+            const { useNodeStore } = await import('@/stores/nodeStore');
+            try {
+              const fresh = await nodesApi.getOne(op.entityId);
+              const store = useNodeStore.getState() as any;
+              store.mergeNodeFromServer?.(fresh);
+            } catch (e) {
+              console.warn('[SyncStore] 同步最新节点状态失败:', e);
+            }
+          }
+
+          // 级联解锁：refetch 被解锁节点并合并到 nodeStore
+          if (result?.unlockedNodeIds?.length) {
+            const { nodesApi } = await import('@/services/api');
+            const { useNodeStore } = await import('@/stores/nodeStore');
+            const nodes = await Promise.all(result.unlockedNodeIds.map((id) => nodesApi.getOne(id)));
+            const store = useNodeStore.getState() as any;
+            nodes.forEach((n) => store.mergeNodeFromServer?.(n));
+          }
+
           // 标记操作完成（用于依赖追踪）
           markOperationComplete(op.id);
-          
+
           // 通知等待该节点同步完成的 Promise
           if (op.entityType === 'node' && op.type === 'create') {
             notifyNodeSyncComplete(op.entityId, true);

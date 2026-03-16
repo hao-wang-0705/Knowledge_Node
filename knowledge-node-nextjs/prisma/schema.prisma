@@ -60,12 +60,14 @@ model Node {
 
 // 标签模版表 - 系统预置标签库
 // v3.4: 移除 parentId 继承关系，移除 categoryId 分类关系
+// v4.2: 新增 category 实体/行动双轨（entity | action）
 model TagTemplate {
   id               String           @id @default(cuid())
   name             String
   color            String           @default("#6366F1")
   icon             String?
   description      String?
+  category         String?          // entity | action
   fieldDefinitions Json             @default("[]")
   isGlobalDefault  Boolean          @default(true)   // 系统预置标识，当前全为 true
   creatorId        String?                           // 预留 UGC 创建者 ID

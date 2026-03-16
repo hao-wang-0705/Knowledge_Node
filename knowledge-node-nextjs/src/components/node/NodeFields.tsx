@@ -1,8 +1,6 @@
-import { useCallback, useState } from 'react';
 import Backlinks from '@/components/Backlinks';
 import FieldEditor from '@/components/FieldEditor';
 import type { Node, Supertag, FieldDefinition } from '@/types';
-import type { AIFieldProcessResult } from '@/services/ai/field-processor';
 
 interface NodeFieldsProps {
   node: Node;
@@ -11,6 +9,8 @@ interface NodeFieldsProps {
   nodeTags: Supertag[];
   getFieldDefinitions: (tagId: string) => FieldDefinition[];
   onFieldChange: (fieldKey: string, value: unknown) => void;
+  /** 按视图的折叠状态，不传则用 node.isCollapsed */
+  isCollapsed?: boolean;
 }
 
 export default function NodeFields({
@@ -20,48 +20,21 @@ export default function NodeFields({
   nodeTags,
   getFieldDefinitions,
   onFieldChange,
+  isCollapsed = node.isCollapsed,
 }: NodeFieldsProps) {
-  const [loadingFields, setLoadingFields] = useState<Set<string>>(new Set());
-
-  // AI 字段触发回调 - 通过 API 调用
-  const handleTriggerAI = useCallback(async (fieldId: string, allFieldDefs: FieldDefinition[]) => {
-    const fieldDef = allFieldDefs.find(f => f.id === fieldId);
-    if (!fieldDef) return;
-
-    // 设置加载状态
-    setLoadingFields(prev => new Set(prev).add(fieldId));
-
-    try {
-      const response = await fetch('/api/ai/field', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nodeContent: node.content || '',
-          fieldDef,
-          existingFields: node.fields,
-          nodeId, // 传递 nodeId，让后端查询子节点上下文
-        }),
-      });
-
-      const result: AIFieldProcessResult = await response.json();
-
-      if (result.success && result.value !== null) {
-        onFieldChange(result.fieldKey, result.value);
-      } else if (result.error) {
-        console.error('[NodeFields] AI 处理失败:', result.error);
-      }
-    } catch (error) {
-      console.error('[NodeFields] AI 请求失败:', error);
-    } finally {
-      setLoadingFields(prev => {
-        const next = new Set(prev);
-        next.delete(fieldId);
-        return next;
-      });
+  // 锁定状态：由 statusConfig.blockedStates 判定，无配置时兜底为 todo + todo_status === 'Locked'
+  const isLockedStatusField = (tag: Supertag, fieldDef: FieldDefinition) => {
+    const statusDef = tag.fieldDefinitions?.find(
+      (d) => d.type === 'status' && d.statusConfig?.blockedStates?.length,
+    );
+    if (statusDef && fieldDef.key === statusDef.key) {
+      const current = (node.fields[fieldDef.key] as string | undefined) ?? '';
+      return statusDef.statusConfig!.blockedStates!.includes(current);
     }
-  }, [node.content, node.fields, nodeId, onFieldChange]);
+    return tag.name === 'todo' && fieldDef.key === 'todo_status' && node.fields.todo_status === 'Locked';
+  };
 
-  if (!nodeTags.length || node.isCollapsed) {
+  if (!nodeTags.length || isCollapsed) {
     return null;
   }
 
@@ -78,14 +51,13 @@ export default function NodeFields({
               key={fieldDef.id}
               fieldDef={fieldDef}
               value={node.fields[fieldDef.key]}
-              onChange={(value) => onFieldChange(fieldDef.key, value)}
+              readOnly={isLockedStatusField(tag, fieldDef)}
+              onChange={(value) => {
+                if (isLockedStatusField(tag, fieldDef)) return;
+                onFieldChange(fieldDef.key, value);
+              }}
               nodeId={nodeId}
               tagId={tag.id}
-              onTriggerAI={
-                fieldDef.type === 'ai_text' || fieldDef.type === 'ai_select'
-                  ? (fieldId) => handleTriggerAI(fieldId, fieldDefs)
-                  : undefined
-              }
             />
           ));
         })}

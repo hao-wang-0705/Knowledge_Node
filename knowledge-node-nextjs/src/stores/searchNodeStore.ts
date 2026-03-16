@@ -14,6 +14,8 @@ interface SearchNodeStoreActions {
   refreshSearch: (searchNodeId: string, config?: SearchConfig) => Promise<string[]>;
   clearSearch: (searchNodeId: string) => void;
   evaluateCondition: (node: Node, condition: SearchCondition, allNodes: Record<string, Node>) => boolean;
+  /** 在节点被删除后，从所有搜索结果中清理这些节点 ID，避免渲染访问已删除节点 */
+  pruneResultsForDeletedNodes: (deletedIds: string[] | string) => void;
 }
 
 export const useSearchNodeStore = create<SearchNodeStoreState & SearchNodeStoreActions>((set, get) => ({
@@ -71,6 +73,34 @@ export const useSearchNodeStore = create<SearchNodeStoreState & SearchNodeStoreA
       loadingBySearchNodeId: { ...state.loadingBySearchNodeId, [searchNodeId]: false },
       errorBySearchNodeId: { ...state.errorBySearchNodeId, [searchNodeId]: null },
     }));
+  },
+
+  pruneResultsForDeletedNodes: (deletedIds) => {
+    const ids = Array.isArray(deletedIds) ? deletedIds : [deletedIds];
+    if (ids.length === 0) return;
+    const deletedSet = new Set(ids);
+
+    set((state) => {
+      const nextResults: Record<string, string[]> = {};
+      let changed = false;
+
+      for (const [searchNodeId, resultIds] of Object.entries(state.resultsBySearchNodeId)) {
+        const filtered = resultIds.filter((id) => !deletedSet.has(id));
+        nextResults[searchNodeId] = filtered;
+        if (filtered.length !== resultIds.length) {
+          changed = true;
+        }
+      }
+
+      if (!changed) {
+        return state;
+      }
+
+      return {
+        ...state,
+        resultsBySearchNodeId: nextResults,
+      };
+    });
   },
 
   evaluateCondition: (node, condition, allNodes) => {

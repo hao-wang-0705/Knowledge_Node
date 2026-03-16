@@ -277,6 +277,8 @@ export interface SyncStoreState {
   syncStats: SyncStats;
   /** 是否已初始化 */
   isInitialized: boolean;
+  /** 是否推迟自动触发 processQueue（智能捕获期间为 true，结束后恢复并手动触发一次） */
+  deferProcessQueue: boolean;
 }
 
 /**
@@ -289,6 +291,7 @@ export interface SyncStoreActions {
   // 状态管理
   setStatus: (status: SyncStatus) => void;
   setError: (error: string | null) => void;
+  setDeferProcessQueue: (value: boolean) => void;
   
   // 队列操作
   queueOperation: (op: CreateSyncOperationParams) => void;
