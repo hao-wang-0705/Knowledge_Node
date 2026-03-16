@@ -2,8 +2,8 @@
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { 
-  Plus, Sparkles, Loader2, Type, Hash, Calendar, List, Link2, Cpu,
-  X, GripVertical, ChevronDown, AlertCircle, Check
+  Plus, Type, Hash, Calendar, List, Link2,
+  X, GripVertical, ChevronDown, Check
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Supertag, FieldDefinition, FieldType } from '@/types';
@@ -31,15 +31,12 @@ interface SchemaFieldListProps {
   tag: Supertag;
 }
 
-// 字段类型配置 (v3.4: 新增 AI 字段类型)
 const FIELD_TYPES: { value: FieldType; label: string; icon: React.ReactNode; color: string }[] = [
   { value: 'text', label: '文本', icon: <Type size={12} />, color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400' },
   { value: 'number', label: '数字', icon: <Hash size={12} />, color: 'bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400' },
   { value: 'date', label: '日期', icon: <Calendar size={12} />, color: 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400' },
   { value: 'select', label: '单选', icon: <List size={12} />, color: 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400' },
   { value: 'reference', label: '引用', icon: <Link2 size={12} />, color: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400' },
-  { value: 'ai_text', label: 'AI 文本', icon: <Cpu size={12} />, color: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400' },
-  { value: 'ai_select', label: 'AI 选项', icon: <Cpu size={12} />, color: 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 dark:text-pink-400' },
 ];
 
 // 类型选择下拉菜单组件 - 使用 Portal 防止溢出
@@ -516,15 +513,11 @@ const SortableFieldRow: React.FC<SortableFieldRowProps> = ({
     transition,
   };
 
-  const isAIField = field.type === 'ai_text' || field.type === 'ai_select';
-
   const rowClasses = cn(
     "grid grid-cols-[24px_1fr_90px_1fr_56px] gap-2 px-3 py-2 items-center group transition-all",
     isDragging && "opacity-30",
     isDragOverlay && "bg-white dark:bg-gray-800 shadow-xl rounded-lg border-2 border-blue-400",
-    isAIField 
-      ? "bg-pink-50/50 dark:bg-pink-900/10" 
-      : "hover:bg-gray-50 dark:hover:bg-gray-800/50"
+    "hover:bg-gray-50 dark:hover:bg-gray-800/50"
   );
 
   return (
@@ -543,11 +536,6 @@ const SortableFieldRow: React.FC<SortableFieldRowProps> = ({
         <span className="text-sm font-medium truncate text-gray-700 dark:text-gray-300">
           {field.name}
         </span>
-        {isAIField && (
-          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300">
-            AI
-          </span>
-        )}
       </div>
 
       {/* 类型选择 */}
@@ -568,20 +556,13 @@ const SortableFieldRow: React.FC<SortableFieldRowProps> = ({
             onMultipleChange={(multiple) => onMultipleChange(field.id, multiple)}
           />
         )}
-        {(field.type === 'select' || field.type === 'ai_select') && (
+        {field.type === 'select' && (
           <SelectOptionsEditor
             options={field.options || []}
             onOptionsChange={(opts) => onOptionsChange(field.id, opts)}
           />
         )}
-        {isAIField && field.aiConfig && (
-          <span className="text-xs text-pink-500">
-            {field.aiConfig.aiType === 'extraction' ? '信息提取' : 
-             field.aiConfig.aiType === 'summarization' ? '内容摘要' : 
-             field.aiConfig.aiType === 'classification' ? '分类识别' : '自定义'}
-          </span>
-        )}
-        {field.type !== 'reference' && field.type !== 'select' && field.type !== 'ai_select' && !isAIField && (
+        {field.type !== 'reference' && field.type !== 'select' && (
           <span className="text-xs text-gray-400">—</span>
         )}
       </div>
@@ -607,8 +588,6 @@ const SortableFieldRow: React.FC<SortableFieldRowProps> = ({
 const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
   const [isAddingField, setIsAddingField] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationError, setGenerationError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const supertags = useSupertagStore((state) => state.supertags);
@@ -664,13 +643,6 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
     console.warn('[SchemaFieldList] 当前为只读模式，无法调整字段顺序');
   }, []);
 
-  // AI 生成字段 - 当前为只读模式，此功能已禁用
-  const handleAIGenerate = useCallback(async () => {
-    setIsGenerating(true);
-    setGenerationError('当前为只读模式，无法使用 AI 生成字段');
-    setTimeout(() => setIsGenerating(false), 500);
-  }, []);
-
   const activeField = activeId ? fields.find(f => f.id === activeId) : null;
 
   return (
@@ -681,38 +653,7 @@ const SchemaFieldList: React.FC<SchemaFieldListProps> = ({ tag }) => {
           <Type size={14} />
           字段定义 (Schema)
         </h3>
-        
-        {/* AI 建议入口 */}
-        <button
-          onClick={handleAIGenerate}
-          disabled={isGenerating}
-          className={cn(
-            "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-            isGenerating
-              ? "bg-purple-100 dark:bg-purple-900/30 text-purple-400 cursor-not-allowed"
-              : "text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-          )}
-        >
-          {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-          <span>AI 建议</span>
-        </button>
       </div>
-
-      {/* AI 生成错误提示 */}
-      {generationError && (
-        <div className="mb-3 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
-          <AlertCircle size={14} className="text-red-500 mt-0.5 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-red-600 dark:text-red-400">{generationError}</p>
-          </div>
-          <button
-            onClick={() => setGenerationError(null)}
-            className="p-0.5 text-red-400 hover:text-red-600 dark:hover:text-red-300"
-          >
-            <X size={12} />
-          </button>
-        </div>
-      )}
 
       {/* 字段表格 */}
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
