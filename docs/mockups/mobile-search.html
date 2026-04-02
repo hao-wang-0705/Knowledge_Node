@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>搜索 - Nexus Mobile</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 20px;
+      gap: 40px;
+    }
+    
+    .back-link {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #667eea;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .phone-frame {
+      width: 375px;
+      height: 812px;
+      background: white;
+      border-radius: 40px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+      overflow: hidden;
+      position: relative;
+      flex-shrink: 0;
+    }
+    
+    .status-bar {
+      height: 44px;
+      background: linear-gradient(135deg, #11998e, #38ef7d);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 24px;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #11998e, #38ef7d);
+      padding: 12px 20px 24px;
+      color: white;
+    }
+    
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    
+    .header p {
+      font-size: 14px;
+      opacity: 0.85;
+      margin-top: 4px;
+    }
+    
+    /* 搜索框 */
+    .search-container {
+      margin: -20px 20px 0;
+      position: relative;
+      z-index: 10;
+    }
+    
+    .search-box {
+      background: white;
+      border-radius: 16px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    
+    .search-box .icon {
+      font-size: 20px;
+      color: #11998e;
+    }
+    
+    .search-box input {
+      flex: 1;
+      border: none;
+      font-size: 16px;
+      outline: none;
+      color: #333;
+    }
+    
+    .search-box input::placeholder {
+      color: #aaa;
+    }
+    
+    .search-box .clear-btn {
+      font-size: 18px;
+      color: #ccc;
+      cursor: pointer;
+      display: none;
+    }
+    
+    .search-box .clear-btn.show {
+      display: block;
+    }
+    
+    .main-content {
+      flex: 1;
+      background: #f8f9fa;
+      padding: 24px 20px;
+      padding-bottom: 100px;
+      overflow-y: auto;
+      height: calc(100% - 200px);
+    }
+    
+    /* 搜索提示 */
+    .search-hint {
+      text-align: center;
+      padding: 40px 20px;
+      color: #999;
+    }
+    
+    .search-hint .icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    
+    .search-hint h3 {
+      font-size: 18px;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    
+    .search-hint p {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    
+    .search-hint .examples {
+      margin-top: 24px;
+      text-align: left;
+    }
+    
+    .search-hint .examples h4 {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+    
+    .search-hint .example-item {
+      background: white;
+      padding: 12px 16px;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: #333;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .search-hint .example-item:hover {
+      background: #f0f0f0;
+    }
+    
+    .search-hint .example-item .quote {
+      color: #11998e;
+    }
+    
+    /* 搜索结果 */
+    .search-results {
+      display: none;
+    }
+    
+    .search-results.show {
+      display: block;
+    }
+    
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .result-header h3 {
+      font-size: 16px;
+      color: #333;
+    }
+    
+    .result-header span {
+      font-size: 14px;
+      color: #999;
+    }
+    
+    .result-item {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .result-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    }
+    
+    .result-item .title {
+      font-size: 15px;
+      color: #333;
+      font-weight: 500;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .result-item .title .icon {
+      font-size: 16px;
+    }
+    
+    .result-item .meta {
+      font-size: 12px;
+      color: #999;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .result-item .meta .dot {
+      width: 3px;
+      height: 3px;
+      background: #ccc;
+      border-radius: 50%;
+    }
+    
+    .result-item .preview {
+      font-size: 14px;
+      color: #666;
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    
+    .result-item .preview .highlight {
+      background: #fffde7;
+      color: #f57f17;
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+    
+    .result-item .tags {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    
+    .result-item .tag {
+      background: #f0f0f0;
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+      color: #666;
+    }
+    
+    /* 无节点产生提示 */
+    .no-create-hint {
+      background: linear-gradient(135deg, rgba(17,153,142,0.1), rgba(56,239,125,0.1));
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-top: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .no-create-hint .icon {
+      font-size: 20px;
+    }
+    
+    .no-create-hint .text {
+      font-size: 13px;
+      color: #11998e;
+      line-height: 1.4;
+    }
+    
+    /* 底部导航栏 */
+    .tab-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 83px;
+      background: white;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start;
+      padding-top: 10px;
+    }
+    
+    .tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: #999;
+      text-decoration: none;
+      min-width: 60px;
+    }
+    
+    .tab-item.active {
+      color: #11998e;
+    }
+    
+    .tab-item .icon {
+      font-size: 24px;
+    }
+    
+    /* 捕获按钮特殊样式 */
+    .tab-item.capture-btn .icon-wrapper {
+      width: 50px;
+      height: 50px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: -20px;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    .tab-item.capture-btn .icon {
+      color: white;
+      font-size: 22px;
+    }
+    
+    /* 节点详情弹窗 */
+    .node-detail-modal {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: white;
+      display: none;
+      flex-direction: column;
+    }
+    
+    .node-detail-modal.show {
+      display: flex;
+    }
+    
+    .modal-header {
+      display: flex;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .modal-header .back-btn {
+      font-size: 24px;
+      cursor: pointer;
+      margin-right: 12px;
+    }
+    
+    .modal-header h2 {
+      font-size: 18px;
+      color: #333;
+      flex: 1;
+    }
+    
+    .modal-header .readonly-tag {
+      background: rgba(17,153,142,0.1);
+      color: #11998e;
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+    
+    .modal-content {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    
+    .node-meta {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: #999;
+    }
+    
+    .node-content {
+      font-size: 15px;
+      color: #333;
+      line-height: 1.8;
+    }
+    
+    .node-children {
+      margin-top: 20px;
+      padding-left: 16px;
+      border-left: 2px solid #11998e;
+    }
+    
+    .node-child {
+      padding: 12px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .node-child:last-child {
+      border-bottom: none;
+    }
+    
+    .node-child .bullet {
+      color: #11998e;
+      margin-right: 8px;
+    }
+    
+    .description-panel {
+      position: fixed;
+      right: 20px;
+      top: 100px;
+      width: 320px;
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    
+    .description-panel h3 {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .description-panel ul {
+      list-style: none;
+      font-size: 14px;
+      color: #666;
+      line-height: 2;
+    }
+    
+    .description-panel ul li::before {
+      content: '✓';
+      color: #11998e;
+      margin-right: 8px;
+    }
+    
+    .description-panel .divider {
+      height: 1px;
+      background: #f0f0f0;
+      margin: 16px 0;
+    }
+    
+    .description-panel .important-note {
+      background: linear-gradient(135deg, rgba(17,153,142,0.1), rgba(56,239,125,0.1));
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+    
+    .description-panel .important-note strong {
+      color: #11998e;
+      display: block;
+      margin-bottom: 6px;
+    }
+    
+    .description-panel .important-note p {
+      font-size: 13px;
+      color: #666;
+      line-height: 1.5;
+    }
+    
+    @media (max-width: 1200px) {
+      .description-panel {
+        display: none;
+      }
+      body {
+        flex-direction: column;
+        align-items: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-link">← 返回导航</a>
+  
+  <!-- 手机 1: 搜索初始状态 -->
+  <div class="phone-frame">
+    <div class="status-bar">
+      <span class="time">9:41</span>
+      <div class="icons">📶 🔋</div>
+    </div>
+    
+    <div class="header">
+      <h1>🔍 搜索</h1>
+      <p>自然语言查找内容</p>
+    </div>
+    
+    <div class="search-container">
+      <div class="search-box">
+        <span class="icon">🔍</span>
+        <input type="text" placeholder="用自然语言描述你想找的内容...">
+        <span class="clear-btn">×</span>
+      </div>
+    </div>
+    
+    <div class="main-content">
+      <div class="search-hint">
+        <div class="icon">💬</div>
+        <h3>自然语言搜索</h3>
+        <p>用你习惯的方式描述想找的内容，<br>AI 会理解你的意图并找到相关笔记</p>
+        
+        <div class="examples">
+          <h4>试试这样搜索：</h4>
+          <div class="example-item">
+            <span class="quote">"</span>上周关于产品设计的笔记<span class="quote">"</span>
+          </div>
+          <div class="example-item">
+            <span class="quote">"</span>我之前记录的读书心得<span class="quote">"</span>
+          </div>
+          <div class="example-item">
+            <span class="quote">"</span>和张三开会讨论的内容<span class="quote">"</span>
+          </div>
+          <div class="example-item">
+            <span class="quote">"</span>Q2 OKR 相关的任务<span class="quote">"</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <a href="mobile-notes.html" class="tab-item">
+        <span class="icon">📓</span>
+        <span>笔记</span>
+      </a>
+      <a href="mobile-capture.html" class="tab-item capture-btn">
+        <div class="icon-wrapper">
+          <span class="icon">➕</span>
+        </div>
+        <span>捕获</span>
+      </a>
+      <a href="mobile-search.html" class="tab-item active">
+        <span class="icon">🔍</span>
+        <span>搜索</span>
+      </a>
+    </div>
+  </div>
+  
+  <!-- 手机 2: 搜索结果状态 -->
+  <div class="phone-frame">
+    <div class="status-bar">
+      <span class="time">9:42</span>
+      <div class="icons">📶 🔋</div>
+    </div>
+    
+    <div class="header">
+      <h1>🔍 搜索</h1>
+      <p>自然语言查找内容</p>
+    </div>
+    
+    <div class="search-container">
+      <div class="search-box">
+        <span class="icon">🔍</span>
+        <input type="text" value="上周关于产品设计的笔记">
+        <span class="clear-btn show">×</span>
+      </div>
+    </div>
+    
+    <div class="main-content">
+      <div class="search-results show">
+        <div class="result-header">
+          <h3>搜索结果</h3>
+          <span>找到 3 条相关内容</span>
+        </div>
+        
+        <div class="result-item">
+          <div class="title">
+            <span class="icon">📝</span>
+            产品设计评审会议纪要
+          </div>
+          <div class="meta">
+            <span>2026-03-15</span>
+            <span class="dot"></span>
+            <span>工作笔记本</span>
+          </div>
+          <div class="preview">
+            讨论了 Q2 <span class="highlight">产品</span>路线图，确定了三个核心<span class="highlight">设计</span>方向：用户体验优化、AI 功能增强、多端协同...
+          </div>
+          <div class="tags">
+            <span class="tag">#会议</span>
+            <span class="tag">#产品</span>
+          </div>
+        </div>
+        
+        <div class="result-item">
+          <div class="title">
+            <span class="icon">📝</span>
+            竞品分析：Notion vs Obsidian
+          </div>
+          <div class="meta">
+            <span>2026-03-14</span>
+            <span class="dot"></span>
+            <span>调研笔记</span>
+          </div>
+          <div class="preview">
+            从<span class="highlight">产品设计</span>角度对比两款工具的优劣：Notion 更适合团队协作，Obsidian 在本地优先方面表现更好...
+          </div>
+          <div class="tags">
+            <span class="tag">#竞品分析</span>
+          </div>
+        </div>
+        
+        <div class="result-item">
+          <div class="title">
+            <span class="icon">📝</span>
+            UI 设计原则思考
+          </div>
+          <div class="meta">
+            <span>2026-03-12</span>
+            <span class="dot"></span>
+            <span>每日笔记</span>
+          </div>
+          <div class="preview">
+            好的<span class="highlight">产品设计</span>应该让用户感觉不到<span class="highlight">设计</span>的存在。简洁不等于简单，要在复杂功能中寻找优雅的平衡点...
+          </div>
+          <div class="tags">
+            <span class="tag">#设计</span>
+            <span class="tag">#思考</span>
+          </div>
+        </div>
+        
+        <div class="no-create-hint">
+          <span class="icon">ℹ️</span>
+          <span class="text">移动端搜索仅用于查找已有内容，不会产生新节点。如需创建搜索节点，请使用桌面端。</span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <a href="mobile-notes.html" class="tab-item">
+        <span class="icon">📓</span>
+        <span>笔记</span>
+      </a>
+      <a href="mobile-capture.html" class="tab-item capture-btn">
+        <div class="icon-wrapper">
+          <span class="icon">➕</span>
+        </div>
+        <span>捕获</span>
+      </a>
+      <a href="mobile-search.html" class="tab-item active">
+        <span class="icon">🔍</span>
+        <span>搜索</span>
+      </a>
+    </div>
+    
+    <!-- 节点详情弹窗（预览） -->
+    <div class="node-detail-modal" id="node-detail">
+      <div class="modal-header">
+        <span class="back-btn" onclick="closeModal()">←</span>
+        <h2>产品设计评审会议纪要</h2>
+        <span class="readonly-tag">👁 只读</span>
+      </div>
+      <div class="modal-content">
+        <div class="node-meta">
+          <span>📅 2026-03-15</span>
+          <span>·</span>
+          <span>📁 工作笔记本</span>
+        </div>
+        <div class="node-content">
+          讨论了 Q2 产品路线图，确定了三个核心设计方向：
+        </div>
+        <div class="node-children">
+          <div class="node-child">
+            <span class="bullet">•</span>
+            用户体验优化：简化核心操作流程
+          </div>
+          <div class="node-child">
+            <span class="bullet">•</span>
+            AI 功能增强：智能结构化、自然语言搜索
+          </div>
+          <div class="node-child">
+            <span class="bullet">•</span>
+            多端协同：移动端捕获 + 桌面端编辑
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="description-panel">
+    <h3>🔍 搜索功能设计</h3>
+    <ul>
+      <li>自然语言搜索：用口语化的方式描述</li>
+      <li>语义理解：复用搜索节点的查询引擎</li>
+      <li>结果高亮：关键词在预览中高亮显示</li>
+      <li>点击查看：进入节点详情（只读模式）</li>
+      <li>搜索示例：引导用户如何搜索</li>
+    </ul>
+    
+    <div class="divider"></div>
+    
+    <div class="important-note">
+      <strong>⚠️ 重要限制</strong>
+      <p>移动端搜索<strong>不产生新节点</strong>，仅用于查找已有内容。这是为了保持移动端的轻量属性。如需创建持久化的搜索节点，请使用桌面端。</p>
+    </div>
+    
+    <div class="divider"></div>
+    
+    <h3>🔄 技术实现</h3>
+    <ul>
+      <li>复用桌面端搜索节点能力</li>
+      <li>后端语义理解 + 向量检索</li>
+      <li>结果按相关度排序</li>
+      <li>支持标签、时间、笔记本筛选</li>
+    </ul>
+  </div>
+  
+  <script>
+    function closeModal() {
+      document.getElementById('node-detail').classList.remove('show');
+    }
+    
+    // 点击搜索结果显示详情（演示用）
+    document.querySelectorAll('.result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.getElementById('node-detail').classList.add('show');
+      });
+    });
+  </script>
+</body>
+</html>

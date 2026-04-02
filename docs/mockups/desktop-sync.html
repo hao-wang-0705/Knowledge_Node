@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多端数据同步 - Nexus</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      padding: 40px;
+      color: #e0e0e0;
+    }
+    
+    .back-link {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #667eea;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    
+    header h1 {
+      font-size: 36px;
+      color: white;
+      margin-bottom: 12px;
+    }
+    
+    header p {
+      color: #a0a0a0;
+      font-size: 16px;
+    }
+    
+    .sync-diagram {
+      background: #1e1e2e;
+      border-radius: 16px;
+      padding: 48px;
+      margin-bottom: 48px;
+    }
+    
+    .devices-row {
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start;
+      margin-bottom: 48px;
+    }
+    
+    .device {
+      text-align: center;
+    }
+    
+    .device-icon {
+      width: 120px;
+      height: 120px;
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      margin: 0 auto 16px;
+      position: relative;
+    }
+    
+    .device-icon.mobile {
+      background: linear-gradient(135deg, #a8edea, #fed6e3);
+    }
+    
+    .device-icon.desktop {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+    }
+    
+    .device-icon .sync-badge {
+      position: absolute;
+      bottom: -8px;
+      right: -8px;
+      width: 32px;
+      height: 32px;
+      background: #27ca40;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      border: 3px solid #1e1e2e;
+    }
+    
+    .device h3 {
+      font-size: 18px;
+      color: white;
+      margin-bottom: 4px;
+    }
+    
+    .device p {
+      font-size: 13px;
+      color: #888;
+    }
+    
+    .cloud-center {
+      text-align: center;
+      position: relative;
+    }
+    
+    .cloud-icon {
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2a2a3e, #3a3a4e);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      border: 3px solid #667eea;
+      position: relative;
+    }
+    
+    .cloud-icon .icon {
+      font-size: 48px;
+      margin-bottom: 8px;
+    }
+    
+    .cloud-icon .label {
+      font-size: 12px;
+      color: #888;
+    }
+    
+    /* 同步动画线 */
+    .sync-lines {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    
+    .sync-arrow {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 20px;
+      color: #667eea;
+      animation: pulse 2s infinite;
+    }
+    
+    .sync-arrow.left {
+      left: -80px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    
+    .sync-arrow.right {
+      right: -80px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+    
+    .cloud-center h3 {
+      font-size: 18px;
+      color: white;
+      margin-bottom: 4px;
+    }
+    
+    .cloud-center p {
+      font-size: 13px;
+      color: #888;
+    }
+    
+    .sync-rules {
+      background: #1e1e2e;
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 48px;
+    }
+    
+    .sync-rules h3 {
+      font-size: 20px;
+      color: white;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    
+    .rules-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .rules-table th,
+    .rules-table td {
+      padding: 16px;
+      text-align: left;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    
+    .rules-table th {
+      font-size: 13px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .rules-table td {
+      font-size: 14px;
+      color: #c0c0c0;
+    }
+    
+    .rules-table tr:last-child td {
+      border-bottom: none;
+    }
+    
+    .rules-table .scenario {
+      color: white;
+      font-weight: 500;
+    }
+    
+    .rules-table .behavior {
+      color: #a0b4ff;
+    }
+    
+    .rules-table .conflict {
+      color: #ffb74d;
+    }
+    
+    .sync-status {
+      background: #1e1e2e;
+      border-radius: 16px;
+      padding: 32px;
+    }
+    
+    .sync-status h3 {
+      font-size: 20px;
+      color: white;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    
+    .status-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    
+    .status-card {
+      background: #252535;
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+    }
+    
+    .status-card .icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+    }
+    
+    .status-card h4 {
+      font-size: 16px;
+      color: white;
+      margin-bottom: 8px;
+    }
+    
+    .status-card p {
+      font-size: 13px;
+      color: #888;
+      line-height: 1.5;
+    }
+    
+    .status-card .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 12px;
+    }
+    
+    .status-card .status-indicator.online {
+      background: rgba(39, 202, 64, 0.2);
+      color: #27ca40;
+    }
+    
+    .status-card .status-indicator.syncing {
+      background: rgba(255, 152, 0, 0.2);
+      color: #ffb74d;
+    }
+    
+    .status-card .status-indicator.offline {
+      background: rgba(255, 95, 86, 0.2);
+      color: #ff5f56;
+    }
+    
+    .status-indicator .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    
+    .status-indicator.syncing .dot {
+      animation: blink 1s infinite;
+    }
+    
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    
+    .timeline-demo {
+      margin-top: 48px;
+      background: #1e1e2e;
+      border-radius: 16px;
+      padding: 32px;
+    }
+    
+    .timeline-demo h3 {
+      font-size: 20px;
+      color: white;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    
+    .sync-timeline {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      position: relative;
+      padding: 20px 0;
+    }
+    
+    .sync-timeline::before {
+      content: '';
+      position: absolute;
+      top: 50px;
+      left: 10%;
+      right: 10%;
+      height: 3px;
+      background: linear-gradient(to right, #667eea, #764ba2, #667eea);
+    }
+    
+    .timeline-event {
+      flex: 1;
+      text-align: center;
+      position: relative;
+    }
+    
+    .timeline-event .dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #667eea;
+      margin: 0 auto 16px;
+      position: relative;
+      z-index: 1;
+    }
+    
+    .timeline-event .device-label {
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    
+    .timeline-event .action {
+      font-size: 13px;
+      color: #a0b4ff;
+      margin-bottom: 4px;
+    }
+    
+    .timeline-event .time {
+      font-size: 11px;
+      color: #666;
+    }
+    
+    .description-panel {
+      position: fixed;
+      right: 40px;
+      top: 100px;
+      width: 280px;
+      background: #1e1e2e;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    
+    .description-panel h3 {
+      font-size: 16px;
+      color: white;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .description-panel ul {
+      list-style: none;
+      font-size: 14px;
+      color: #a0a0a0;
+      line-height: 2;
+    }
+    
+    .description-panel ul li::before {
+      content: '✓';
+      color: #667eea;
+      margin-right: 8px;
+    }
+    
+    @media (max-width: 1200px) {
+      .description-panel {
+        display: none;
+      }
+    }
+    
+    @media (max-width: 768px) {
+      .devices-row {
+        flex-direction: column;
+        gap: 32px;
+      }
+      
+      .status-cards {
+        grid-template-columns: 1fr;
+      }
+      
+      .sync-timeline {
+        flex-direction: column;
+        gap: 24px;
+      }
+      
+      .sync-timeline::before {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-link">← 返回导航</a>
+  
+  <div class="container">
+    <header>
+      <h1>☁️ 多端数据同步</h1>
+      <p>实时同步、冲突处理、离线支持</p>
+    </header>
+    
+    <div class="sync-diagram">
+      <div class="devices-row">
+        <div class="device">
+          <div class="device-icon mobile">
+            📱
+            <div class="sync-badge">✓</div>
+          </div>
+          <h3>移动端</h3>
+          <p>多模态捕获器</p>
+        </div>
+        
+        <div class="cloud-center">
+          <div class="cloud-icon">
+            <div class="sync-lines">
+              <span class="sync-arrow left">← ←</span>
+              <span class="sync-arrow right">→ →</span>
+            </div>
+            <span class="icon">☁️</span>
+            <span class="label">Cloud Sync</span>
+          </div>
+          <h3>云端 Agent 引擎</h3>
+          <p>PostgreSQL + Prisma</p>
+        </div>
+        
+        <div class="device">
+          <div class="device-icon desktop">
+            💻
+            <div class="sync-badge">✓</div>
+          </div>
+          <h3>桌面端</h3>
+          <p>知识中枢脑</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="sync-rules">
+      <h3>同步规则</h3>
+      <table class="rules-table">
+        <thead>
+          <tr>
+            <th>场景</th>
+            <th>同步行为</th>
+            <th>冲突处理</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="scenario">移动端新建节点</td>
+            <td class="behavior">立即上传，不等待 ACK</td>
+            <td>-</td>
+          </tr>
+          <tr>
+            <td class="scenario">移动端修改节点</td>
+            <td class="behavior">乐观更新，后台同步</td>
+            <td class="conflict">以最新时间戳为准</td>
+          </tr>
+          <tr>
+            <td class="scenario">桌面端修改节点</td>
+            <td class="behavior">实时同步（WebSocket）</td>
+            <td class="conflict">以最新时间戳为准</td>
+          </tr>
+          <tr>
+            <td class="scenario">离线操作</td>
+            <td class="behavior">本地队列缓存</td>
+            <td class="conflict">联网后按时间顺序回放</td>
+          </tr>
+          <tr>
+            <td class="scenario">Agent 处理完成</td>
+            <td class="behavior">推送通知到所有端</td>
+            <td class="conflict">覆盖原内容（保留原文快照）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    
+    <div class="sync-status">
+      <h3>同步状态</h3>
+      <div class="status-cards">
+        <div class="status-card">
+          <div class="icon">📱</div>
+          <h4>移动端</h4>
+          <p>完整离线输入<br>本地队列缓存</p>
+          <div class="status-indicator online">
+            <span class="dot"></span>
+            <span>已连接</span>
+          </div>
+        </div>
+        
+        <div class="status-card">
+          <div class="icon">☁️</div>
+          <h4>云端服务</h4>
+          <p>实时同步引擎<br>Agent 处理队列</p>
+          <div class="status-indicator syncing">
+            <span class="dot"></span>
+            <span>处理中 (3)</span>
+          </div>
+        </div>
+        
+        <div class="status-card">
+          <div class="icon">💻</div>
+          <h4>桌面端</h4>
+          <p>短暂离线支持<br>超时提示重连</p>
+          <div class="status-indicator online">
+            <span class="dot"></span>
+            <span>已连接</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="timeline-demo">
+      <h3>同步时间线示例</h3>
+      <div class="sync-timeline">
+        <div class="timeline-event">
+          <div class="dot"></div>
+          <div class="device-label">📱</div>
+          <div class="action">语音输入闪记</div>
+          <div class="time">08:45:00</div>
+        </div>
+        
+        <div class="timeline-event">
+          <div class="dot"></div>
+          <div class="device-label">☁️</div>
+          <div class="action">Agent 智能解析</div>
+          <div class="time">08:45:03</div>
+        </div>
+        
+        <div class="timeline-event">
+          <div class="dot"></div>
+          <div class="device-label">☁️</div>
+          <div class="action">结构化完成</div>
+          <div class="time">08:45:08</div>
+        </div>
+        
+        <div class="timeline-event">
+          <div class="dot"></div>
+          <div class="device-label">💻</div>
+          <div class="action">收到推送通知</div>
+          <div class="time">08:45:09</div>
+        </div>
+        
+        <div class="timeline-event">
+          <div class="dot"></div>
+          <div class="device-label">💻</div>
+          <div class="action">查看结构化结果</div>
+          <div class="time">14:00:00</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="description-panel">
+    <h3>☁️ 数据同步</h3>
+    <ul>
+      <li>实时 WebSocket 同步</li>
+      <li>乐观更新策略</li>
+      <li>时间戳冲突处理</li>
+      <li>离线队列支持</li>
+      <li>Agent 推送通知</li>
+      <li>原文快照保留</li>
+    </ul>
+  </div>
+</body>
+</html>

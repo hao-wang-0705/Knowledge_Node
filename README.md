@@ -1,6 +1,6 @@
-# Nexus
+# Nexus v4.1
 
-Nexus 是 AI 原生的节点式知识操作系统：以树形节点组织内容，用超级标签（Supertag）赋予节点结构化属性，支持日历/每日笔记与 AI 增强的捕获、搜索与聚合。
+Nexus 是 AI 原生的节点式知识操作系统：以树形节点组织内容，用超级标签（Supertag）赋予节点结构化属性，支持日历/每日笔记、搜索节点、固定视图仪表盘与 AI 增强的捕获、搜索与聚合。
 
 ## 技术栈
 
@@ -112,12 +112,14 @@ Knowledge_Node/
 ├── knowledge-node-nextjs/    # 前端 (Next.js)
 │   ├── src/
 │   │   ├── app/              # 路由与 API Routes
-│   │   ├── components/       # React 组件
-│   │   ├── hooks/            # Hooks
-│   │   ├── stores/           # Zustand
-│   │   ├── services/        # AI 与 API 客户端
-│   │   ├── types/
-│   │   └── utils/
+│   │   ├── components/       # React 组件（按领域分组）
+│   │   ├── hooks/            # 自定义 Hooks
+│   │   ├── stores/           # Zustand 状态管理
+│   │   ├── services/         # AI / Agent / API 客户端
+│   │   ├── lib/              # 工具库
+│   │   ├── schemas/          # Zod 验证 Schema
+│   │   ├── types/            # TypeScript 类型定义
+│   │   └── utils/            # 工具函数
 │   ├── Dockerfile
 │   └── package.json
 │
@@ -135,8 +137,9 @@ Knowledge_Node/
 │   ├── Dockerfile
 │   └── package.json
 │
+├── UI_New/                   # Figma 导出的布局/视觉参考
 ├── scripts/                  # 仓库级脚本（见 scripts/README.md）
-├── docs/                     # ADR、产品说明等
+├── docs/                     # ADR、PRD、设计稿 Mockups 等
 ├── docker-compose.yml
 └── README.md
 ```
@@ -157,11 +160,14 @@ Knowledge_Node/
 ## 核心功能
 
 - **树形节点**：无限层级、拖拽缩进、折叠展开、引用与反向引用。
-- **超级标签（Supertag）**：为节点绑定类型与结构化字段（文本、数字、日期、引用等），支持默认模版。
+- **超级标签（Supertag）**：为节点绑定类型与结构化字段（文本、数字、日期、引用等），支持默认模版与视图配置。
 - **日历与每日笔记**：按年/月/周/日自动建树，快速进入当日笔记。
-- **搜索节点**：将查询条件存为节点，展开时实时搜索；支持自然语言解析。
-- **AI 能力**：智能捕获、自动结构化、聚合摘要、图像/语音识别等，由后端 Agent 与前端 API 协同完成。
+- **搜索节点**：将查询条件存为节点，展开时实时搜索；支持自然语言解析与条件构建器。
+- **固定视图（Pinned View）**：超级标签聚合仪表盘，按标签类型汇总展示节点与 Widget。
+- **超级标签聚焦**：按标签维度聚焦浏览节点，支持字段标签展示与快速捕获。
+- **AI 能力**：智能捕获、自动结构化、聚合摘要、AI 字段处理、图像/语音识别等，由后端 Agent 模块统一调度。
 - **边关系**：节点间 CONTAINS、MENTION 等关系，用于图谱与「被提及」等能力。
+- **状态机**：节点状态流转管理（如任务进度）。
 
 
 ## 许可证

@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>笔记 - Nexus Mobile</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 20px;
+    }
+    
+    .back-link {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #667eea;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .phone-frame {
+      width: 375px;
+      height: 812px;
+      background: #f9f9f9;
+      border-radius: 40px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .status-bar {
+      height: 44px;
+      background: #f9f9f9;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 24px;
+      color: #333;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    /* 顶部导航区域 */
+    .top-nav {
+      background: #f9f9f9;
+      padding: 8px 16px 16px;
+    }
+    
+    .search-bar {
+      display: flex;
+      align-items: center;
+      background: white;
+      border: 1px solid #e5e5e5;
+      border-radius: 10px;
+      padding: 10px 14px;
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    
+    .search-bar .icon {
+      color: #888;
+      font-size: 16px;
+    }
+    
+    .search-bar input {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 14px;
+      color: #333;
+      background: transparent;
+    }
+    
+    .search-bar input::placeholder {
+      color: #aaa;
+    }
+    
+    /* 快捷入口 */
+    .quick-nav {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    
+    .quick-nav::-webkit-scrollbar {
+      display: none;
+    }
+    
+    .quick-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: white;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #555;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .quick-item.active {
+      background: #111;
+      color: white;
+      border-color: #111;
+    }
+    
+    .quick-item:hover:not(.active) {
+      background: #f5f5f5;
+    }
+    
+    .quick-item .icon {
+      font-size: 14px;
+    }
+    
+    /* 主内容区 */
+    .main-content {
+      flex: 1;
+      background: white;
+      margin: 0 8px;
+      border-radius: 16px 16px 0 0;
+      border: 1px solid #e5e5e5;
+      border-bottom: none;
+      overflow: hidden;
+      height: calc(100% - 170px);
+      display: flex;
+      flex-direction: column;
+    }
+    
+    /* 日期头部 */
+    .date-header {
+      padding: 20px 20px 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .date-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    
+    .date-nav-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      background: white;
+      color: #666;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    
+    .date-nav-btn:hover {
+      background: #f5f5f5;
+    }
+    
+    .date-today-btn {
+      padding: 0 12px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      background: white;
+      color: #333;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    
+    .date-today-btn:hover {
+      background: #f5f5f5;
+    }
+    
+    .date-calendar-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #3b82f6;
+      border-radius: 6px;
+      background: #eff6ff;
+      color: #3b82f6;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    .date-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #111;
+      letter-spacing: -0.5px;
+    }
+    
+    .readonly-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(102, 126, 234, 0.08);
+      color: #667eea;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      margin-left: 12px;
+      vertical-align: middle;
+    }
+    
+    /* 节点列表 */
+    .note-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 12px;
+      padding-bottom: 100px;
+    }
+    
+    .note-list::-webkit-scrollbar {
+      width: 4px;
+    }
+    
+    .note-list::-webkit-scrollbar-thumb {
+      background: #ddd;
+      border-radius: 2px;
+    }
+    
+    /* 节点样式 - 大纲式 */
+    .note-node {
+      display: flex;
+      align-items: flex-start;
+      padding: 10px 8px;
+      margin-bottom: 2px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    
+    .note-node:hover {
+      background: #f8f9fa;
+    }
+    
+    .note-node:active {
+      background: #f0f1f3;
+    }
+    
+    /* Bullet point */
+    .node-bullet {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #ccc;
+      margin-top: 7px;
+      margin-right: 12px;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    
+    .note-node:hover .node-bullet {
+      background: #999;
+    }
+    
+    /* 任务类型的 bullet */
+    .node-bullet.task {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      background: white;
+      border: 1.5px solid #ccc;
+      margin-top: 3px;
+    }
+    
+    .note-node:hover .node-bullet.task {
+      border-color: #999;
+    }
+    
+    .node-bullet.task.done {
+      background: #10b981;
+      border-color: #10b981;
+      position: relative;
+    }
+    
+    .node-bullet.task.done::after {
+      content: '✓';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 10px;
+      font-weight: bold;
+    }
+    
+    .node-content {
+      flex: 1;
+      min-width: 0;
+    }
+    
+    .node-text {
+      font-size: 14px;
+      color: #333;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+    
+    .node-text.done {
+      text-decoration: line-through;
+      color: #999;
+    }
+    
+    .node-text strong {
+      font-weight: 600;
+      color: #111;
+    }
+    
+    /* 标签 */
+    .node-tags {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+    
+    .node-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    
+    .node-tag.pink {
+      background: #fdf2f8;
+      color: #db2777;
+      border: 1px solid #fbcfe8;
+    }
+    
+    .node-tag.blue {
+      background: #eff6ff;
+      color: #3b82f6;
+      border: 1px solid #bfdbfe;
+    }
+    
+    .node-tag.green {
+      background: #f0fdf4;
+      color: #16a34a;
+      border: 1px solid #bbf7d0;
+    }
+    
+    .node-tag.yellow {
+      background: #fefce8;
+      color: #ca8a04;
+      border: 1px solid #fef08a;
+    }
+    
+    .node-tag.purple {
+      background: #faf5ff;
+      color: #9333ea;
+      border: 1px solid #e9d5ff;
+    }
+    
+    .node-tag.gray {
+      background: #f9fafb;
+      color: #6b7280;
+      border: 1px solid #e5e7eb;
+    }
+    
+    /* 时间戳 */
+    .node-time {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: 4px;
+    }
+    
+    /* 子节点缩进 */
+    .note-node.child {
+      margin-left: 24px;
+    }
+    
+    .note-node.child .node-bullet {
+      width: 5px;
+      height: 5px;
+      background: #ddd;
+    }
+    
+    /* 展开/收起指示器 */
+    .node-expand {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 4px;
+      margin-top: 2px;
+      color: #999;
+      font-size: 10px;
+      cursor: pointer;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    
+    .node-expand:hover {
+      background: #f0f0f0;
+      color: #666;
+    }
+    
+    /* 分隔线 */
+    .note-divider {
+      height: 1px;
+      background: #f0f0f0;
+      margin: 12px 8px;
+    }
+    
+    /* 日期分组标题 */
+    .date-group {
+      padding: 8px 8px 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    /* 底部导航栏 */
+    .tab-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 83px;
+      background: white;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start;
+      padding-top: 10px;
+    }
+    
+    .tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: #999;
+      text-decoration: none;
+      min-width: 60px;
+    }
+    
+    .tab-item.active {
+      color: #667eea;
+    }
+    
+    .tab-item .icon {
+      font-size: 24px;
+    }
+    
+    /* 捕获按钮特殊样式 */
+    .tab-item.capture-btn {
+      position: relative;
+    }
+    
+    .tab-item.capture-btn .icon-wrapper {
+      width: 50px;
+      height: 50px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: -20px;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+      animation: pulse-capture 2s infinite;
+    }
+    
+    .tab-item.capture-btn .icon {
+      color: white;
+      font-size: 22px;
+    }
+    
+    @keyframes pulse-capture {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+      }
+      50% {
+        transform: scale(1.05);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+      }
+    }
+    
+    .description-panel {
+      position: fixed;
+      right: 20px;
+      top: 100px;
+      width: 300px;
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    
+    .description-panel h3 {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .description-panel ul {
+      list-style: none;
+      font-size: 14px;
+      color: #666;
+      line-height: 2;
+    }
+    
+    .description-panel ul li::before {
+      content: '✓';
+      color: #667eea;
+      margin-right: 8px;
+    }
+    
+    .description-panel .divider {
+      height: 1px;
+      background: #f0f0f0;
+      margin: 16px 0;
+    }
+    
+    .description-panel .note {
+      font-size: 12px;
+      color: #999;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+    
+    .description-panel .note strong {
+      color: #667eea;
+    }
+    
+    @media (max-width: 900px) {
+      .description-panel {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-link">← 返回导航</a>
+  
+  <div class="phone-frame">
+    <div class="status-bar">
+      <span class="time">9:41</span>
+      <div class="icons">📶 🔋</div>
+    </div>
+    
+    <!-- 顶部导航区域 -->
+    <div class="top-nav">
+      <div class="search-bar">
+        <span class="icon">🔍</span>
+        <input type="text" placeholder="搜索笔记...">
+      </div>
+      
+      <div class="quick-nav">
+        <div class="quick-item active">
+          <span class="icon">📅</span>
+          <span>今日笔记</span>
+        </div>
+        <div class="quick-item">
+          <span class="icon">#</span>
+          <span>超级标签</span>
+        </div>
+        <div class="quick-item">
+          <span class="icon">📚</span>
+          <span>历史笔记</span>
+        </div>
+        <div class="quick-item">
+          <span class="icon">✨</span>
+          <span>AI Chat</span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 主内容区 -->
+    <div class="main-content">
+      <!-- 日期头部 -->
+      <div class="date-header">
+        <div class="date-nav">
+          <button class="date-nav-btn">‹</button>
+          <button class="date-nav-btn">›</button>
+          <button class="date-today-btn">Today</button>
+          <button class="date-calendar-btn">📅</button>
+        </div>
+        <h1 class="date-title">
+          Today, Fri, 20 Mar
+          <span class="readonly-badge">👁 只读</span>
+        </h1>
+      </div>
+      
+      <!-- 节点列表 -->
+      <div class="note-list">
+        <!-- 普通笔记节点 -->
+        <div class="note-node">
+          <span class="node-expand">▶</span>
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text"><strong>今天下午和产品团队对齐 Q2 OKR</strong>，需要准备竞品分析材料</div>
+            <div class="node-tags">
+              <span class="node-tag pink">#Meeting</span>
+              <span class="node-tag purple">✨ AI结构化</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 子节点 -->
+        <div class="note-node child">
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text">竞品分析范围：功能对比、用户体验、商业模式</div>
+          </div>
+        </div>
+        
+        <div class="note-node child">
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text">@张三 负责技术架构部分</div>
+            <div class="node-tags">
+              <span class="node-tag blue">@Person</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="note-divider"></div>
+        
+        <!-- 任务节点 -->
+        <div class="note-node">
+          <div class="node-bullet task"></div>
+          <div class="node-content">
+            <div class="node-text">PRD 文档提交评审</div>
+            <div class="node-tags">
+              <span class="node-tag yellow">#Task</span>
+            </div>
+            <div class="node-time">10:30</div>
+          </div>
+        </div>
+        
+        <!-- 已完成任务 -->
+        <div class="note-node">
+          <div class="node-bullet task done"></div>
+          <div class="node-content">
+            <div class="node-text done">整理会议白板内容并归档</div>
+            <div class="node-tags">
+              <span class="node-tag gray">#Done</span>
+            </div>
+            <div class="node-time">14:20</div>
+          </div>
+        </div>
+        
+        <div class="note-divider"></div>
+        
+        <!-- 普通笔记 -->
+        <div class="note-node">
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text">下午茶想法：可以做一个 AI 驱动的智能日程助手，自动分析会议纪要并生成待办</div>
+            <div class="node-tags">
+              <span class="node-tag green">#Idea</span>
+            </div>
+            <div class="node-time">15:45</div>
+          </div>
+        </div>
+        
+        <div class="note-node">
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text">用户反馈：搜索结果不够精准，需要优化语义理解</div>
+            <div class="node-tags">
+              <span class="node-tag pink">#Feedback</span>
+            </div>
+            <div class="node-time">16:30</div>
+          </div>
+        </div>
+        
+        <!-- 带展开的节点 -->
+        <div class="note-node">
+          <span class="node-expand">▼</span>
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text"><strong>Weekly Review 要点</strong></div>
+            <div class="node-tags">
+              <span class="node-tag yellow">#Weekly</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="note-node child">
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text">本周完成了 3 个核心功能迭代</div>
+          </div>
+        </div>
+        
+        <div class="note-node child">
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text">下周重点：移动端 MVP 上线</div>
+          </div>
+        </div>
+        
+        <div class="note-node child">
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text">风险项：后端 API 性能需要优化</div>
+            <div class="node-tags">
+              <span class="node-tag pink">#Risk</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="note-divider"></div>
+        
+        <!-- 更多笔记 -->
+        <div class="note-node">
+          <div class="node-bullet"></div>
+          <div class="node-content">
+            <div class="node-text">晚上复盘：今天效率不错，完成了计划的 80%</div>
+            <div class="node-time">18:00</div>
+          </div>
+        </div>
+        
+        <div class="note-node">
+          <div class="node-bullet task"></div>
+          <div class="node-content">
+            <div class="node-text">明天跟进 UI 设计稿</div>
+            <div class="node-tags">
+              <span class="node-tag yellow">#Task</span>
+            </div>
+            <div class="node-time">18:30</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <a href="mobile-notes.html" class="tab-item active">
+        <span class="icon">📓</span>
+        <span>笔记</span>
+      </a>
+      <a href="mobile-capture.html" class="tab-item capture-btn">
+        <div class="icon-wrapper">
+          <span class="icon">➕</span>
+        </div>
+        <span>捕获</span>
+      </a>
+      <a href="mobile-search.html" class="tab-item">
+        <span class="icon">🔍</span>
+        <span>搜索</span>
+      </a>
+    </div>
+  </div>
+  
+  <div class="description-panel">
+    <h3>📓 笔记页设计</h3>
+    <ul>
+      <li>节点式大纲展示，与桌面端一致</li>
+      <li>Bullet point 区分笔记类型</li>
+      <li>支持任务节点（checkbox 样式）</li>
+      <li>支持子节点层级展示</li>
+      <li>彩色标签系统（#Tag）</li>
+      <li>日期导航栏快速切换</li>
+    </ul>
+    
+    <div class="divider"></div>
+    
+    <h3>🎯 交互特点</h3>
+    <ul>
+      <li>点击节点可查看详情</li>
+      <li>展开/收起子节点</li>
+      <li>顶部快捷入口切换视图</li>
+      <li>搜索栏快速查找</li>
+    </ul>
+    
+    <div class="note">
+      <strong>⚠️ 一期限制：</strong>移动端笔记页为只读模式，编辑在桌面端进行。不再显示捕获方式来源。
+    </div>
+  </div>
+</body>
+</html>

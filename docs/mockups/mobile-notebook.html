@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>笔记本 - Nexus Mobile</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 20px;
+    }
+    
+    .back-link {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #667eea;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .phone-frame {
+      width: 375px;
+      height: 812px;
+      background: white;
+      border-radius: 40px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .status-bar {
+      height: 44px;
+      background: linear-gradient(135deg, #4ecdc4, #44a08d);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 24px;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #4ecdc4, #44a08d);
+      padding: 12px 20px 24px;
+      color: white;
+    }
+    
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    
+    .header p {
+      font-size: 14px;
+      opacity: 0.85;
+      margin-top: 4px;
+    }
+    
+    .search-bar {
+      margin: 0 20px;
+      margin-top: -20px;
+      background: white;
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    
+    .search-bar input {
+      flex: 1;
+      border: none;
+      font-size: 15px;
+      outline: none;
+    }
+    
+    .search-bar .icon {
+      color: #999;
+    }
+    
+    .main-content {
+      flex: 1;
+      background: #f8f9fa;
+      padding: 24px 20px;
+      padding-bottom: 100px;
+      overflow-y: auto;
+      height: calc(100% - 180px);
+    }
+    
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    
+    .section-header h3 {
+      font-size: 16px;
+      color: #333;
+    }
+    
+    .notebook-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    
+    .notebook-card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .notebook-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    }
+    
+    .notebook-card .icon {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+    
+    .notebook-card h4 {
+      font-size: 14px;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    
+    .notebook-card .meta {
+      font-size: 12px;
+      color: #999;
+    }
+    
+    .notebook-list {
+      margin-top: 24px;
+    }
+    
+    .notebook-item {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    
+    .notebook-item .icon {
+      font-size: 28px;
+    }
+    
+    .notebook-item .info {
+      flex: 1;
+    }
+    
+    .notebook-item .info h4 {
+      font-size: 15px;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    
+    .notebook-item .info .meta {
+      font-size: 12px;
+      color: #999;
+    }
+    
+    .notebook-item .arrow {
+      color: #ccc;
+      font-size: 18px;
+    }
+    
+    /* 节点详情视图样式 */
+    .node-detail-view {
+      display: none;
+    }
+    
+    .node-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: white;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .node-header .back {
+      font-size: 20px;
+      cursor: pointer;
+    }
+    
+    .node-header h2 {
+      font-size: 18px;
+      color: #333;
+    }
+    
+    .node-tree {
+      padding: 16px 20px;
+    }
+    
+    .tree-node {
+      margin-bottom: 8px;
+    }
+    
+    .tree-node-content {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    
+    .tree-node-content:hover {
+      background: #f8f9fa;
+    }
+    
+    .tree-node .toggle {
+      color: #999;
+      font-size: 12px;
+      width: 20px;
+    }
+    
+    .tree-node .text {
+      flex: 1;
+      font-size: 14px;
+      color: #333;
+      line-height: 1.5;
+    }
+    
+    .tree-children {
+      margin-left: 28px;
+      border-left: 2px solid #e0e0e0;
+      padding-left: 12px;
+    }
+    
+    .tab-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 83px;
+      background: white;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start;
+      padding-top: 12px;
+    }
+    
+    .tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: #999;
+      text-decoration: none;
+    }
+    
+    .tab-item.active {
+      color: #4ecdc4;
+    }
+    
+    .tab-item .icon {
+      font-size: 24px;
+    }
+    
+    .description-panel {
+      position: fixed;
+      right: 20px;
+      top: 100px;
+      width: 280px;
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    
+    .description-panel h3 {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .description-panel ul {
+      list-style: none;
+      font-size: 14px;
+      color: #666;
+      line-height: 2;
+    }
+    
+    .description-panel ul li::before {
+      content: '✓';
+      color: #4ecdc4;
+      margin-right: 8px;
+    }
+    
+    @media (max-width: 768px) {
+      .description-panel {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-link">← 返回导航</a>
+  
+  <div class="phone-frame">
+    <div class="status-bar">
+      <span class="time">9:41</span>
+      <div class="icons">📶 🔋</div>
+    </div>
+    
+    <div class="header">
+      <h1>📚 笔记本</h1>
+      <p>查阅和浏览你的知识库</p>
+    </div>
+    
+    <div class="search-bar">
+      <span class="icon">🔍</span>
+      <input type="text" placeholder="搜索笔记内容...">
+    </div>
+    
+    <div class="main-content">
+      <div class="section-header">
+        <h3>常用笔记本</h3>
+      </div>
+      
+      <div class="notebook-grid">
+        <div class="notebook-card">
+          <div class="icon">💼</div>
+          <h4>工作日志</h4>
+          <span class="meta">128 条 · 今天更新</span>
+        </div>
+        <div class="notebook-card">
+          <div class="icon">💡</div>
+          <h4>产品想法</h4>
+          <span class="meta">56 条 · 昨天更新</span>
+        </div>
+        <div class="notebook-card">
+          <div class="icon">📖</div>
+          <h4>读书笔记</h4>
+          <span class="meta">89 条 · 3 天前</span>
+        </div>
+        <div class="notebook-card">
+          <div class="icon">🎯</div>
+          <h4>Q2 OKR</h4>
+          <span class="meta">34 条 · 1 周前</span>
+        </div>
+      </div>
+      
+      <div class="notebook-list">
+        <div class="section-header">
+          <h3>全部笔记本</h3>
+        </div>
+        
+        <div class="notebook-item">
+          <span class="icon">🏠</span>
+          <div class="info">
+            <h4>生活记录</h4>
+            <span class="meta">45 条 · 上周更新</span>
+          </div>
+          <span class="arrow">›</span>
+        </div>
+        
+        <div class="notebook-item">
+          <span class="icon">🎨</span>
+          <div class="info">
+            <h4>设计灵感</h4>
+            <span class="meta">23 条 · 2 周前</span>
+          </div>
+          <span class="arrow">›</span>
+        </div>
+        
+        <div class="notebook-item">
+          <span class="icon">🔧</span>
+          <div class="info">
+            <h4>技术笔记</h4>
+            <span class="meta">67 条 · 3 天前</span>
+          </div>
+          <span class="arrow">›</span>
+        </div>
+        
+        <div class="notebook-item">
+          <span class="icon">✈️</span>
+          <div class="info">
+            <h4>旅行计划</h4>
+            <span class="meta">12 条 · 1 个月前</span>
+          </div>
+          <span class="arrow">›</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="tab-bar">
+      <a href="mobile-flash-note.html" class="tab-item">
+        <span class="icon">📝</span>
+        <span>闪记</span>
+      </a>
+      <a href="mobile-daily-note.html" class="tab-item">
+        <span class="icon">📅</span>
+        <span>每日</span>
+      </a>
+      <a href="mobile-notebook.html" class="tab-item active">
+        <span class="icon">📚</span>
+        <span>笔记本</span>
+      </a>
+      <a href="mobile-ai-command.html" class="tab-item">
+        <span class="icon">🤖</span>
+        <span>AI 指令</span>
+      </a>
+    </div>
+  </div>
+  
+  <div class="description-panel">
+    <h3>📚 内容查阅</h3>
+    <ul>
+      <li>笔记本列表展示</li>
+      <li>只读模式浏览</li>
+      <li>树形结构展开</li>
+      <li>关键词搜索</li>
+      <li>支持原文/结构化切换</li>
+    </ul>
+  </div>
+</body>
+</html>

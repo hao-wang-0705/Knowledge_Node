@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>桌面端主界面 - Nexus Desktop</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f0f0;
+      min-height: 100vh;
+      padding: 40px;
+      -webkit-font-smoothing: antialiased;
+    }
+    
+    .back-link {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #3b82f6;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      z-index: 100;
+    }
+    
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    
+    header h1 {
+      font-size: 28px;
+      color: #111;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    
+    header p {
+      color: #888;
+      font-size: 14px;
+    }
+    
+    /* 桌面窗口 */
+    .desktop-frame {
+      background: #f9f9f9;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+      max-width: 1200px;
+      margin: 0 auto;
+      border: 1px solid #e5e5e5;
+    }
+    
+    /* 顶部栏 */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      height: 44px;
+      background: #f9f9f9;
+      border-bottom: 1px solid transparent;
+    }
+    
+    .top-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    
+    .mac-controls {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .mac-btn {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.1);
+    }
+    
+    .mac-btn.red { background: #ff5f56; }
+    .mac-btn.yellow { background: #ffbd2e; }
+    .mac-btn.green { background: #27c93f; }
+    
+    .top-bar-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      color: #666;
+      font-size: 13px;
+    }
+    
+    .top-bar-right .icon-btn {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    
+    .top-bar-right .icon-btn:hover {
+      color: #111;
+    }
+    
+    .storage-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #666;
+    }
+    
+    .storage-badge span {
+      font-weight: 500;
+    }
+    
+    /* 主布局 */
+    .app-layout {
+      display: flex;
+      height: 600px;
+    }
+    
+    /* 侧边栏 */
+    .sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      background: #f9f9f9;
+      border-right: 1px solid rgba(229, 229, 229, 0.5);
+      padding: 8px 0;
+      display: flex;
+      flex-direction: column;
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .sidebar-nav {
+      padding: 0 12px;
+      margin-top: 8px;
+    }
+    
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      color: #666;
+    }
+    
+    .sidebar-item:hover {
+      background: rgba(0,0,0,0.05);
+      color: #111;
+    }
+    
+    .sidebar-item.active {
+      background: rgba(0,0,0,0.05);
+      color: #111;
+      font-weight: 500;
+    }
+    
+    .sidebar-item .icon {
+      width: 15px;
+      height: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    /* 新建笔记按钮 */
+    .new-note-btn {
+      margin: 16px 12px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: white;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      color: #666;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    
+    .new-note-btn:hover {
+      border-color: #d5d5d5;
+      color: #111;
+    }
+    
+    /* 聚焦区域 */
+    .sidebar-section {
+      margin-top: 32px;
+      padding: 0 12px;
+    }
+    
+    .sidebar-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #888;
+      padding: 0 8px;
+      margin-bottom: 8px;
+    }
+    
+    .tag-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      color: #666;
+    }
+    
+    .tag-item:hover {
+      background: rgba(0,0,0,0.05);
+      color: #111;
+    }
+    
+    .tag-icon {
+      width: 14px;
+      height: 14px;
+      font-weight: 700;
+    }
+    
+    .tag-icon.green { color: #22c55e; }
+    .tag-icon.purple { color: #a855f7; }
+    .tag-icon.yellow { color: #eab308; }
+    .tag-icon.blue { color: #3b82f6; }
+    
+    /* 工作空间 */
+    .workspace-section {
+      margin-top: 32px;
+      padding: 0 12px;
+    }
+    
+    .workspace-user {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    
+    .workspace-user:hover {
+      background: rgba(0,0,0,0.05);
+    }
+    
+    .user-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #22c55e, #3b82f6);
+      overflow: hidden;
+    }
+    
+    .user-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.8;
+      mix-blend-mode: overlay;
+    }
+    
+    .user-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .workspace-notebooks {
+      margin-left: 8px;
+      margin-top: 4px;
+    }
+    
+    .notebook-item {
+      padding: 4px 8px;
+      font-size: 13px;
+      color: #666;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    
+    .notebook-item:hover {
+      background: rgba(0,0,0,0.05);
+      color: #111;
+    }
+    
+    /* 主内容区 */
+    .main-content {
+      flex: 1;
+      background: #f9f9f9;
+      padding: 4px 4px 4px 4px;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .content-card {
+      flex: 1;
+      background: white;
+      border-radius: 12px;
+      border: 1px solid #e5e5e5;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.02);
+      display: flex;
+      overflow: hidden;
+    }
+    
+    .content-scroll {
+      flex: 1;
+      padding: 40px 80px;
+      overflow-y: auto;
+      color: #555;
+    }
+    
+    /* 面包屑 */
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+    }
+    
+    .breadcrumb-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #888;
+    }
+    
+    .breadcrumb-btn {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    .breadcrumb-btn:hover {
+      background: #f5f5f5;
+    }
+    
+    .breadcrumb-path {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .breadcrumb-avatar {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #22c55e, #3b82f6);
+    }
+    
+    .breadcrumb-sep {
+      color: #ccc;
+    }
+    
+    .breadcrumb-link {
+      color: #666;
+      padding: 4px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    .breadcrumb-link:hover {
+      background: #f5f5f5;
+      color: #111;
+    }
+    
+    /* 标题 */
+    .page-title {
+      font-size: 34px;
+      font-weight: 700;
+      color: #111;
+      letter-spacing: -0.5px;
+      margin-bottom: 16px;
+    }
+    
+    /* 工具栏 */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin-bottom: 32px;
+    }
+    
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      background: white;
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      padding: 2px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    
+    .toolbar-btn {
+      width: 28px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #888;
+      font-size: 12px;
+    }
+    
+    .toolbar-btn:hover {
+      background: #f5f5f5;
+    }
+    
+    .toolbar-text-btn {
+      padding: 0 10px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #333;
+      font-weight: 500;
+      font-size: 13px;
+    }
+    
+    .toolbar-text-btn:hover {
+      background: #f5f5f5;
+    }
+    
+    .toolbar-divider {
+      width: 1px;
+      height: 12px;
+      background: #e5e5e5;
+      margin: 0 4px;
+    }
+    
+    .toolbar-calendar {
+      width: 28px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      background: #eff6ff;
+      color: #3b82f6;
+      border: 1px solid #bfdbfe;
+      margin-left: 2px;
+    }
+    
+    /* 大纲节点 */
+    .outline-container {
+      margin-top: 24px;
+    }
+    
+    .outline-node {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 4px 0;
+      cursor: text;
+    }
+    
+    .outline-node:hover .node-bullet {
+      background: #666;
+    }
+    
+    .node-bullet {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #ccc;
+      margin-top: 8px;
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    
+    .node-content {
+      flex: 1;
+      font-size: 15px;
+      line-height: 1.6;
+      color: #111;
+    }
+    
+    .node-content.bold {
+      font-weight: 600;
+    }
+    
+    .node-children {
+      margin-left: 18px;
+      padding-left: 12px;
+      border-left: 1px solid #eee;
+    }
+    
+    .node-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-left: 8px;
+    }
+    
+    .node-tag.pink {
+      background: #fdf2f8;
+      color: #db2777;
+      border: 1px solid #fbcfe8;
+    }
+    
+    .node-tag.blue {
+      background: #eff6ff;
+      color: #3b82f6;
+      border: 1px solid #bfdbfe;
+    }
+    
+    .node-tag.green {
+      background: #f0fdf4;
+      color: #16a34a;
+      border: 1px solid #bbf7d0;
+    }
+    
+    .node-tag.yellow {
+      background: #fefce8;
+      color: #ca8a04;
+      border: 1px solid #fef08a;
+    }
+    
+    .node-tag.purple {
+      background: #faf5ff;
+      color: #9333ea;
+      border: 1px solid #e9d5ff;
+    }
+    
+    /* 任务节点 */
+    .task-checkbox {
+      width: 14px;
+      height: 14px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 3px;
+      margin-top: 4px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    
+    .task-checkbox:hover {
+      border-color: #9ca3af;
+    }
+    
+    .task-checkbox.checked {
+      background: #3b82f6;
+      border-color: #3b82f6;
+      position: relative;
+    }
+    
+    .task-checkbox.checked::after {
+      content: '✓';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 10px;
+    }
+    
+    /* 右侧任务面板 */
+    .right-panel {
+      width: 320px;
+      padding: 32px 24px;
+      flex-shrink: 0;
+    }
+    
+    .tasks-widget {
+      background: white;
+      border: 1px solid #e5e5e5;
+      border-radius: 10px;
+      padding: 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+    }
+    
+    .tasks-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    
+    .tasks-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #111;
+    }
+    
+    .tasks-add {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #888;
+    }
+    
+    .tasks-add:hover {
+      background: #f5f5f5;
+      color: #111;
+    }
+    
+    .task-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+    }
+    
+    .task-target {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #db2777;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.9;
+    }
+    
+    .task-target-inner {
+      width: 6px;
+      height: 6px;
+      background: #db2777;
+      border-radius: 50%;
+    }
+    
+    .task-text {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+      letter-spacing: -0.2px;
+    }
+    
+    .task-tag {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fdf2f8;
+      color: #db2777;
+      border: 1px solid #fbcfe8;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    
+    /* 说明面板 */
+    .description-panel {
+      position: fixed;
+      right: 40px;
+      bottom: 40px;
+      width: 280px;
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      border: 1px solid #e5e5e5;
+    }
+    
+    .description-panel h3 {
+      font-size: 16px;
+      color: #111;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+    
+    .description-panel ul {
+      list-style: none;
+      font-size: 14px;
+      color: #666;
+      line-height: 2;
+    }
+    
+    .description-panel ul li::before {
+      content: '✓';
+      color: #22c55e;
+      margin-right: 8px;
+    }
+    
+    /* SVG Icons */
+    .svg-icon {
+      width: 15px;
+      height: 15px;
+    }
+    
+    @media (max-width: 1200px) {
+      .description-panel {
+        display: none;
+      }
+      
+      .right-panel {
+        display: none;
+      }
+      
+      .content-scroll {
+        padding: 40px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-link">← 返回导航</a>
+  
+  <header>
+    <h1>💻 桌面端主界面</h1>
+    <p>严格按照 UI_New 设计规范实现</p>
+  </header>
+  
+  <div class="desktop-frame">
+    <!-- 顶部栏 -->
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="mac-controls">
+          <div class="mac-btn red"></div>
+          <div class="mac-btn yellow"></div>
+          <div class="mac-btn green"></div>
+        </div>
+      </div>
+      <div class="top-bar-right">
+        <div class="icon-btn" title="帮助">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <path d="M12 17h.01"/>
+          </svg>
+        </div>
+        <div class="icon-btn" title="快捷键">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h8"/>
+          </svg>
+        </div>
+        <div class="storage-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+          <span>499</span>
+        </div>
+        <div class="icon-btn" title="用户">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="8" r="4"/>
+            <path d="M20 21a8 8 0 0 0-16 0"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 主布局 -->
+    <div class="app-layout">
+      <!-- 侧边栏 -->
+      <div class="sidebar">
+        <div class="sidebar-nav">
+          <div class="sidebar-item active">
+            <div class="icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                <path d="M16 2v4M8 2v4M3 10h18"/>
+              </svg>
+            </div>
+            <span>今日笔记</span>
+          </div>
+          <div class="sidebar-item">
+            <div class="icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18"/>
+              </svg>
+            </div>
+            <span>超级标签</span>
+          </div>
+          <div class="sidebar-item">
+            <div class="icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
+            <span>历史笔记</span>
+          </div>
+          <div class="sidebar-item">
+            <div class="icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3z"/>
+              </svg>
+            </div>
+            <span>AI chats</span>
+          </div>
+        </div>
+        
+        <div class="new-note-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+          <span>新建笔记</span>
+        </div>
+        
+        <!-- 聚焦 -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-title">聚焦</div>
+          <div class="tag-item">
+            <div class="tag-icon green">#</div>
+            <span>Idea</span>
+          </div>
+          <div class="tag-item">
+            <div class="tag-icon purple">#</div>
+            <span>Question</span>
+          </div>
+          <div class="tag-item">
+            <div class="tag-icon purple">#</div>
+            <span>To discuss</span>
+          </div>
+          <div class="tag-item">
+            <div class="tag-icon yellow">#</div>
+            <span>Weekly reflection</span>
+          </div>
+          <div class="tag-item">
+            <div class="tag-icon blue">#</div>
+            <span>Meeting</span>
+          </div>
+          <div class="tag-item">
+            <div class="tag-icon yellow">#</div>
+            <span>Memo</span>
+          </div>
+        </div>
+        
+        <!-- 工作空间 -->
+        <div class="workspace-section">
+          <div class="workspace-user">
+            <div class="user-avatar"></div>
+            <div class="user-name">HAO WANG</div>
+          </div>
+          <div class="workspace-notebooks">
+            <div class="notebook-item">Daily notes</div>
+            <div class="notebook-item">个人旅行笔记</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 主内容区 -->
+      <div class="main-content">
+        <div class="content-card">
+          <div class="content-scroll">
+            <!-- 面包屑 -->
+            <div class="breadcrumb">
+              <div class="breadcrumb-left">
+                <div class="breadcrumb-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="m15 18-6-6 6-6"/>
+                  </svg>
+                </div>
+                <div class="breadcrumb-path">
+                  <div class="breadcrumb-avatar"></div>
+                  <span class="breadcrumb-sep">/</span>
+                  <span class="breadcrumb-link">Daily notes</span>
+                  <span class="breadcrumb-sep">/</span>
+                  <span class="breadcrumb-link">2026</span>
+                  <span class="breadcrumb-sep">/</span>
+                  <span class="breadcrumb-link">Week 11</span>
+                </div>
+              </div>
+              <div class="breadcrumb-btn" title="切换面板">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <path d="M15 3v18"/>
+                  <path d="m8 9 3 3-3 3"/>
+                </svg>
+              </div>
+            </div>
+            
+            <!-- 标题 -->
+            <h1 class="page-title">Today, Tue, 10 Mar</h1>
+            
+            <!-- 工具栏 -->
+            <div class="toolbar">
+              <div class="toolbar-group">
+                <div class="toolbar-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="m15 18-6-6 6-6"/>
+                  </svg>
+                </div>
+                <div class="toolbar-btn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="m9 18 6-6-6-6"/>
+                  </svg>
+                </div>
+                <div class="toolbar-divider"></div>
+                <div class="toolbar-text-btn">Today</div>
+                <div class="toolbar-calendar">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/>
+                    <path d="M16 2v4M8 2v4M3 10h18"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 大纲内容 -->
+            <div class="outline-container">
+              <div class="outline-node">
+                <div class="node-bullet"></div>
+                <div class="node-content bold">这是一条新笔记</div>
+              </div>
+              
+              <div class="outline-node">
+                <div class="node-bullet"></div>
+                <div class="node-content">
+                  和产品讨论了 Q2 OKR 规划
+                  <span class="node-tag pink">#Meeting</span>
+                </div>
+              </div>
+              
+              <div class="node-children">
+                <div class="outline-node">
+                  <div class="task-checkbox"></div>
+                  <div class="node-content">准备竞品分析材料</div>
+                </div>
+                <div class="outline-node">
+                  <div class="task-checkbox"></div>
+                  <div class="node-content">讨论新功能排期</div>
+                </div>
+                <div class="outline-node">
+                  <div class="task-checkbox checked"></div>
+                  <div class="node-content" style="text-decoration: line-through; color: #999;">修复上周遗留 Bug</div>
+                </div>
+              </div>
+              
+              <div class="outline-node" style="margin-top: 16px;">
+                <div class="node-bullet"></div>
+                <div class="node-content">
+                  想到一个有趣的产品想法
+                  <span class="node-tag green">#Idea</span>
+                </div>
+              </div>
+              
+              <div class="node-children">
+                <div class="outline-node">
+                  <div class="node-bullet"></div>
+                  <div class="node-content">用户可以通过语音快速记录想法</div>
+                </div>
+                <div class="outline-node">
+                  <div class="node-bullet"></div>
+                  <div class="node-content">AI 自动结构化和打标签</div>
+                </div>
+              </div>
+              
+              <div class="outline-node" style="margin-top: 16px;">
+                <div class="node-bullet"></div>
+                <div class="node-content">
+                  阅读了《思考快与慢》第三章
+                  <span class="node-tag blue">#Reading</span>
+                </div>
+              </div>
+              
+              <div class="outline-node" style="margin-top: 16px;">
+                <div class="node-bullet"></div>
+                <div class="node-content">
+                  关于技术架构的一些疑问
+                  <span class="node-tag purple">#Question</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 右侧任务面板 -->
+          <div class="right-panel">
+            <div class="tasks-widget">
+              <div class="tasks-header">
+                <div class="tasks-title">Open tasks</div>
+                <div class="tasks-add">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="task-item">
+                <div class="task-target">
+                  <div class="task-target-inner"></div>
+                </div>
+                <div class="task-checkbox"></div>
+                <div class="task-text">准备竞品分析材料</div>
+                <div class="task-tag">#</div>
+              </div>
+              <div class="task-item">
+                <div class="task-target">
+                  <div class="task-target-inner"></div>
+                </div>
+                <div class="task-checkbox"></div>
+                <div class="task-text">讨论新功能排期</div>
+                <div class="task-tag">#</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="description-panel">
+    <h3>💻 设计特点</h3>
+    <ul>
+      <li>浅色主题 #f9f9f9</li>
+      <li>圆角卡片 12px</li>
+      <li>节点式大纲结构</li>
+      <li>彩色标签系统</li>
+      <li>任务 checkbox</li>
+      <li>右侧 Open tasks 面板</li>
+    </ul>
+  </div>
+</body>
+</html>

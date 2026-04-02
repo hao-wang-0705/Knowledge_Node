@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>主动内联重塑 - Nexus AI</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      padding: 40px;
+      color: #e0e0e0;
+    }
+    
+    .back-link {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #667eea;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    
+    header h1 {
+      font-size: 36px;
+      color: white;
+      margin-bottom: 12px;
+    }
+    
+    header p {
+      color: #a0a0a0;
+      font-size: 16px;
+    }
+    
+    .demo-container {
+      background: #1e1e2e;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    
+    .toolbar {
+      background: #2a2a3e;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #3a3a4e;
+    }
+    
+    .toolbar-btn {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    
+    .toolbar-btn.red { background: #ff5f56; }
+    .toolbar-btn.yellow { background: #ffbd2e; }
+    .toolbar-btn.green { background: #27ca40; }
+    
+    .toolbar-title {
+      flex: 1;
+      text-align: center;
+      color: #888;
+      font-size: 13px;
+    }
+    
+    .editor-area {
+      padding: 32px;
+    }
+    
+    .node-original {
+      background: #2a2a3e;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    
+    .node-original .content {
+      font-size: 15px;
+      line-height: 1.8;
+      color: #d0d0d0;
+    }
+    
+    .hover-actions {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+    }
+    
+    .reshape-btn {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .reshape-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    .ghost-preview {
+      background: rgba(102, 126, 234, 0.1);
+      border: 2px dashed rgba(102, 126, 234, 0.5);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 16px;
+      animation: fadeIn 0.3s ease-out;
+    }
+    
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .ghost-preview .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(102, 126, 234, 0.3);
+    }
+    
+    .ghost-preview .header .badge {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+    }
+    
+    .ghost-preview .header .confidence {
+      font-size: 12px;
+      color: #888;
+    }
+    
+    .ghost-preview .summary {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e0e0e0;
+      margin-bottom: 16px;
+    }
+    
+    .ghost-preview .tree {
+      padding-left: 20px;
+    }
+    
+    .tree-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 10px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+    }
+    
+    .tree-item .icon {
+      font-size: 16px;
+    }
+    
+    .tree-item .text {
+      flex: 1;
+      font-size: 14px;
+      color: #c0c0c0;
+    }
+    
+    .tree-item .tag {
+      background: rgba(255,255,255,0.1);
+      padding: 2px 8px;
+      border-radius: 8px;
+      font-size: 11px;
+      color: #999;
+    }
+    
+    .tree-item .tag.task {
+      background: rgba(255, 152, 0, 0.2);
+      color: #ffb74d;
+    }
+    
+    .tree-item .tag.time {
+      background: rgba(76, 175, 80, 0.2);
+      color: #81c784;
+    }
+    
+    .ghost-preview .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .action-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .action-btn.cancel {
+      background: transparent;
+      border: 1px solid #555;
+      color: #999;
+    }
+    
+    .action-btn.cancel:hover {
+      border-color: #888;
+      color: #ccc;
+    }
+    
+    .action-btn.edit {
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: #ccc;
+    }
+    
+    .action-btn.edit:hover {
+      background: rgba(255,255,255,0.15);
+    }
+    
+    .action-btn.confirm {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border: none;
+      color: white;
+    }
+    
+    .action-btn.confirm:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    .flow-diagram {
+      margin-top: 48px;
+      background: #1e1e2e;
+      border-radius: 16px;
+      padding: 32px;
+    }
+    
+    .flow-diagram h3 {
+      font-size: 18px;
+      color: white;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    
+    .flow-steps {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .flow-step {
+      flex: 1;
+      text-align: center;
+      padding: 20px;
+    }
+    
+    .flow-step .icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+    }
+    
+    .flow-step .title {
+      font-size: 14px;
+      font-weight: 600;
+      color: white;
+      margin-bottom: 6px;
+    }
+    
+    .flow-step .desc {
+      font-size: 12px;
+      color: #888;
+    }
+    
+    .flow-arrow {
+      font-size: 24px;
+      color: #667eea;
+    }
+    
+    .description-panel {
+      position: fixed;
+      right: 40px;
+      top: 100px;
+      width: 280px;
+      background: #1e1e2e;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    
+    .description-panel h3 {
+      font-size: 16px;
+      color: white;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .description-panel ul {
+      list-style: none;
+      font-size: 14px;
+      color: #a0a0a0;
+      line-height: 2;
+    }
+    
+    .description-panel ul li::before {
+      content: '✓';
+      color: #667eea;
+      margin-right: 8px;
+    }
+    
+    @media (max-width: 1200px) {
+      .description-panel {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-link">← 返回导航</a>
+  
+  <div class="container">
+    <header>
+      <h1>✨ 主动内联重塑</h1>
+      <p>用户主动触发，幽灵预览 + 一键固化</p>
+    </header>
+    
+    <div class="demo-container">
+      <div class="toolbar">
+        <div class="toolbar-btn red"></div>
+        <div class="toolbar-btn yellow"></div>
+        <div class="toolbar-btn green"></div>
+        <span class="toolbar-title">Nexus - 工作日志</span>
+      </div>
+      
+      <div class="editor-area">
+        <div class="node-original">
+          <div class="content">今天下午和产品团队对齐 Q2 OKR，需要准备竞品分析材料，顺便讨论一下新功能的排期。明天上午要先把上周遗留的 Bug 修复完，然后给设计评审反馈。</div>
+          <div class="hover-actions">
+            <button class="reshape-btn">✨ 智能重塑</button>
+          </div>
+        </div>
+        
+        <div class="ghost-preview">
+          <div class="header">
+            <span class="badge">🌟 AI 生成预览</span>
+            <span class="confidence">置信度: 92%</span>
+          </div>
+          
+          <div class="summary">🌟 Q2 OKR 对齐与任务规划</div>
+          
+          <div class="tree">
+            <div class="tree-item">
+              <span class="icon">├──</span>
+              <span class="text">准备竞品分析材料</span>
+              <span class="tag task">#任务 待办</span>
+            </div>
+            <div class="tree-item">
+              <span class="icon">├──</span>
+              <span class="text">讨论新功能排期</span>
+              <span class="tag task">#任务 待办</span>
+            </div>
+            <div class="tree-item">
+              <span class="icon">├──</span>
+              <span class="text">修复上周遗留 Bug</span>
+              <span class="tag task">#任务 待办</span>
+            </div>
+            <div class="tree-item">
+              <span class="icon">├──</span>
+              <span class="text">给设计评审反馈</span>
+              <span class="tag task">#任务 待办</span>
+            </div>
+            <div class="tree-item">
+              <span class="icon">├──</span>
+              <span class="text">今天下午</span>
+              <span class="tag time">#时间</span>
+            </div>
+            <div class="tree-item">
+              <span class="icon">└──</span>
+              <span class="text">明天上午</span>
+              <span class="tag time">#时间</span>
+            </div>
+          </div>
+          
+          <div class="actions">
+            <button class="action-btn cancel">取消</button>
+            <button class="action-btn edit">✏️ 编辑预览</button>
+            <button class="action-btn confirm">✓ 确认固化</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="flow-diagram">
+      <h3>交互流程</h3>
+      <div class="flow-steps">
+        <div class="flow-step">
+          <div class="icon">📝</div>
+          <div class="title">Step 1: 触发</div>
+          <div class="desc">点击「智能重塑」按钮<br>或使用快捷键 Cmd+Shift+R</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="icon">👻</div>
+          <div class="title">Step 2: 预览</div>
+          <div class="desc">幽灵预览展示<br>半透明 + 虚线边框</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="icon">✅</div>
+          <div class="title">Step 3: 确认</div>
+          <div class="desc">确认固化 / 取消 / 编辑<br>用户完全掌控</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="description-panel">
+    <h3>✨ 主动内联重塑</h3>
+    <ul>
+      <li>用户主动触发</li>
+      <li>幽灵预览即时展示</li>
+      <li>可编辑预览内容</li>
+      <li>确认后才写入数据库</li>
+      <li>支持取消恢复原状</li>
+      <li>显示 AI 置信度</li>
+    </ul>
+  </div>
+</body>
+</html>

@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 指令 - Nexus Mobile</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 20px;
+    }
+    
+    .back-link {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #667eea;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .phone-frame {
+      width: 375px;
+      height: 812px;
+      background: white;
+      border-radius: 40px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .status-bar {
+      height: 44px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 24px;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      padding: 12px 20px 24px;
+      color: white;
+    }
+    
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    
+    .header p {
+      font-size: 14px;
+      opacity: 0.85;
+      margin-top: 4px;
+    }
+    
+    .main-content {
+      flex: 1;
+      background: #f8f9fa;
+      padding: 20px;
+      padding-bottom: 100px;
+      overflow-y: auto;
+      height: calc(100% - 150px);
+    }
+    
+    .quick-actions {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+    
+    .quick-action {
+      min-width: 100px;
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    
+    .quick-action:hover {
+      transform: translateY(-2px);
+    }
+    
+    .quick-action .icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+    
+    .quick-action .label {
+      font-size: 12px;
+      color: #666;
+    }
+    
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    
+    .section-header h3 {
+      font-size: 16px;
+      color: #333;
+    }
+    
+    .section-header a {
+      font-size: 14px;
+      color: #667eea;
+      text-decoration: none;
+    }
+    
+    .command-card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    
+    .command-card .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      background: transparent;
+      padding: 0;
+    }
+    
+    .command-card .header .title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .command-card .header .icon {
+      font-size: 20px;
+    }
+    
+    .command-card .header h4 {
+      font-size: 15px;
+      color: #333;
+    }
+    
+    .command-card .header .status {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 10px;
+    }
+    
+    .command-card .header .status.ready {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    
+    .command-card .header .status.running {
+      background: #fff3e0;
+      color: #ef6c00;
+    }
+    
+    .command-card .prompt {
+      font-size: 13px;
+      color: #666;
+      line-height: 1.5;
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    
+    .command-card .actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .command-card .meta {
+      font-size: 12px;
+      color: #999;
+    }
+    
+    .command-card .run-btn {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .template-section {
+      margin-top: 24px;
+    }
+    
+    .template-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    
+    .template-card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      border: 2px solid transparent;
+    }
+    
+    .template-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+      border-color: #667eea;
+    }
+    
+    .template-card .icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+    
+    .template-card h4 {
+      font-size: 14px;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    
+    .template-card p {
+      font-size: 12px;
+      color: #999;
+    }
+    
+    .fab-button {
+      position: absolute;
+      bottom: 100px;
+      right: 20px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      font-size: 24px;
+      box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .tab-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 83px;
+      background: white;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start;
+      padding-top: 12px;
+    }
+    
+    .tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: #999;
+      text-decoration: none;
+    }
+    
+    .tab-item.active {
+      color: #667eea;
+    }
+    
+    .tab-item .icon {
+      font-size: 24px;
+    }
+    
+    .description-panel {
+      position: fixed;
+      right: 20px;
+      top: 100px;
+      width: 280px;
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    
+    .description-panel h3 {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .description-panel ul {
+      list-style: none;
+      font-size: 14px;
+      color: #666;
+      line-height: 2;
+    }
+    
+    .description-panel ul li::before {
+      content: '✓';
+      color: #667eea;
+      margin-right: 8px;
+    }
+    
+    @media (max-width: 768px) {
+      .description-panel {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-link">← 返回导航</a>
+  
+  <div class="phone-frame">
+    <div class="status-bar">
+      <span class="time">9:41</span>
+      <div class="icons">📶 🔋</div>
+    </div>
+    
+    <div class="header">
+      <h1>🤖 AI 指令</h1>
+      <p>配置和管理你的 AI 助手</p>
+    </div>
+    
+    <div class="main-content">
+      <div class="quick-actions">
+        <div class="quick-action">
+          <div class="icon">📝</div>
+          <div class="label">内容总结</div>
+        </div>
+        <div class="quick-action">
+          <div class="icon">✅</div>
+          <div class="label">任务提取</div>
+        </div>
+        <div class="quick-action">
+          <div class="icon">📊</div>
+          <div class="label">周报生成</div>
+        </div>
+        <div class="quick-action">
+          <div class="icon">✨</div>
+          <div class="label">内容扩写</div>
+        </div>
+      </div>
+      
+      <div class="section-header">
+        <h3>我的指令</h3>
+        <a href="#">管理</a>
+      </div>
+      
+      <div class="command-card">
+        <div class="header">
+          <div class="title">
+            <span class="icon">📋</span>
+            <h4>本周任务总结</h4>
+          </div>
+          <span class="status ready">就绪</span>
+        </div>
+        <div class="prompt">请从本周的任务节点中提取所有已完成和待办事项，生成周报摘要</div>
+        <div class="actions">
+          <span class="meta">上次执行: 3 天前</span>
+          <button class="run-btn">▶️ 执行</button>
+        </div>
+      </div>
+      
+      <div class="command-card">
+        <div class="header">
+          <div class="title">
+            <span class="icon">💡</span>
+            <h4>会议纪要整理</h4>
+          </div>
+          <span class="status running">执行中</span>
+        </div>
+        <div class="prompt">将今日会议记录整理成结构化的纪要，提取决策和待办项</div>
+        <div class="actions">
+          <span class="meta">正在处理...</span>
+          <button class="run-btn" disabled style="opacity: 0.6">⏳ 处理中</button>
+        </div>
+      </div>
+      
+      <div class="template-section">
+        <div class="section-header">
+          <h3>预设模板</h3>
+        </div>
+        
+        <div class="template-grid">
+          <div class="template-card">
+            <div class="icon">📝</div>
+            <h4>内容总结</h4>
+            <p>提取关键要点</p>
+          </div>
+          <div class="template-card">
+            <div class="icon">✅</div>
+            <h4>任务提取</h4>
+            <p>识别待办事项</p>
+          </div>
+          <div class="template-card">
+            <div class="icon">📊</div>
+            <h4>周报生成</h4>
+            <p>自动汇总周报</p>
+          </div>
+          <div class="template-card">
+            <div class="icon">💬</div>
+            <h4>观点评价</h4>
+            <p>多角度分析</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <button class="fab-button">+</button>
+    
+    <div class="tab-bar">
+      <a href="mobile-flash-note.html" class="tab-item">
+        <span class="icon">📝</span>
+        <span>闪记</span>
+      </a>
+      <a href="mobile-daily-note.html" class="tab-item">
+        <span class="icon">📅</span>
+        <span>每日</span>
+      </a>
+      <a href="mobile-notebook.html" class="tab-item">
+        <span class="icon">📚</span>
+        <span>笔记本</span>
+      </a>
+      <a href="mobile-ai-command.html" class="tab-item active">
+        <span class="icon">🤖</span>
+        <span>AI 指令</span>
+      </a>
+    </div>
+  </div>
+  
+  <div class="description-panel">
+    <h3>🤖 AI 指令节点</h3>
+    <ul>
+      <li>查看所有指令节点</li>
+      <li>预设模板快速创建</li>
+      <li>一键触发执行</li>
+      <li>查看执行结果</li>
+      <li>编辑 Prompt 配置</li>
+      <li>结果自动同步各端</li>
+    </ul>
+  </div>
+</body>
+</html>

@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>捕获 - Nexus Mobile</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 20px;
+      gap: 40px;
+    }
+    
+    .back-link {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #667eea;
+      text-decoration: none;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .phone-frame {
+      width: 375px;
+      height: 812px;
+      background: white;
+      border-radius: 40px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+      overflow: hidden;
+      position: relative;
+      flex-shrink: 0;
+    }
+    
+    .status-bar {
+      height: 44px;
+      background: #667eea;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 24px;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .header {
+      background: #667eea;
+      padding: 12px 20px 24px;
+      color: white;
+    }
+    
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    
+    .header p {
+      font-size: 14px;
+      opacity: 0.85;
+      margin-top: 4px;
+    }
+    
+    .main-content {
+      flex: 1;
+      background: #f8f9fa;
+      padding: 20px;
+      padding-bottom: 100px;
+      overflow-y: auto;
+      height: calc(100% - 200px);
+    }
+    
+    .recent-section h3 {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 16px;
+    }
+    
+    .recent-item {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    
+    .recent-item .time {
+      font-size: 12px;
+      color: #999;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .recent-item .time .type {
+      background: #f0f0f0;
+      padding: 2px 8px;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+    
+    .recent-item .time .type.voice { background: #ffebee; color: #c62828; }
+    .recent-item .time .type.text { background: #e3f2fd; color: #1565c0; }
+    .recent-item .time .type.photo { background: #e8f5e9; color: #2e7d32; }
+    .recent-item .time .type.file { background: #fff3e0; color: #ef6c00; }
+    
+    .recent-item .content {
+      font-size: 14px;
+      color: #333;
+      line-height: 1.5;
+    }
+    
+    .recent-item .tags {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    
+    .recent-item .tag {
+      background: #f0f0f0;
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+      color: #666;
+    }
+    
+    .recent-item .tag.ai {
+      background: #f3e5f5;
+      color: #7b1fa2;
+    }
+    
+    .recent-item .tag.sync {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    
+    .empty-hint {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+    
+    .empty-hint .icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+    }
+    
+    .empty-hint p {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    
+    /* 底部导航栏 */
+    .tab-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 83px;
+      background: white;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start;
+      padding-top: 10px;
+    }
+    
+    .tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: #999;
+      text-decoration: none;
+      min-width: 60px;
+    }
+    
+    .tab-item.active {
+      color: #667eea;
+    }
+    
+    .tab-item .icon {
+      font-size: 24px;
+    }
+    
+    /* 捕获按钮特殊样式 */
+    .tab-item.capture-btn {
+      position: relative;
+    }
+    
+    .tab-item.capture-btn .icon-wrapper {
+      width: 50px;
+      height: 50px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: -20px;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+      animation: pulse-capture 2s infinite;
+      cursor: pointer;
+    }
+    
+    .tab-item.capture-btn .icon {
+      color: white;
+      font-size: 22px;
+    }
+    
+    .tab-item.capture-btn.active .icon-wrapper {
+      background: linear-gradient(135deg, #764ba2, #667eea);
+    }
+    
+    @keyframes pulse-capture {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+      }
+      50% {
+        transform: scale(1.05);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+      }
+    }
+    
+    /* 覆层菜单 */
+    .capture-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    
+    .capture-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    
+    .capture-menu {
+      background: white;
+      border-radius: 24px 24px 0 0;
+      padding: 24px 20px 40px;
+      transform: translateY(100%);
+      transition: transform 0.3s ease;
+    }
+    
+    .capture-overlay.show .capture-menu {
+      transform: translateY(0);
+    }
+    
+    .capture-menu-header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    
+    .capture-menu-header h3 {
+      font-size: 18px;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    
+    .capture-menu-header p {
+      font-size: 14px;
+      color: #999;
+    }
+    
+    .capture-options {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    
+    .capture-option {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 12px;
+      border-radius: 16px;
+      transition: background 0.2s;
+    }
+    
+    .capture-option:hover {
+      background: #f8f9fa;
+    }
+    
+    .capture-option .icon-circle {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+    
+    .capture-option.text .icon-circle {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+    }
+    
+    .capture-option.file .icon-circle {
+      background: linear-gradient(135deg, #f093fb, #f5576c);
+    }
+    
+    .capture-option.photo .icon-circle {
+      background: linear-gradient(135deg, #4ecdc4, #44a08d);
+    }
+    
+    .capture-option.voice .icon-circle {
+      background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+    }
+    
+    .capture-option .label {
+      font-size: 13px;
+      color: #333;
+      font-weight: 500;
+    }
+    
+    .cancel-btn {
+      width: 100%;
+      padding: 14px;
+      background: #f5f5f5;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      color: #666;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .cancel-btn:hover {
+      background: #eee;
+    }
+    
+    /* 第二个手机 - 文字输入状态 */
+    .text-input-view {
+      display: none;
+    }
+    
+    .text-input-view.show {
+      display: block;
+    }
+    
+    .input-area {
+      background: white;
+      margin: 20px;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    
+    .input-area textarea {
+      width: 100%;
+      min-height: 200px;
+      padding: 20px;
+      border: none;
+      font-size: 16px;
+      line-height: 1.6;
+      resize: none;
+      outline: none;
+    }
+    
+    .input-area textarea::placeholder {
+      color: #aaa;
+    }
+    
+    .input-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-top: 1px solid #f0f0f0;
+    }
+    
+    .char-count {
+      font-size: 12px;
+      color: #999;
+    }
+    
+    .send-btn {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .quick-tags {
+      margin: 0 20px;
+    }
+    
+    .quick-tags h4 {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+    
+    .quick-tags .tags {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    
+    .quick-tags .tag-btn {
+      padding: 8px 14px;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 16px;
+      font-size: 13px;
+      color: #666;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .quick-tags .tag-btn:hover {
+      border-color: #667eea;
+      color: #667eea;
+    }
+    
+    .quick-tags .tag-btn.selected {
+      background: #667eea;
+      border-color: #667eea;
+      color: white;
+    }
+    
+    .description-panel {
+      position: fixed;
+      right: 20px;
+      top: 100px;
+      width: 320px;
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    
+    .description-panel h3 {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .description-panel ul {
+      list-style: none;
+      font-size: 14px;
+      color: #666;
+      line-height: 2;
+    }
+    
+    .description-panel ul li::before {
+      content: '✓';
+      color: #667eea;
+      margin-right: 8px;
+    }
+    
+    .description-panel .divider {
+      height: 1px;
+      background: #f0f0f0;
+      margin: 16px 0;
+    }
+    
+    .capture-type-table {
+      width: 100%;
+      font-size: 13px;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    
+    .capture-type-table th,
+    .capture-type-table td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .capture-type-table th {
+      color: #999;
+      font-weight: 500;
+    }
+    
+    .animation-note {
+      margin-top: 16px;
+      padding: 12px;
+      background: linear-gradient(135deg, rgba(102,126,234,0.1), rgba(118,75,162,0.1));
+      border-radius: 8px;
+      font-size: 12px;
+      color: #667eea;
+    }
+    
+    @media (max-width: 1200px) {
+      .description-panel {
+        display: none;
+      }
+      body {
+        flex-direction: column;
+        align-items: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="index.html" class="back-link">← 返回导航</a>
+  
+  <!-- 手机 1: 覆层菜单展示 -->
+  <div class="phone-frame">
+    <div class="status-bar">
+      <span class="time">9:41</span>
+      <div class="icons">📶 🔋</div>
+    </div>
+    
+    <div class="header">
+      <h1>➕ 捕获</h1>
+      <p>多模态快速录入</p>
+    </div>
+    
+    <div class="main-content">
+      <div class="recent-section">
+        <h3>最近捕获</h3>
+        
+        <div class="recent-item">
+          <div class="time">
+            今天 08:45
+            <span class="type voice">🎤 语音</span>
+          </div>
+          <div class="content">今天下午和产品团队对齐 Q2 OKR，需要准备竞品分析材料</div>
+          <div class="tags">
+            <span class="tag ai">✨ 已结构化</span>
+            <span class="tag sync">☁️ 已同步</span>
+          </div>
+        </div>
+        
+        <div class="recent-item">
+          <div class="time">
+            昨天 22:30
+            <span class="type text">✏️ 文字</span>
+          </div>
+          <div class="content">读完《思考，快与慢》第三章，关于锚定效应的描述很有启发...</div>
+          <div class="tags">
+            <span class="tag sync">☁️ 已同步</span>
+          </div>
+        </div>
+        
+        <div class="recent-item">
+          <div class="time">
+            昨天 14:20
+            <span class="type photo">📷 拍照</span>
+          </div>
+          <div class="content">会议白板拍照 - OCR 已提取 156 字</div>
+          <div class="tags">
+            <span class="tag ai">✨ 已结构化</span>
+            <span class="tag sync">☁️ 已同步</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <a href="mobile-notes.html" class="tab-item">
+        <span class="icon">📓</span>
+        <span>笔记</span>
+      </a>
+      <a href="#" class="tab-item capture-btn active" id="capture-trigger">
+        <div class="icon-wrapper">
+          <span class="icon">➕</span>
+        </div>
+        <span>捕获</span>
+      </a>
+      <a href="mobile-search.html" class="tab-item">
+        <span class="icon">🔍</span>
+        <span>搜索</span>
+      </a>
+    </div>
+    
+    <!-- 覆层菜单 -->
+    <div class="capture-overlay show" id="capture-overlay">
+      <div class="capture-menu">
+        <div class="capture-menu-header">
+          <h3>选择捕获类型</h3>
+          <p>选择内容输入方式</p>
+        </div>
+        
+        <div class="capture-options">
+          <div class="capture-option text">
+            <div class="icon-circle">✏️</div>
+            <span class="label">文字</span>
+          </div>
+          <div class="capture-option file">
+            <div class="icon-circle">📁</div>
+            <span class="label">文件</span>
+          </div>
+          <div class="capture-option photo">
+            <div class="icon-circle">📷</div>
+            <span class="label">拍照</span>
+          </div>
+          <div class="capture-option voice">
+            <div class="icon-circle">🎤</div>
+            <span class="label">语音</span>
+          </div>
+        </div>
+        
+        <button class="cancel-btn" id="cancel-btn">取消</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 手机 2: 文字输入状态 -->
+  <div class="phone-frame">
+    <div class="status-bar">
+      <span class="time">9:42</span>
+      <div class="icons">📶 🔋</div>
+    </div>
+    
+    <div class="header">
+      <h1>✏️ 文字捕获</h1>
+      <p>快速记录你的想法</p>
+    </div>
+    
+    <div class="main-content" style="padding-bottom: 180px;">
+      <div class="input-area">
+        <textarea placeholder="写下你的想法...&#10;&#10;支持 Markdown 格式">明天下午 3 点和设计师对一下新版首页的设计稿，重点关注：
+
+1. 导航栏的交互动效
+2. 卡片布局的间距
+3. 响应式适配方案
+
+#任务 #设计评审</textarea>
+        <div class="input-toolbar">
+          <span class="char-count">已输入 89 字</span>
+          <button class="send-btn">
+            保存 ✈️
+          </button>
+        </div>
+      </div>
+      
+      <div class="quick-tags">
+        <h4>快捷标签</h4>
+        <div class="tags">
+          <button class="tag-btn selected">#任务</button>
+          <button class="tag-btn">#笔记</button>
+          <button class="tag-btn">#想法</button>
+          <button class="tag-btn">#会议</button>
+          <button class="tag-btn">#读书</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="tab-bar">
+      <a href="mobile-notes.html" class="tab-item">
+        <span class="icon">📓</span>
+        <span>笔记</span>
+      </a>
+      <a href="mobile-capture.html" class="tab-item capture-btn active">
+        <div class="icon-wrapper">
+          <span class="icon">➕</span>
+        </div>
+        <span>捕获</span>
+      </a>
+      <a href="mobile-search.html" class="tab-item">
+        <span class="icon">🔍</span>
+        <span>搜索</span>
+      </a>
+    </div>
+  </div>
+  
+  <div class="description-panel">
+    <h3>➕ 捕获功能设计</h3>
+    <ul>
+      <li>动态 Icon：脉冲动画吸引注意力</li>
+      <li>点击展开覆层菜单</li>
+      <li>四种捕获类型一目了然</li>
+      <li>菜单从底部滑入 (300ms)</li>
+      <li>点击遮罩或取消关闭</li>
+    </ul>
+    
+    <div class="divider"></div>
+    
+    <h3>📋 捕获类型详解</h3>
+    <table class="capture-type-table">
+      <tr>
+        <th>类型</th>
+        <th>说明</th>
+      </tr>
+      <tr>
+        <td>✏️ 文字</td>
+        <td>快速文本输入</td>
+      </tr>
+      <tr>
+        <td>📁 文件</td>
+        <td>上传本地文件</td>
+      </tr>
+      <tr>
+        <td>📷 拍照</td>
+        <td>相机拍照 + OCR</td>
+      </tr>
+      <tr>
+        <td>🎤 语音</td>
+        <td>长按录音转文字</td>
+      </tr>
+    </table>
+    
+    <div class="animation-note">
+      <strong>💡 动画规格：</strong><br>
+      菜单弹出：300ms ease-out<br>
+      关闭动画：200ms ease-in<br>
+      Icon 脉冲：2s infinite
+    </div>
+  </div>
+  
+  <script>
+    const captureOverlay = document.getElementById('capture-overlay');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const captureTrigger = document.getElementById('capture-trigger');
+    
+    // 默认展示覆层
+    // 取消按钮点击
+    cancelBtn.addEventListener('click', () => {
+      captureOverlay.classList.remove('show');
+    });
+    
+    // 点击遮罩关闭
+    captureOverlay.addEventListener('click', (e) => {
+      if (e.target === captureOverlay) {
+        captureOverlay.classList.remove('show');
+      }
+    });
+    
+    // 捕获按钮点击
+    captureTrigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      captureOverlay.classList.add('show');
+    });
+  </script>
+</body>
+</html>
